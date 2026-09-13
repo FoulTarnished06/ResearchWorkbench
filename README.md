@@ -133,14 +133,5 @@ python scratch/test_tone_and_takeaways.py
 python scratch/test_v3_strict_and_demo.py
 ```
 
----
-
-## Project Documentation & Exhibition Report
-For the complete technical breakdown including UML diagrams, ER schemas, design rationale, and benchmarks, view:
-- **PDF Report:** [`PROJECT_REPORT_AI_RESEARCH_WORKBENCH.pdf`](PROJECT_REPORT_AI_RESEARCH_WORKBENCH.pdf)
-- **Markdown Report:** [`PROJECT_REPORT.md`](PROJECT_REPORT.md)
-
----
-
 ## License
 Distributed under the MIT License. See `LICENSE` for more information.
