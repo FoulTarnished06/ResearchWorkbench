@@ -1,0 +1,46 @@
+# Python byte-code and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables & API credentials (NEVER commit keys to GitHub)
+.env
+.env.*
+!.env.example
+*.key
+
+# Local SQLite databases & runtime cache
+backend/cache.db
+*.sqlite3
+*.db-journal
+
+# User-uploaded PDF files & extracted figures (keep folder structure clean)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# IDE and Editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary test logs and caches
+*.log
+scratch/
+scratch_*/
+.pytest_cache/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

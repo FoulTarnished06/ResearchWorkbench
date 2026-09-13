@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Research Workbench | Academic Synthesis & Fact-Checking Workstation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="dark-theme">
+  <!-- Ambient background glow mesh -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+  <div class="ambient-glow glow-3"></div>
+
+  <!-- Settings Drawer Scrim / Backdrop -->
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+  <!-- RECREATED SLEEK SETTINGS & MODEL CONFIGURATION DRAWER (Positioned at root body level so it sits above backdrop) -->
+  <aside class="settings-drawer" id="settings-drawer" aria-hidden="true">
+    <div class="drawer-header">
+      <div class="drawer-title-group">
+        <div class="drawer-header-badge">Workbench Configuration</div>
+        <h3>System Settings & AI Engines</h3>
+        <p class="text-subtle">Configure multi-agent parameters, models, and cache storage</p>
+      </div>
+      <button class="btn-close-drawer" id="btn-close-drawer" title="Close Settings">&times;</button>
+    </div>
+
+    <!-- Settings Navigation Tabs -->
+    <div class="drawer-tabs">
+      <button class="drawer-tab-btn active" data-tab="models">🤖 Models & AI</button>
+      <button class="drawer-tab-btn" data-tab="pipeline">⚙️ Pipeline & Scraping</button>
+      <button class="drawer-tab-btn" data-tab="cache">💾 SQLite Cache</button>
+      <button class="drawer-tab-btn" data-tab="documents">📄 PDF Documents</button>
+    </div>
+
+    <div class="drawer-content">
+      <!-- TAB 1: MODELS & AI CONFIGURATION -->
+      <div class="drawer-tab-pane active" id="tab-pane-models">
+        <!-- Showcase Demo Mode Toggle -->
+        <div class="config-card demo-mode-card">
+          <div class="config-row-flex">
+            <div>
+              <span class="config-label-bold">Showcase Demo Mode</span>
+              <p class="config-help">Simulate realistic peer-reviewed results with zero API credits</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-demo-mode" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+          <div class="demo-mode-status-note" id="demo-mode-status-note">
+            <span class="status-indicator-mini"></span>
+            <span id="demo-mode-status-text">Simulated execution active (0 tokens consumed from provider)</span>
+          </div>
+        </div>
+
+        <!-- Strict Live AI Mode Toggles -->
+        <div class="config-card">
+          <div class="config-label-bold">Strict Live AI Mode (Disable Offline Fallbacks)</div>
+          <p class="config-help" style="margin-bottom: 12px;">Never fallback to synthetic answers. If live API fails, display exact error and recover partial data.</p>
+          
+          <div class="config-row-flex" style="margin-bottom: 8px;">
+            <div class="agent-role-desc" style="color: var(--text-main);">Agent 2: The Drafter</div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-disable-fallback-agent2">
+              <span class="slider round"></span>
+            </label>
+          </div>
+          
+          <div class="config-row-flex">
+            <div class="agent-role-desc" style="color: var(--text-main);">Agent 4: Fact-Checker</div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-disable-fallback-agent4">
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Agent 2 Config: The Drafter -->
+        <div class="config-card">
+          <div class="card-header-flex">
+            <div>
+              <div class="agent-badge-pill">Agent 2: The Drafter</div>
+              <div class="agent-role-desc">Synthesizes literature & embeds &lt;claim&gt; tags</div>
+            </div>
+            <span class="llm-call-chip">LLM Call 1 of 2</span>
+          </div>
+          <div class="form-group">
+            <label>Drafting Model Provider</label>
+            <select id="cfg-agent2-model" class="custom-select">
+              <option value="gemini-3.5-flash" selected>Gemini 3.5 Flash (Recommended)</option>
+              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5</option>
+              <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+              <option value="gpt-5">OpenAI GPT-5</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Agent 4 Config: Fact-Checker & Synthesizer -->
+        <div class="config-card">
+          <div class="card-header-flex">
+            <div>
+              <div class="agent-badge-pill">Agent 4: Fact-Checker & Synthesizer</div>
+              <div class="agent-role-desc">Cross-examines claims and confidence scores</div>
+            </div>
+            <span class="llm-call-chip">LLM Call 2 of 2</span>
+          </div>
+          <div class="form-group">
+            <label>Fact-Checker Model</label>
+            <select id="cfg-agent4-model" class="custom-select">
+              <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (High Precision)</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+              <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5</option>
+              <option value="gpt-5">OpenAI GPT-5</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Fact-Checking Verification Level</label>
+            <select id="cfg-factcheck-strictness" class="custom-select">
+              <option value="strict" selected>Academic Peer-Review Standard (90%+ Confidence)</option>
+              <option value="balanced">Balanced Empirical Corroboration</option>
+              <option value="lenient">Exploratory Hypothesis Mode</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- API Credentials / Keys Card -->
+        <div class="config-card">
+          <div class="config-label-bold">API Credentials (Optional for Live Mode)</div>
+          <p class="config-help">Stored locally in browser memory for live API execution fallback</p>
+          <div class="form-group">
+            <label>Google Gemini API Key</label>
+            <input type="password" id="cfg-gemini-key" class="custom-input" placeholder="AIzaSy... (Leave blank for demo)">
+          </div>
+          <div class="form-group">
+            <label>Anthropic Claude API Key</label>
+            <input type="password" id="cfg-anthropic-key" class="custom-input" placeholder="sk-ant-... (Leave blank for demo)">
+          </div>
+          <div class="form-group">
+            <label>SerpAPI Web Search API Key</label>
+            <input type="password" id="cfg-serpapi-key" class="custom-input" placeholder="Enter SerpAPI key for live Google web search">
+          </div>
+          <button class="btn-secondary btn-sm" id="btn-save-keys" style="margin-top: 10px; width: 100%; justify-content: center;">
+            Save API Keys Locally
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 2: PIPELINE & SCRAPING SETTINGS -->
+      <div class="drawer-tab-pane" id="tab-pane-pipeline">
+        <!-- Agent 1 Config: Academic Scraper -->
+        <div class="config-card">
+          <div class="card-header-flex">
+            <div>
+              <div class="agent-badge-pill">Agent 1: Academic Scraper</div>
+              <div class="agent-role-desc">Pings open-access repositories via HTTP</div>
+            </div>
+            <span class="zero-token-chip">0 Tokens (Deterministic)</span>
+          </div>
+          <div class="form-group">
+            <label>Literature Database Sources</label>
+            <select id="cfg-agent1-source" class="custom-select">
+              <option value="all" selected>All Repositories (.gov, .edu, SerpAPI, Semantic Scholar, arXiv)</option>
+              <option value="papers">Peer-Reviewed Journals Only (Semantic Scholar + arXiv)</option>
+              <option value="serpapi">Live Web Search Only (SerpAPI Google Search)</option>
+              <option value="gov">Government Repositories Only (.gov - PubMed / NIH)</option>
+              <option value="edu">Academic & University Repositories (.edu - OpenAlex)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Open-Access Papers to Scrape</label>
+            <input type="range" id="cfg-paper-limit" min="3" max="8" value="5" class="range-slider">
+            <div class="range-values"><span>3</span><span id="val-paper-limit">5 papers</span><span>8</span></div>
+          </div>
+        </div>
+
+        <!-- Agent 3 Config: SQLite Context Cacher & Pre-Filter -->
+        <div class="config-card">
+          <div class="card-header-flex">
+            <div>
+              <div class="agent-badge-pill">Agent 3: Context Cacher & Pre-Filter</div>
+              <div class="agent-role-desc">Deterministic cosine semantic matcher</div>
+            </div>
+            <span class="zero-token-chip">0 Tokens (Local SQLite)</span>
+          </div>
+          <div class="form-group">
+            <label>Local Research Evidence Database</label>
+            <input type="text" class="custom-input disabled" value="backend/cache.db (SQLite3)" readonly>
+          </div>
+          <div class="form-group">
+            <label>Semantic Cosine Similarity Auto-Verify Threshold</label>
+            <input type="range" id="cfg-similarity-thresh" min="0.70" max="0.95" step="0.02" value="0.80" class="range-slider">
+            <div class="range-values"><span>0.70 (Broad)</span><span id="val-similarity-thresh">0.80 (Auto-Verify)</span><span>0.95 (Exact Match)</span></div>
+          </div>
+          <p class="config-help">Claims with similarity ≥ threshold are verified directly in SQLite without consuming LLM Call 2 tokens.</p>
+        </div>
+      </div>
+
+      <!-- TAB 3: SQLITE CACHE & DATA MANAGEMENT -->
+      <div class="drawer-tab-pane" id="tab-pane-cache">
+        <div class="config-card">
+          <div class="config-label-bold">SQLite Evidence Storage (cache.db)</div>
+          <p class="config-help">Local storage stores scraped abstracts, sentence vectors, and past research runs.</p>
+          <div class="cache-stats-grid">
+            <div class="cache-stat-box">
+              <span class="stat-num" id="stat-papers-count">--</span>
+              <span class="stat-lbl">Cached Papers</span>
+            </div>
+            <div class="cache-stat-box">
+              <span class="stat-num" id="stat-sentences-count">--</span>
+              <span class="stat-lbl">Context Sentences</span>
+            </div>
+            <div class="cache-stat-box">
+              <span class="stat-num" id="stat-runs-count">--</span>
+              <span class="stat-lbl">Pipeline Runs</span>
+            </div>
+          </div>
+          <div class="cache-btn-group">
+            <button class="btn-secondary" id="btn-view-sqlite-modal" style="width: 100%; justify-content: center;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+              </svg>
+              <span>Inspect Cache Database</span>
+            </button>
+            <button class="btn-danger" id="btn-clear-cache-data" style="width: 100%; justify-content: center; margin-top: 8px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              <span>Clear Local SQLite Cache</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="config-card">
+          <div class="config-label-bold">Factory Reset</div>
+          <p class="config-help">Reset all models, sliders, and parameters to default academic settings.</p>
+          <button class="btn-secondary" id="btn-reset-defaults" style="width: 100%; justify-content: center; margin-top: 10px;">
+            Reset to Factory Defaults
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 4: PDF DOCUMENTS CONFIGURATION -->
+      <div class="drawer-tab-pane" id="tab-pane-documents">
+        <div class="config-card">
+          <div class="config-label-bold">Chunk Window Size</div>
+          <p class="config-help">Target token length for each extracted document segment</p>
+          <div class="slider-row">
+            <input type="range" id="cfg-chunk-size" min="200" max="1000" step="50" value="500">
+            <span class="mono slider-val" id="cfg-chunk-size-val">500</span>
+          </div>
+        </div>
+
+        <div class="config-card">
+          <div class="config-label-bold">Chunk Overlap</div>
+          <p class="config-help">Context overlap between consecutive chunks to prevent boundary splits</p>
+          <div class="slider-row">
+            <input type="range" id="cfg-chunk-overlap" min="0" max="150" step="10" value="50">
+            <span class="mono slider-val" id="cfg-chunk-overlap-val">50</span>
+          </div>
+        </div>
+
+        <div class="config-card">
+          <div class="config-row-flex">
+            <div>
+              <span class="config-label-bold">Extract Embedded Figures</span>
+              <p class="config-help">Extract images and diagrams with captions for visual grounding</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-extract-figures" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="config-card">
+          <div class="config-row-flex">
+            <div>
+              <span class="config-label-bold">Resolve Online Citation Graph</span>
+              <p class="config-help">Query Semantic Scholar and OpenAlex for parsed references</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cfg-resolve-citations" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="config-card">
+          <div class="config-label-bold">Document Library Storage</div>
+          <p class="config-help">Manage stored PDF files and extracted chunk embeddings</p>
+          <button class="btn-danger" id="btn-clear-pdf-library" style="width: 100%; justify-content: center; margin-top: 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>Delete All Stored PDF Sessions</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="app-layout">
+    <!-- LEFT ICON DOCK -->
+    <aside class="icon-dock">
+      <div class="dock-top">
+        <button class="dock-logo-btn" id="dock-home-btn" title="AI Research Workbench">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="dock-nav">
+        <button class="dock-item active" id="nav-about" title="About & Academic Overview">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <span class="dock-tooltip">Overview & Guide</span>
+        </button>
+
+        <button class="dock-item" id="nav-canvas" title="Interactive Research Canvas">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          <span class="dock-tooltip">Pipeline Canvas</span>
+        </button>
+
+        <button class="dock-item" id="nav-dossier" title="Academic Research Dossier">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          <span class="dock-tooltip">Synthesis Dossier</span>
+        </button>
+
+        <button class="dock-item" id="nav-documents" title="PDF Document Analysis">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          <span class="dock-tooltip">PDF Analysis</span>
+        </button>
+
+        <!-- Model Settings Button in Dock (Workbench only) -->
+        <button class="dock-item workbench-only-item" id="nav-settings" title="Model & Agent Configuration">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span class="dock-tooltip">Agent & Model Config</span>
+        </button>
+
+        <button class="dock-item workbench-only-item" id="nav-database" title="SQLite Evidence Cache (cache.db)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+          </svg>
+          <span class="dock-tooltip">SQLite Cache (cache.db)</span>
+        </button>
+      </nav>
+
+      <div class="dock-bottom">
+        <div class="avatar-badge" title="Researcher Workspace Active">
+          <div class="avatar-circle">
+            <span>RS</span>
+          </div>
+          <span class="status-indicator online"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN VIEWPORT -->
+    <main class="main-viewport">
+      <!-- TOP TELEMETRY BAR -->
+      <header class="telemetry-bar">
+        <div class="telemetry-left">
+          <div class="telemetry-badge project-pill">
+            <span class="pill-dot"></span>
+            <span class="pill-title">AI Research Workbench</span>
+            <span class="pill-version">v3.0</span>
+          </div>
+          <div class="telemetry-pill-compact" id="tele-compact-pill" title="Execution Telemetry">
+            <span class="tele-item-part"><span class="tele-icon">⏱</span> <span class="mono" id="tele-elapsed">0.0s</span></span>
+            <span class="tele-sep">·</span>
+            <span class="tele-item-part"><span class="tele-icon">⚡</span> <span class="mono" id="tele-tokens">0 tokens</span></span>
+          </div>
+        </div>
+
+        <div class="telemetry-center">
+          <div class="view-switch-pills">
+            <button class="switch-pill active" data-view="about">Overview</button>
+            <button class="switch-pill" data-view="canvas">Pipeline Canvas</button>
+            <button class="switch-pill" data-view="dossier">Research Dossier</button>
+            <button class="switch-pill" data-view="documents">Document Analysis</button>
+          </div>
+        </div>
+
+        <div class="telemetry-right">
+          <!-- Theme Toggle (Midnight Obsidian / Aesthetic Warm Beige) -->
+          <button class="btn-secondary theme-toggle-btn" id="btn-toggle-theme" title="Toggle Theme (Midnight Obsidian / Aesthetic Warm Beige)">
+            <span class="theme-icon" id="theme-icon">☀️</span>
+            <span class="theme-text" id="theme-text">Warm Beige</span>
+          </button>
+
+          <!-- Model Settings Toggle: HIDDEN on About page, only visible in Workbench -->
+          <button class="btn-secondary workbench-only-btn" id="btn-toggle-drawer" title="Configure AI Models & Thresholds">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Model Settings</span>
+          </button>
+          
+          <div class="status-pill" id="tele-status-pill">
+            <span class="pulse-indicator status-green" id="tele-status-dot"></span>
+            <span class="status-text" id="tele-status-text">Ready</span>
+          </div>
+          <!-- Abort Pipeline Button (visible during execution) -->
+          <button class="btn-abort" id="btn-abort-pipeline" title="Abort Running Pipeline" style="display: none;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+            </svg>
+            <span>Abort</span>
+          </button>
+          <div class="demo-tag" id="demo-indicator-tag">Demo Mode</div>
+        </div>
+      </header>
+
+      <!-- VIEW 1: ABOUT & ACADEMIC OVERVIEW PAGE (No toggle options button) -->
+      <section class="view-section active" id="view-about">
+        <div class="about-hero-container">
+          <div class="hero-badge">
+            <span class="sparkle-icon">✦</span>
+            <span>Academic Synthesis & Fact-Checking Framework</span>
+          </div>
+          <h1 class="hero-title">
+            Multi-Agent Autonomous Research Agent with Integrated Fact-Checking for Enhanced Information Synthesis
+          </h1>
+          <p class="hero-subtitle">
+            A research workstation engineered for scholars, researchers, and scientific investigators. By strictly bounding AI reasoning to a 2-call LLM budget and enforcing local SQLite semantic verification against peer-reviewed literature, this system guarantees verifiable, hallucination-free research summaries.
+          </p>
+
+          <div class="hero-actions">
+            <button class="btn-primary glow-button" id="btn-launch-workbench">
+              <span>Open Research Workbench</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+            <button class="btn-ghost" id="btn-view-pipeline-demo">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polygon points="10 8 16 12 10 16 10 8"></polygon>
+              </svg>
+              <span>Explore Interactive Pipeline</span>
+            </button>
+          </div>
+
+          <!-- Dynamic Interactive Flowchart -->
+          <div class="about-flowchart-card">
+            <div class="flowchart-header">
+              <span class="flow-tag">Sequential 4-Step Academic Workflow</span>
+              <span class="flow-budget">Strict 2-LLM Call Cap</span>
+            </div>
+
+            <div class="flowchart-grid">
+              <div class="flow-node-item" data-step="1">
+                <div class="flow-node-number">01</div>
+                <div class="flow-node-content">
+                  <div class="flow-title-row">
+                    <h4>Agent 1: Scraper</h4>
+                    <span class="zero-token-chip">0 Tokens</span>
+                  </div>
+                  <p>Retrieves open-access papers from Semantic Scholar and ArXiv. Extracts info-dense sentences via term frequency.</p>
+                  <div class="node-meta-tag">Automated Tool 1</div>
+                </div>
+              </div>
+
+              <div class="flow-arrow">➔</div>
+
+              <div class="flow-node-item" data-step="2">
+                <div class="flow-node-number">02</div>
+                <div class="flow-node-content">
+                  <div class="flow-title-row">
+                    <h4>Agent 2: Drafter</h4>
+                    <span class="llm-call-chip">LLM Call 1</span>
+                  </div>
+                  <p>Synthesizes comprehensive answers and tags all empirical claims with <code>&lt;claim&gt;</code> markers.</p>
+                  <div class="node-meta-tag">Gemini 3.5 / Claude Sonnet 5</div>
+                </div>
+              </div>
+
+              <div class="flow-arrow">➔</div>
+
+              <div class="flow-node-item" data-step="3">
+                <div class="flow-node-number">03</div>
+                <div class="flow-node-content">
+                  <div class="flow-title-row">
+                    <h4>Agent 3: Cacher</h4>
+                    <span class="zero-token-chip">0 Tokens</span>
+                  </div>
+                  <p>Dumps context to SQLite. Cosine similarity auto-verifies claims (&ge; 0.80) without calling an LLM.</p>
+                  <div class="node-meta-tag">Automated Tool 2</div>
+                </div>
+              </div>
+
+              <div class="flow-arrow">➔</div>
+
+              <div class="flow-node-item" data-step="4">
+                <div class="flow-node-number">04</div>
+                <div class="flow-node-content">
+                  <div class="flow-title-row">
+                    <h4>Agent 4: Fact-Checker</h4>
+                    <span class="llm-call-chip">LLM Call 2</span>
+                  </div>
+                  <p>Checks only unverified claims, assigns confidence scores, and formats the research dossier and citations.</p>
+                  <div class="node-meta-tag">Gemini 3.6 / Claude Haiku 4.5</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Academic Tool Capabilities -->
+          <div class="about-features-grid">
+            <div class="feature-card">
+              <div class="feature-icon">📚</div>
+              <h3>Empirical Literature Grounding</h3>
+              <p>Every factual statement in your research synthesis is backed by peer-reviewed papers indexed with DOI and ArXiv identifiers.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🎯</div>
+              <h3>Zero Hallucinations</h3>
+              <p>Agent 3's SQLite cosine pre-filter eliminates fabricated citations by cross-referencing verbatim abstract sentences.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">📝</div>
+              <h3>Instant Citation Export</h3>
+              <p>Easily copy synthesis findings, inspect full bibliography entries, or export BibTeX citations directly into your reference manager.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2: SPATIAL AGENT CANVAS -->
+      <section class="view-section" id="view-canvas">
+        <div class="partial-error-banner hidden" id="canvas-error-banner" style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100; width: 80%; max-width: 800px;">
+          <div class="error-banner-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            Live API Execution Interrupted
+          </div>
+          <div class="error-banner-text" id="canvas-error-text">An API error occurred. Strict Mode is enabled, preventing fallback. However, data retrieved up to this point has been preserved.</div>
+        </div>
+        <div class="canvas-wrapper" id="canvas-wrapper">
+          <canvas id="bg-grid-canvas"></canvas>
+
+          <svg class="canvas-svg-layer" id="canvas-svg-layer">
+            <defs>
+              <linearGradient id="curveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.8"/>
+                <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.8"/>
+              </linearGradient>
+            </defs>
+            <path id="path-1-2" class="bezier-path" />
+            <path id="path-2-3" class="bezier-path" />
+            <path id="path-3-4" class="bezier-path" />
+            <circle id="pulse-1" class="electric-pulse" r="5" />
+            <circle id="pulse-2" class="electric-pulse" r="5" />
+            <circle id="pulse-3" class="electric-pulse" r="5" />
+          </svg>
+
+          <!-- 4 Node Cards -->
+          <div class="agent-nodes-container" id="agent-nodes-container">
+            <!-- Node 1 -->
+            <div class="glass-node-card" id="node-agent1" data-node="1">
+              <div class="card-inner-glow"></div>
+              <div class="node-header">
+                <div class="node-icon-box">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                </div>
+                <div class="node-title-group">
+                  <div class="node-name">Agent 1: Academic Scraper</div>
+                  <div class="node-sub">Semantic Scholar & ArXiv API</div>
+                </div>
+                <div class="node-badge badge-idle" id="badge-agent1">Awaiting</div>
+              </div>
+
+              <div class="node-body">
+                <div class="node-checklist">
+                  <div class="check-item" id="chk-agent1-query">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text">Querying Open Access Repositories</span>
+                  </div>
+                  <div class="check-item" id="chk-agent1-filter">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text">Filtering info-dense sentences</span>
+                  </div>
+                </div>
+
+                <div class="node-metrics-table">
+                  <div class="metric-row">
+                    <span class="m-label">Scraped Papers:</span>
+                    <span class="m-val mono" id="m-agent1-papers">0</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Token Usage:</span>
+                    <span class="m-val mono text-green">0 tokens (Zero LLM)</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Tool Method:</span>
+                    <span class="m-val text-blue">httpx + Term Frequency</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="node-progress-bar">
+                <div class="progress-fill" id="prog-agent1" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Node 2 -->
+            <div class="glass-node-card" id="node-agent2" data-node="2">
+              <div class="card-inner-glow"></div>
+              <div class="node-header">
+                <div class="node-icon-box">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                  </svg>
+                </div>
+                <div class="node-title-group">
+                  <div class="node-name">Agent 2: The Drafter</div>
+                  <div class="node-sub">AI Synthesis & &lt;claim&gt; Tagging</div>
+                </div>
+                <div class="node-badge badge-idle" id="badge-agent2">Awaiting</div>
+              </div>
+
+              <div class="node-body">
+                <div class="node-checklist">
+                  <div class="check-item" id="chk-agent2-q">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text" id="chk-agent2-q-text">Formulating dynamic subtopics</span>
+                  </div>
+                  <div class="check-item" id="chk-agent2-tag">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text">Tagging factual &lt;claim&gt; entities</span>
+                  </div>
+                </div>
+
+                <div class="node-metrics-table">
+                  <div class="metric-row">
+                    <span class="m-label">Complexity:</span>
+                    <span class="m-val text-amber" id="m-agent2-complexity">Auto-scaling</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Subtopics:</span>
+                    <span class="m-val mono" id="m-agent2-subq">0</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Token Usage:</span>
+                    <span class="m-val mono" id="m-agent2-tokens">0 tokens (Call 1)</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">AI Model:</span>
+                    <span class="m-val text-cyan" id="m-agent2-model">Gemini 3.5 Flash</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="node-progress-bar">
+                <div class="progress-fill" id="prog-agent2" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Node 3 -->
+            <div class="glass-node-card" id="node-agent3" data-node="3">
+              <div class="card-inner-glow"></div>
+              <div class="node-header">
+                <div class="node-icon-box">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                  </svg>
+                </div>
+                <div class="node-title-group">
+                  <div class="node-name">Agent 3: Context Cacher</div>
+                  <div class="node-sub">SQLite & Semantic Cosine Sim</div>
+                </div>
+                <div class="node-badge badge-idle" id="badge-agent3">Awaiting</div>
+              </div>
+
+              <div class="node-body">
+                <div class="node-checklist">
+                  <div class="check-item" id="chk-agent3-cache">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text">Indexing to SQLite cache.db</span>
+                  </div>
+                  <div class="check-item" id="chk-agent3-filter">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text">Pre-filtering matching claims</span>
+                  </div>
+                </div>
+
+                <div class="node-metrics-table">
+                  <div class="metric-row">
+                    <span class="m-label">Auto-Verified:</span>
+                    <span class="m-val mono text-green" id="m-agent3-verified">0 claims</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Token Usage:</span>
+                    <span class="m-val mono text-green">0 tokens (Zero LLM)</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Threshold:</span>
+                    <span class="m-val mono" id="m-agent3-thresh">0.80</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="node-progress-bar">
+                <div class="progress-fill" id="prog-agent3" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Node 4 -->
+            <div class="glass-node-card" id="node-agent4" data-node="4">
+              <div class="card-inner-glow"></div>
+              <div class="node-header">
+                <div class="node-icon-box">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                  </svg>
+                </div>
+                <div class="node-title-group">
+                  <div class="node-name">Agent 4: Fact-Checker</div>
+                  <div class="node-sub">Disputed Verification & Dossier</div>
+                </div>
+                <div class="node-badge badge-idle" id="badge-agent4">Awaiting</div>
+              </div>
+
+              <div class="node-body">
+                <div class="node-checklist">
+                  <div class="check-item" id="chk-agent4-eval">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text">Evaluating unverified claims</span>
+                  </div>
+                  <div class="check-item" id="chk-agent4-dossier">
+                    <span class="chk-icon">○</span>
+                    <span class="chk-text">Synthesizing final dossier</span>
+                  </div>
+                </div>
+
+                <div class="node-metrics-table">
+                  <div class="metric-row">
+                    <span class="m-label">Evaluated:</span>
+                    <span class="m-val mono" id="m-agent4-checked">0 claims</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Token Usage:</span>
+                    <span class="m-val mono" id="m-agent4-tokens">0 tokens (Call 2)</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="m-label">Model:</span>
+                    <span class="m-val text-cyan" id="m-agent4-model">Gemini 3.6 Flash</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="node-progress-bar">
+                <div class="progress-fill" id="prog-agent4" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Console Event Log Overlay -->
+          <div class="canvas-log-drawer" id="canvas-log-drawer">
+            <div class="log-drawer-header">
+              <span class="log-dot"></span>
+              <span class="log-title">Academic Pipeline Event Stream</span>
+            </div>
+            <div class="log-drawer-body mono" id="canvas-log-container">
+              <div class="log-line text-subtle">[SYSTEM] Standby. Enter a research query below to execute.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: ACADEMIC RESEARCH DOSSIER (Fully visible, responsive right citations panel) -->
+      <section class="view-section" id="view-dossier">
+        <div class="dossier-layout-wrapper">
+          <!-- MAIN DOSSIER COLUMN -->
+          <div class="dossier-main-document">
+            <!-- Researcher Action Bar (Export, copy, highlight controls) -->
+            <div class="student-toolbar">
+              <div class="toolbar-left">
+                <span class="study-badge">RESEARCH DOSSIER</span>
+                <span class="study-verified-tag">✓ Peer-Reviewed Evidence</span>
+              </div>
+              <div class="toolbar-right">
+                <button class="btn-tool-action" id="btn-copy-synthesis" title="Copy Synthesis to Clipboard">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <span>Copy Synthesis</span>
+                </button>
+
+                <button class="btn-tool-action" id="btn-export-bibtex" title="Copy BibTeX Citations">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                  </svg>
+                  <span>Export BibTeX</span>
+                </button>
+
+                <button class="btn-tool-action" id="btn-toggle-sidebar" title="Toggle Citations Panel">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="15" y1="3" x2="15" y2="21"></line>
+                  </svg>
+                  <span id="lbl-sidebar-toggle">Hide Citations</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Partial Error Banner for Dossier -->
+            <div class="partial-error-banner hidden" id="dossier-error-banner">
+              <div class="error-banner-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                Partial Research Recovered
+              </div>
+              <div class="error-banner-text" id="dossier-error-text">An API error interrupted the synthesis. Rendering partial data below.</div>
+            </div>
+
+            <!-- Header Card -->
+            <div class="dossier-header-card">
+              <div class="dossier-header-top-row">
+                <h2 class="dossier-query-title" id="dossier-query-title">Research Synthesis Monograph</h2>
+              </div>
+            </div>
+
+            <!-- Key Findings Card -->
+            <div class="key-takeaways-card" id="key-takeaways-card">
+              <div class="takeaway-header">
+                <h4>Key Findings</h4>
+              </div>
+              <ul class="takeaway-list" id="takeaway-list">
+                <li>Run an academic research query to synthesize key findings and verified citations.</li>
+              </ul>
+            </div>
+
+            <!-- Content Subsections -->
+            <div class="dossier-content-body" id="dossier-content-body">
+              <div class="empty-state-card">
+                <div class="empty-icon">📖</div>
+                <h3>No Research Dossier Generated Yet</h3>
+                <p>Enter an academic research query in the prompt bar below to run the 4-agent verification pipeline.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT CITATIONS & VERIFIED EVIDENCE SIDEBAR (Guaranteed 100% visible on screen) -->
+          <aside class="dossier-citations-sidebar" id="dossier-citations-sidebar">
+            <div class="citations-header">
+              <div class="cit-title-row">
+                <h3>Verified Citations & Sources</h3>
+                <span class="cit-count-badge" id="cit-total-count">0 Sources</span>
+              </div>
+              <p class="cit-help-text">Click any highlighted claim or citation card to inspect the verbatim excerpt matched in the SQLite context cache.</p>
+            </div>
+
+            <div class="citations-list-container" id="citations-list-container">
+              <div class="empty-citations-placeholder">
+                <p class="text-subtle">Citations and verbatim evidence will appear here after Agent 4 completes.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <!-- MINIMIZED PIPELINE LOADER / DOCK (Bottom stepper) -->
+        <div class="minimized-pipeline-dock" id="minimized-pipeline-dock">
+          <div class="mini-pipeline-left">
+            <span class="mini-pulse-dot active"></span>
+            <span class="mini-status-label" id="mini-loader-label">Pipeline Complete (Strict 2-LLM Budget)</span>
+          </div>
+
+          <div class="mini-stepper">
+            <div class="mini-step completed" title="Agent 1: Scraper (0 tokens)">
+              <span class="step-num">1</span>
+              <span class="step-lbl">Scraper</span>
+            </div>
+            <span class="mini-step-arrow">➔</span>
+            <div class="mini-step completed" title="Agent 2: Drafter (LLM Call 1)">
+              <span class="step-num">2</span>
+              <span class="step-lbl">Drafter</span>
+            </div>
+            <span class="mini-step-arrow">➔</span>
+            <div class="mini-step completed" title="Agent 3: SQLite Pre-Filter (0 tokens)">
+              <span class="step-num">3</span>
+              <span class="step-lbl">Pre-Filter</span>
+            </div>
+            <span class="mini-step-arrow">➔</span>
+            <div class="mini-step completed" title="Agent 4: Fact-Checker (LLM Call 2)">
+              <span class="step-num">4</span>
+              <span class="step-lbl">Fact-Check</span>
+            </div>
+          </div>
+
+          <div class="mini-pipeline-right">
+            <button class="btn-mini-action" id="btn-reopen-canvas" title="Toggle Spatial Node Canvas">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+              </svg>
+              <span>View Canvas Nodes</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: PDF DOCUMENT ANALYSIS WORKSPACE -->
+      <section class="view-section" id="view-documents">
+        <!-- Panel A: Document Upload Zone + Library -->
+        <div class="doc-upload-zone" id="doc-upload-zone">
+          <div class="upload-dropzone" id="pdf-dropzone">
+            <div class="dropzone-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="15" y2="15"></line>
+              </svg>
+            </div>
+            <h3>Upload Academic Papers & Reports</h3>
+            <p>Drag & drop PDF files here, or click to browse local filesystem</p>
+            <p class="upload-limits">Max 10 files · 50 MB per file · Full offline text, figure & citation graph indexing</p>
+            <input type="file" id="pdf-file-input" accept=".pdf" multiple hidden>
+            <button class="btn-primary glow-button" id="btn-browse-pdfs" style="margin-top: 14px;">Browse PDF Files</button>
+          </div>
+
+          <!-- Document Library Grid -->
+          <div class="doc-library" id="doc-library">
+            <div class="library-header">
+              <h4>Persistent Document Library</h4>
+              <span class="text-subtle">Re-open and cross-examine past uploaded sessions</span>
+            </div>
+            <div class="library-grid" id="library-grid">
+              <div class="empty-library-msg">No stored PDF sessions found. Upload papers above to start building your library.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel B: Active Session Overview -->
+        <div class="doc-session-panel" id="doc-session-panel" style="display: none;">
+          <div class="session-header">
+            <button class="btn-secondary btn-back-library" id="btn-back-to-library">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Library</span>
+            </button>
+            <h4 class="session-title-text" id="session-title">Active Document Session</h4>
+            <div class="session-stats-group" id="session-stats">
+              <span class="stat-badge" id="stat-doc-files">0 files</span>
+              <span class="stat-badge" id="stat-doc-pages">0 pages</span>
+              <span class="stat-badge" id="stat-doc-chunks">0 chunks</span>
+              <span class="stat-badge" id="stat-doc-figures">0 figures</span>
+              <span class="stat-badge" id="stat-doc-refs">0 citations</span>
+            </div>
+            <div class="session-actions-group">
+              <button class="btn-secondary" id="btn-add-more-pdfs">+ Add PDFs</button>
+              <button class="btn-danger" id="btn-delete-session" title="Delete current session and data">Delete</button>
+            </div>
+          </div>
+
+          <!-- Uploaded Files Grid -->
+          <div class="files-grid" id="files-grid"></div>
+        </div>
+
+        <!-- Panel C: Document Workspace (Toolbar, Chat, Analysis Output, Figures, Citation Graph) -->
+        <div class="doc-workspace" id="doc-workspace" style="display: none;">
+          <div class="doc-actions-toolbar" id="doc-actions-toolbar">
+            <div class="action-chips">
+              <button class="action-chip active" data-action="qa">💬 Ask Questions</button>
+              <button class="action-chip" data-action="summarize">📋 Executive Summary</button>
+              <button class="action-chip" data-action="deep_analysis">🔬 Methodology Analysis</button>
+              <button class="action-chip" data-action="extract_findings">📊 Extract Findings</button>
+              <button class="action-chip" data-action="critique">✏️ Academic Critique</button>
+              <button class="action-chip" data-action="compare">⚖️ Compare Papers</button>
+              <button class="action-chip" data-action="figures">🖼️ Figure Gallery</button>
+              <button class="action-chip" data-action="citation_graph">🕸️ Citation Graph</button>
+            </div>
+            <div class="pdf-toolbar-controls">
+              <label class="doc-toggle-switch" title="Strict API Call Mode: Fails cleanly if LLM call fails or API key is missing. Never outputs dummy text.">
+                <input type="checkbox" id="toggle-pdf-strict-api" checked>
+                <span class="toggle-slider-sm"></span>
+                <span class="toggle-label-text">Strict API Mode</span>
+              </label>
+              <label class="doc-toggle-switch" title="Demo Mode: Returns verified pre-computed answers & mathematical formulations without using API tokens.">
+                <input type="checkbox" id="toggle-pdf-demo-mode">
+                <span class="toggle-slider-sm"></span>
+                <span class="toggle-label-text">Demo Mode</span>
+              </label>
+              <span class="doc-api-pill" id="doc-api-status" title="API Connectivity Status">
+                <span class="doc-api-dot"></span>
+                <span class="doc-api-text" id="doc-api-text">API Ready</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="doc-main-grid">
+            <!-- Left Area: Dynamic content depending on action -->
+            <div class="doc-primary-pane">
+              <!-- Chat Container (for Q&A) -->
+              <div class="doc-chat-container" id="doc-chat-container">
+                <div class="doc-chat-messages" id="doc-chat-messages">
+                  <div class="chat-system-msg">
+                    <p>💡 Documents indexed. Ask questions regarding findings, equations, figures, or methodologies. Inline page citations <code>[p.X]</code> are attached to every claim.</p>
+                  </div>
+                </div>
+                <!-- Preset Demo / Quick Inquiries Row -->
+                <div class="doc-demo-chips-row" id="doc-demo-chips">
+                  <span class="doc-demo-label">Demo Inquiries:</span>
+                  <button class="doc-demo-chip" data-query="How does the attention mechanism compute queries, keys, and values? Show mathematical formulation.">
+                    💡 Attention Math & Equations
+                  </button>
+                  <button class="doc-demo-chip" data-query="Compare the computational complexity per layer of self-attention versus recurrent and convolutional layers.">
+                    ⚖️ Self-Attention vs RNN Complexity
+                  </button>
+                  <button class="doc-demo-chip" data-query="What are the core thesis, BLEU benchmark results, and hardware training setup?">
+                    📋 Core Thesis & BLEU Benchmarks
+                  </button>
+                </div>
+                <div class="doc-chat-input-bar">
+                  <textarea id="doc-query-input" placeholder="Ask a targeted question about the uploaded document(s)..." rows="1"></textarea>
+                  <button class="btn-send-doc-query" id="btn-send-doc-query" title="Submit Question">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                      <line x1="22" y1="2" x2="11" y2="13"></line>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Analysis Output Panel (for Summarize, Critique, Methodology, etc.) -->
+              <div class="doc-analysis-output" id="doc-analysis-output" style="display: none;">
+                <div class="doc-output-header">
+                  <h3 id="doc-output-title">Document Synthesis</h3>
+                  <div class="doc-output-actions">
+                    <button class="btn-secondary btn-sm" id="btn-copy-doc-output">📋 Copy</button>
+                    <button class="btn-secondary btn-sm" id="btn-export-doc-bibtex">📚 Export BibTeX</button>
+                  </div>
+                </div>
+                <div class="doc-output-content" id="doc-output-content"></div>
+              </div>
+
+              <!-- Figure Gallery Panel -->
+              <div class="doc-figure-gallery" id="doc-figure-gallery" style="display: none;">
+                <div class="figures-header">
+                  <h3>Extracted Document Figures & Diagrams</h3>
+                  <p class="text-subtle">High-resolution figures extracted directly from the PDF</p>
+                </div>
+                <div class="figures-grid" id="figures-grid"></div>
+              </div>
+
+              <!-- Citation Graph Panel -->
+              <div class="doc-citation-graph" id="doc-citation-graph" style="display: none;">
+                <div class="graph-header">
+                  <h3>Academic Citation Network</h3>
+                  <p class="text-subtle">Bibliography citations resolved against Semantic Scholar & OpenAlex</p>
+                  <div class="graph-stats-bar" id="graph-stats-bar"></div>
+                </div>
+                <div class="graph-container" id="graph-container">
+                  <canvas id="citation-graph-canvas" width="700" height="380"></canvas>
+                </div>
+                <div class="graph-ref-list" id="graph-ref-list"></div>
+              </div>
+            </div>
+
+            <!-- Right Sidebar: Source Chunks & Outline -->
+            <aside class="doc-chunks-sidebar" id="doc-chunks-sidebar">
+              <div class="chunks-sidebar-header">
+                <h4>Grounding Context Chunks</h4>
+                <span class="text-subtle" id="chunks-count-label">Evidence</span>
+              </div>
+              <div class="chunks-list" id="doc-chunks-list">
+                <div class="empty-chunks-msg">Run a query or summary to view the exact text chunks matched for grounding.</div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: SQLITE DATABASE CACHE INSPECTOR MODAL -->
+      <div class="db-inspector-modal" id="db-inspector-modal">
+        <div class="db-modal-content">
+          <div class="db-modal-header">
+            <div class="modal-title-group">
+              <h3>SQLite Context Cache (backend/cache.db)</h3>
+              <p class="text-subtle">Inspect papers and granular sentence chunks indexed by Agent 3</p>
+            </div>
+            <button class="btn-close-modal" id="btn-close-db-modal">&times;</button>
+          </div>
+          <div class="db-modal-body">
+            <div class="db-table-wrapper">
+              <table class="db-table" id="db-papers-table">
+                <thead>
+                  <tr>
+                    <th>Paper ID</th>
+                    <th>Query</th>
+                    <th>Title</th>
+                    <th>Authors</th>
+                    <th>Year</th>
+                    <th>Venue</th>
+                    <th>Citations</th>
+                  </tr>
+                </thead>
+                <tbody id="db-table-body">
+                  <tr><td colspan="7" class="text-center text-subtle">No cached papers found. Execute a query to populate.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BOTTOM CHAT COMMAND INTERFACE (Chatbot style, input clears on enter) -->
+      <footer class="bottom-chat-container" id="bottom-chat-container">
+        <div class="chat-bar-wrapper">
+          <!-- Suggestion Chips (Visible only in demo mode) -->
+          <div class="query-chips-row" id="query-chips-row">
+            <span class="chips-label">Research Presets:</span>
+            <button class="query-chip" data-query="Quantum Error Mitigation in Neutral Atom Qubits">
+              ⚛️ Quantum Error Mitigation
+            </button>
+            <button class="query-chip" data-query="Engineered Cas12f Nucleases for Compact In Vivo Delivery">
+              🧬 CRISPR-Cas12f Delivery
+            </button>
+            <button class="query-chip" data-query="Memristive Crossbars for Edge Neuromorphic Computing">
+              🧠 Neuromorphic Memristors
+            </button>
+          </div>
+
+          <!-- Prompt Bar -->
+          <div class="prompt-bar">
+            <div class="prompt-input-wrapper">
+              <textarea 
+                id="research-query-input" 
+                rows="1" 
+                placeholder="Enter an academic research topic or paper question (Press Enter to execute)..." 
+                autocomplete="off"
+              ></textarea>
+            </div>
+
+            <div class="prompt-actions-right">
+              <div class="provider-pill-badge" id="prompt-model-badge" title="Active Model Architecture">
+                <span>Gemini 3.5 + SQLite</span>
+              </div>
+
+              <button class="btn-clear-input" id="btn-clear-input" title="Clear Query Text">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+
+              <button class="btn-send-query" id="btn-send-query" title="Execute Sequential Pipeline">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Toast Notification element -->
+  <div class="toast-notification" id="toast-notification"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
