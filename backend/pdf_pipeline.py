@@ -210,10 +210,10 @@ async def stream_pdf_pipeline(
         "query": query,
         "status": "PDF Analysis Pipeline Initiated."
     })
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.01)
 
     try:
-        session = get_pdf_session(session_id)
+        session = await asyncio.to_thread(get_pdf_session, session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found in database.")
 
@@ -223,13 +223,11 @@ async def stream_pdf_pipeline(
             "total_figures": session.get("total_figures", 0),
             "total_references": session.get("total_references", 0)
         })
-        await asyncio.sleep(0.2)
 
         yield sse_message("pdf_agent_active", {
             "agent": "Agent P2: Document Retrieval Engine",
             "status": f"Scanning indexed chunks for '{query or action}'..."
         })
-        await asyncio.sleep(0.3)
 
         yield sse_message("pdf_agent_active", {
             "agent": "Agent P3: Scientific Document Synthesizer",
@@ -244,9 +242,9 @@ async def stream_pdf_pipeline(
             "agent": "Agent P3: Scientific Document Synthesizer",
             "tokens_used": result.get("tokens_used", 0)
         })
-        await asyncio.sleep(0.2)
 
-        log_pipeline_run(
+        await asyncio.to_thread(
+            log_pipeline_run,
             run_id=run_id,
             query=f"[PDF {action.upper()}] {query or session_id}",
             tokens_used=result.get("tokens_used", 0),
@@ -258,7 +256,6 @@ async def stream_pdf_pipeline(
 
     except Exception as e:
         err_msg = str(e)
-        print(f"[PDF Pipeline Error] {err_msg}")
         yield sse_message("pdf_pipeline_error", {
             "error": err_msg,
             "status": "PDF Analysis failed."

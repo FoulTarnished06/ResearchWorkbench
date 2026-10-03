@@ -1,12 +1,34 @@
 import re
 from typing import Dict, Any, List
 
+ALLOWED_TAGS = ['p', 'span', 'strong', 'em', 'sup', 'sub', 'a', 'h3', 'h4', 'div', 'br', 'b', 'i', 'code', 'ul', 'ol', 'li', 'blockquote', 'claim', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'pre', 'hr']
+ALLOWED_ATTRS = {
+    'span': ['class', 'data-claim-id', 'data-ref-id', 'data-page', 'data-fig', 'data-caveat', 'data-rationale', 'data-score', 'data-status', 'data-tier', 'data-paper-url', 'title'],
+    'a': ['href', 'class', 'title', 'target'],
+    'sup': ['class', 'data-ref-id'],
+    'div': ['class'],
+    'claim': ['id', 'paper'],
+    'table': ['class'],
+    'th': ['class', 'align', 'colspan', 'rowspan'],
+    'td': ['class', 'align', 'colspan', 'rowspan'],
+    '*': ['id', 'title']
+}
+
+try:
+    import nh3
+    _USE_NH3 = True
+    _NH3_TAGS = set(ALLOWED_TAGS)
+    _NH3_ATTRS = {k: set(v) for k, v in ALLOWED_ATTRS.items()}
+except ImportError:
+    _USE_NH3 = False
+    import bleach
+
 def clean_monograph_text(text: str) -> str:
     """
     Centralized post-processor for synthesized academic monographs.
     1. Strips pipeline metadata headers, execution logs, and HTML comments.
     2. Collapses duplicated inline LaTeX variables and hardware metrics.
-    3. Normalizes math formulas to clean, single KaTeX syntax.
+    3. Normalizes math formulas to clean, single KaTeX syntax without overwriting mathematical formulas.
     4. Unwraps accidental quotation blocks around retrieved statements.
     """
     if not text or not isinstance(text, str):
@@ -32,11 +54,13 @@ def clean_monograph_text(text: str) -> str:
     # 4. Collapse duplicate hardware metrics (e.g. "64 GB/s 64 GB/s", "3.35 TB/s 3.35 TB/s")
     text = re.sub(r'\b(\d+(?:\.\d+)?\s*(?:GB\/s|TB\/s|TFLOPs\/s|Gbps|TOPS\/W|ms|ns|kb))\s+\1\b', r'\1', text, flags=re.IGNORECASE)
 
-    # 5. Fix double-rendered math and ASCII duplicates
-    # "O(E⋅N) O(E⋅N)" -> "$O(E \cdot N)$"
-    text = re.sub(r'O\([^\)]+\)\s+O\([^\)]+\)', r'$O(E \\cdot N)$', text)
-    # Single "O(E⋅N)" -> "$O(E \cdot N)$"
-    text = re.sub(r'(?<!\$)O\([E\w\s*·⋅\.]+\)(?!\$)', r'$O(E \\cdot N)$', text)
+    # 5. Collapse duplicate consecutive asymptotic complexity expressions non-destructively
+    # e.g., "O(n log n) O(n log n)" -> "O(n log n)" or "$O(V^3)$ $O(V^3)$" -> "$O(V^3)$"
+    text = re.sub(r'(\bO\([^)]+\))(?:\s+\1)+', r'\1', text)
+    text = re.sub(r'(\$O\([^$]+\)\$)(?:\s*\1)+', r'\1', text)
+
+    # Normalize specific ASCII equation to LaTeX if explicitly present
+    text = re.sub(r'\bO\(E\s*[·⋅*]\s*N\)\b', r'$O(E \\cdot N)$', text)
 
     # Clean garbled fraction duplicates like "Ttransfer=MexpertBWPCIe. Ttransfer = BWPCIe Mexpert"
     text = re.sub(
@@ -46,13 +70,16 @@ def clean_monograph_text(text: str) -> str:
         flags=re.IGNORECASE
     )
 
-    # 6. Unwrap accidental quotes around entire assertion sentences
-    text = re.sub(r'["\u201c\u201d]([A-Z][^"\u201c\u201d]{20,}\.?)["\u201c\u201d]', r'\1', text)
+    # 6. Unwrap accidental quotes around entire assertion sentences (between tags only)
+    text = re.sub(r'(?<=>)\s*["\u201c\u201d]([A-Z][^"\u201c\u201d<]{20,}\.?)["\u201c\u201d]\s*(?=<)', r'\1', text)
 
     # 7. Clean up empty tags and extra whitespace
     text = re.sub(r'<p>\s*</p>', '', text)
-    text = re.sub(r'[ \t]{2,}', ' ', text)
-    return text.strip()
+    if _USE_NH3:
+        sanitized = nh3.clean(text.strip(), tags=_NH3_TAGS, attributes=_NH3_ATTRS)
+    else:
+        sanitized = bleach.clean(text.strip(), tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS)
+    return sanitized
 
 def diversify_section_subheadings(sections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -208,6 +235,12 @@ def post_process_dossier(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     if not dossier_data or not isinstance(dossier_data, dict):
         return dossier_data
+
+    # Clean quick answer (Basic TL;DR)
+    if "quick_answer" in dossier_data and dossier_data["quick_answer"]:
+        clean_qa = re.sub(r'<[^>]+>', ' ', str(dossier_data["quick_answer"]))
+        clean_qa = re.sub(r'\s+', ' ', clean_qa).strip()
+        dossier_data["quick_answer"] = clean_qa
 
     # Clean executive summary
     if "executive_summary" in dossier_data and dossier_data["executive_summary"]:

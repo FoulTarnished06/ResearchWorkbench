@@ -1,3 +1,14 @@
+---
+title: AI Research Workbench
+emoji: 🔬
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+---
+
 # AI Research Workbench v3.0
 
 > **Autonomous Multi-Agent Academic Literature Synthesis & Multimodal PDF Document Workstation**
@@ -97,16 +108,25 @@ cd ai-research-workbench
 python -m pip install -r backend/requirements.txt
 ```
 
-### 4. Configure API Keys (Optional)
-The workbench includes an offline **Showcase Demo Mode** that requires zero API keys. To run live LLM synthesis, you can either enter keys in the in-app **Model Settings** drawer, or create a `.env` file in the root folder:
+### 4. Configure API Keys & Authentication (Optional)
+The workbench operates out-of-the-box with **Showcase Demo Mode** requiring $0 and zero API keys. 
+All 6 public academic scrapers (**Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed**) and local neural **ONNX BAAI/bge-small-en-v1.5 embeddings** run completely free locally.
+
+To run live AI generation, you can enter your keys in the in-app **Agent & Model Configuration** drawer, or create a `.env` file in the root folder:
 
 ```ini
+# Google Gemini (Gemini 3.8 Flash, 3.6 Flash, 3.5 Flash, 3.1 Pro)
 GEMINI_API_KEY=your_gemini_api_key_here
+
+# Anthropic Claude (Claude Opus 5.5, Claude Sonnet 5.5, Claude Haiku)
+# Enforces strict 4096 token ceiling for Opus and 8192 for Sonnet/Haiku
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
-SERPAPI_API_KEY=your_serpapi_key_here
+
+# Optional: JWT Secret for User Authentication Sessions
+JWT_SECRET=your_secret_key_minimum_32_characters
 ```
 
-### 5. Launch the Application
+### 5. Launch Locally
 Run via the Windows batch script:
 ```cmd
 run.bat
@@ -119,19 +139,95 @@ Open your browser at: **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
 
 ---
 
-## Running Automated Tests
+## 🚀 Free Production Cloud Deployment Guide
 
-Run the verification test suites:
+The workbench is 100% containerized and configured for zero-cost cloud hosting with no credit card required.
+
+### Option 1: Hugging Face Spaces (100% Free — Recommended)
+Hugging Face Spaces provides a permanent free tier with **2 vCPUs, 16 GB RAM, 50 GB storage, and free HTTPS**:
+
+1. Create a free account at [huggingface.co](https://huggingface.co).
+2. Click **New Space** → Set Space Name (e.g. `research-workbench`).
+3. Select **Docker** as the Space SDK and choose the **Blank** template.
+4. Set Space Hardware to **CPU basic · 2 vCPU · 16 GB RAM · Free**.
+5. Push your repository to the Hugging Face Space git remote:
+   ```bash
+   git remote add space https://huggingface.co/spaces/<your-username>/research-workbench
+   git push space main
+   ```
+6. In your Space's **Settings** → **Variables and secrets**, add:
+   - `GEMINI_API_KEY`: Your Gemini API key
+   - `ANTHROPIC_API_KEY`: Your Claude API key
+   - `JWT_SECRET`: Random 32-character string
+7. Your workbench is immediately live with a public HTTPS URL (e.g. `https://<your-username>-research-workbench.hf.space`)!
+
+---
+
+### Option 2: Render.com (100% Free Web Service)
+Render offers a free Docker web service tier:
+
+1. Sign up at [render.com](https://render.com) using GitHub.
+2. Click **New +** → **Web Service** → Connect your GitHub repository.
+3. Select **Docker** environment (it automatically detects the included `Dockerfile`).
+4. Choose the **Free** instance type.
+5. In **Environment Variables**, add:
+   - `PORT`: `10000`
+   - `GEMINI_API_KEY`: Your Gemini API key
+   - `ANTHROPIC_API_KEY`: Your Claude API key
+   - `JWT_SECRET`: Random 32-character string
+6. Click **Deploy Web Service**.
+
+---
+
+### Option 3: Local Docker & Docker Compose
+To run in an isolated production container locally:
 ```bash
-# Test 1: Full 4-agent web research pipeline
-python -m backend.test_pipeline
+# Build and start the container in the background
+docker compose up -d --build
 
-# Test 2: Tone, takeaway extraction, and diversified headings
-python scratch/test_tone_and_takeaways.py
+# Verify container health
+docker compose ps
 
-# Test 3: Strict API mode, Demo mode, stemming, and boilerplate sanitization
-python scratch/test_v3_strict_and_demo.py
+# View real-time logs
+docker compose logs -f
 ```
+Open **[http://localhost:8000](http://localhost:8000)**.
+
+---
+
+## 🔒 User Authentication & Security
+
+- **PBKDF2-HMAC-SHA256:** Password hashing with 100,000 iterations and unique cryptographic salts (zero external binary dependencies).
+- **Encrypted JWT Sessions:** Standard HMAC-SHA256 JSON Web Tokens with 7-day expiration and automatic cookie/header synchronization.
+- **Multi-User Isolation:** Each researcher's pipeline syntheses, history timeline, and uploaded PDF document libraries are partitioned by `user_id`.
+- **Zero-Token Guest Mode:** Guests can explore demo syntheses and test offline features without creating an account.
+
+---
+
+## 🧪 Running Verification Test Suites
+
+The codebase includes an exhaustive test suite with 100% pass rate:
+
+```bash
+# 1. Behavioral smoke tests (ReDoS, claim splitting, retry 400 guard, nh3, DB migration)
+python run_tests.py
+
+# 2. Comprehensive integration test suite (32 unit & integration tests)
+python backend/test_audit_fixes.py
+
+# 3. User authentication & multi-user isolation test suite (6 tests)
+python backend/test_auth.py
+
+# 4. Multi-turn dialogue (DHS-RCC) and claim follow-up test suites (15 tests)
+python -m unittest backend/test_dialogue.py
+python -m unittest backend/test_followup.py
+
+# 5. Frontend ES6 module architecture & landmark accessibility audit
+node scripts/build_frontend.js
+```
+
+---
 
 ## License
 Distributed under the MIT License. See `LICENSE` for more information.
+

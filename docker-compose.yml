@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  workbench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: research_workbench
+    ports:
+      - "8000:7860"
+    environment:
+      - PORT=7860
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - ALLOWED_ORIGIN_REGEX=https?://.*
+    volumes:
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/cache.db:/app/backend/cache.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

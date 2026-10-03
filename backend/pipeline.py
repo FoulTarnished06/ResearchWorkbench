@@ -2,94 +2,300 @@ import asyncio
 import json
 import time
 import uuid
+import re
 from typing import Dict, Any, Optional, AsyncGenerator
+
 from backend.agents.agent1_scraper import run_agent1_academic_scraper
 from backend.agents.agent2_drafter import run_agent2_the_drafter
-from backend.agents.agent3_cacher import run_agent3_context_cacher
+from backend.agents.agent3_cacher import run_agent3_context_cacher, run_agent3_context_distiller
 from backend.agents.agent4_synthesizer import run_agent4_fact_checker_synthesizer
 from backend.post_processor import post_process_dossier
-from backend.database import init_db, log_pipeline_run
+from backend.database import init_db, log_pipeline_run, get_response_cache, set_response_cache
+from backend.logger import get_logger
 
-# Ensure SQLite schema exists
-init_db()
+logger = get_logger("Pipeline")
+
+_db_initialized = False
+
+def ensure_pipeline_db():
+    """Ensure SQLite schema exists lazily upon first execution without import side effects."""
+    global _db_initialized
+    if not _db_initialized:
+        init_db()
+        _db_initialized = True
+
+def build_rapid_dossier_output(
+    user_query: str,
+    run_id: str,
+    start_time: float,
+    agent1_res: Dict[str, Any],
+    agent2_res: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Pillar 5: Formats rapid synthesis monograph (Agent 1 + Agent 2).
+    Delivers sub-7s accelerated turnaround with authentic citations and verified DOI links.
+    """
+    elapsed = round(time.time() - start_time, 2)
+    a2_prompt = agent2_res.get("prompt_tokens") or round(agent2_res["tokens_used"] * 0.6)
+    a2_comp = agent2_res.get("completion_tokens") or (agent2_res["tokens_used"] - a2_prompt)
+    
+    raw_sections = agent2_res.get("sections", [])
+    rapid_sections = []
+    papers = agent1_res.get("papers", [])
+    for sec in raw_sections:
+        content_html = sec.get("answer_html") or sec.get("content_html") or sec.get("content", "")
+        for p_item in papers:
+            pidx = p_item.get("paper_idx", "")
+            purl = p_item.get("url", "#")
+            if pidx and purl and purl != "#":
+                content_html = re.sub(
+                    rf'\[{pidx}\]',
+                    f'<a href="{purl}" target="_blank" rel="noopener noreferrer" class="citation-anchor tier-cache-badge">[{pidx} ↗]</a>',
+                    content_html
+                )
+        rapid_sections.append({
+            "heading": sec.get("heading", "Rapid Synthesis"),
+            "content_html": content_html,
+            "claims": sec.get("claims", [])
+        })
+        
+    citations = []
+    for p in papers:
+        citations.append({
+            "paper_id": p.get("id"),
+            "paper_idx": p.get("paper_idx"),
+            "title": p.get("title"),
+            "authors": p.get("authors"),
+            "year": p.get("year"),
+            "venue": p.get("venue"),
+            "doi": p.get("doi"),
+            "url": p.get("url"),
+            "source": p.get("source"),
+            "source_type": p.get("source_type", "Peer-Reviewed Paper"),
+            "citation_count": p.get("citationCount", 0)
+        })
+        
+    rapid_output = {
+        "run_id": run_id,
+        "query": user_query,
+        "execution_mode": "rapid",
+        "elapsed_seconds": elapsed,
+        "token_usage": {
+            "total_tokens": agent2_res["tokens_used"],
+            "prompt_tokens": a2_prompt,
+            "completion_tokens": a2_comp,
+            "llm_calls_count": 1,
+            "llm_budget_limit": 1,
+            "breakdown": {
+                "agent1_scraper": 0,
+                "agent2_drafter": agent2_res["tokens_used"],
+                "agent3_cacher": 0,
+                "agent4_fact_checker": 0
+            },
+            "io_breakdown": {
+                "agent1_scraper": {"input": 0, "output": 0, "total": 0},
+                "agent2_drafter": {"input": a2_prompt, "output": a2_comp, "total": agent2_res["tokens_used"]},
+                "agent3_cacher": {"input": 0, "output": 0, "total": 0},
+                "agent4_fact_checker": {"input": 0, "output": 0, "total": 0}
+            }
+        },
+        "quick_answer": agent2_res.get("quick_answer", ""),
+        "executive_summary": agent2_res.get("executive_summary", ""),
+        "complexity": agent2_res.get("complexity", {}),
+        "dossier_sections": rapid_sections,
+        "citations": citations,
+        "evaluated_claims": [],
+        "comparison_table": agent2_res.get("comparison_table", {}),
+        "dialectical_friction": agent2_res.get("dialectical_friction", []),
+        "epistemic_limitations": agent2_res.get("epistemic_limitations", []),
+        "stats": {
+            "papers_scraped": agent1_res["papers_found"],
+            "claims_total": len(agent2_res.get("claims", [])),
+            "auto_verified_zero_token": 0,
+            "llm_fact_checked": 0,
+            "execution_mode": "rapid"
+        }
+    }
+    return post_process_dossier(rapid_output)
 
 async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Core Sequential 4-Step Pipeline (v2 Architecture).
-    Strict 2-LLM Budget: Agent 1 (0 tokens) -> Agent 2 (LLM 1) -> Agent 3 (0 tokens) -> Agent 4 (LLM 2).
+    Core Sequential 4-Step Pipeline.
+    Supports 24h Response Caching (TOK-03-REVISED), Dual-Output Mode (DUAL-01),
+    and non-blocking async operations (BUG-01, BUG-11).
     """
     config = config or {}
+    ensure_pipeline_db()
+    
+    # 1. Check Query-Level Response Cache for identical queries (0 tokens, 100% quality)
+    use_cache = not config.get("bypass_cache", False)
+    if use_cache:
+        cached_result = await asyncio.to_thread(get_response_cache, user_query)
+        if cached_result:
+            logger.info(f"Cache hit for query '{user_query[:40]}'. Returning cached synthesis (0 tokens).")
+            return cached_result
+
     provider_agent2 = config.get("provider_agent2", "auto")
     provider_agent4 = config.get("provider_agent4", "auto")
-    similarity_thresh = float(config.get("similarity_threshold", 0.80))
+    similarity_thresh = float(config.get("similarity_threshold", 0.55))
     paper_limit = int(config.get("paper_limit", 5))
     gemini_key = config.get("gemini_key")
     anthropic_key = config.get("anthropic_key")
     serpapi_key = config.get("serpapi_key")
     disable_fallback = bool(config.get("disable_fallback", False))
+    disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", disable_fallback))
+    disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", disable_fallback))
+    demo_mode = bool(config.get("demo_mode", False))
     scraper_sources = config.get("scraper_sources", "all")
+    active_scrapers = config.get("active_scrapers")
+    user_id = config.get("user_id")
     
     start_time = time.time()
     run_id = f"run_{uuid.uuid4().hex[:8]}"
 
-    # Step 1: Academic Scraper (Tool 1 - 0 Tokens)
-    agent1_res = await run_agent1_academic_scraper(user_query, limit=paper_limit, sources=scraper_sources, serpapi_key=serpapi_key)
-    
-    # Step 2: The Drafter (AI Call 1)
-    agent2_res = await run_agent2_the_drafter(
-        user_query, agent1_res, provider=provider_agent2, api_key=gemini_key, anthropic_key=anthropic_key, disable_fallback=disable_fallback
-    )
-    
-    # Step 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens)
-    agent3_res = run_agent3_context_cacher(
-        user_query, agent1_res, agent2_res, similarity_threshold=similarity_thresh
-    )
-    
-    # Step 4: Fact-Checker & Synthesizer (AI Call 2)
-    agent4_res = await run_agent4_fact_checker_synthesizer(
-        user_query, agent1_res, agent2_res, agent3_res, provider=provider_agent4, api_key=gemini_key, anthropic_key=anthropic_key, disable_fallback=disable_fallback
-    )
-    
-    elapsed = round(time.time() - start_time, 2)
-    total_tokens = agent1_res["tokens_used"] + agent2_res["tokens_used"] + agent3_res["tokens_used"] + agent4_res["tokens_used"]
-    
-    final_output = {
-        "run_id": run_id,
-        "query": user_query,
-        "elapsed_seconds": elapsed,
-        "token_usage": {
-            "total_tokens": total_tokens,
-            "llm_calls_count": 2,
-            "llm_budget_limit": 2,
-            "breakdown": {
-                "agent1_scraper": 0,
-                "agent2_drafter": agent2_res["tokens_used"],
-                "agent3_cacher": 0,
-                "agent4_fact_checker": agent4_res["tokens_used"]
-            }
-        },
-        "executive_summary": agent4_res.get("executive_summary", agent2_res.get("executive_summary", "")),
-        "complexity": agent2_res.get("complexity", {}),
-        "agent1_data": agent1_res,
-        "agent2_data": agent2_res,
-        "agent3_data": agent3_res,
-        "agent4_data": agent4_res,
-        "dossier_sections": agent4_res["dossier_sections"],
-        "citations": agent4_res["citations"]
-    }
-    
-    final_output = post_process_dossier(final_output)
+    try:
+        # Step 1: Academic Scraper (Tool 1 - 0 Tokens)
+        agent1_res = await run_agent1_academic_scraper(
+            user_query, 
+            limit=paper_limit, 
+            sources=scraper_sources, 
+            serpapi_key=serpapi_key,
+            disable_fallback=disable_fallback_agent2,
+            demo_mode=demo_mode,
+            active_scrapers=active_scrapers,
+            max_pdf_pages=int(config.get("max_pdf_pages", 15))
+        )
+        
+        # Phase 1 Pre-Filter (Tool 2.1 - 0 Tokens)
+        distilled_sentences = await asyncio.to_thread(
+            run_agent3_context_distiller,
+            user_query, agent1_res, top_k=15
+        )
+        
+        # Override dense sentences to starve LLM of tokens
+        distilled_agent1_res = dict(agent1_res)
+        distilled_agent1_res["dense_sentences"] = distilled_sentences
+        
+        # Step 2: The Drafter (AI Call 1)
+        agent2_res = await run_agent2_the_drafter(
+            user_query, 
+            distilled_agent1_res, 
+            provider=provider_agent2, 
+            api_key=gemini_key, 
+            anthropic_key=anthropic_key, 
+            disable_fallback=disable_fallback_agent2
+        )
+        
+        # Pillar 5: Dual Execution Engine - Rapid Mode Exit (~5s)
+        execution_mode = config.get("execution_mode", "deep")
+        if execution_mode == "rapid":
+            rapid_res = build_rapid_dossier_output(user_query, run_id, start_time, agent1_res, agent2_res)
+            if use_cache:
+                asyncio.create_task(asyncio.to_thread(set_response_cache, user_query, rapid_res, ttl_hours=24))
+            a2_p = rapid_res["token_usage"]["prompt_tokens"]
+            a2_c = rapid_res["token_usage"]["completion_tokens"]
+            asyncio.create_task(asyncio.to_thread(
+                log_pipeline_run, run_id, user_query, rapid_res["token_usage"]["total_tokens"], rapid_res["elapsed_seconds"], rapid_res, a2_p, a2_c, user_id
+            ))
+            return rapid_res
 
-    # Log to SQLite
-    log_pipeline_run(run_id, user_query, total_tokens, elapsed, final_output)
-    
-    return final_output
+        # Step 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens, Non-Blocking Async)
+        agent3_res = await asyncio.to_thread(
+            run_agent3_context_cacher,
+            user_query, agent1_res, agent2_res, similarity_threshold=similarity_thresh
+        )
+        
+        # Step 4: Fact-Checker & Synthesizer (AI Call 2)
+        agent4_res = await run_agent4_fact_checker_synthesizer(
+            user_query, 
+            agent1_res, 
+            agent2_res, 
+            agent3_res, 
+            provider=provider_agent4, 
+            api_key=gemini_key, 
+            anthropic_key=anthropic_key, 
+            disable_fallback=disable_fallback_agent4
+        )
+        
+        elapsed = round(time.time() - start_time, 2)
+        a2_used = agent2_res.get("tokens_used", 0)
+        a4_used = agent4_res.get("tokens_used", 0)
+        a2_prompt = agent2_res.get("prompt_tokens") or round(a2_used * 0.6)
+        a2_comp = agent2_res.get("completion_tokens") or max(0, a2_used - a2_prompt)
+        a4_prompt = agent4_res.get("prompt_tokens") or round(a4_used * 0.6)
+        a4_comp = agent4_res.get("completion_tokens") or max(0, a4_used - a4_prompt)
+        total_prompt = a2_prompt + a4_prompt
+        total_comp = a2_comp + a4_comp
+        total_tokens = (
+            agent1_res.get("tokens_used", 0) +
+            a2_used +
+            agent3_res.get("tokens_used", 0) +
+            a4_used
+        )
+        
+        quick_answer = agent4_res.get("quick_answer") or agent2_res.get("quick_answer", "")
+
+        final_output = {
+            "run_id": run_id,
+            "query": user_query,
+            "elapsed_seconds": elapsed,
+            "token_usage": {
+                "total_tokens": total_tokens,
+                "prompt_tokens": total_prompt,
+                "completion_tokens": total_comp,
+                "llm_calls_count": 2,
+                "llm_budget_limit": 2,
+                "breakdown": {
+                    "agent1_scraper": 0,
+                    "agent2_drafter": a2_used,
+                    "agent3_cacher": 0,
+                    "agent4_fact_checker": a4_used
+                },
+                "io_breakdown": {
+                    "agent1_scraper": {"input": 0, "output": 0, "total": 0},
+                    "agent2_drafter": {"input": a2_prompt, "output": a2_comp, "total": agent2_res["tokens_used"]},
+                    "agent3_cacher": {"input": 0, "output": 0, "total": 0},
+                    "agent4_fact_checker": {"input": a4_prompt, "output": a4_comp, "total": agent4_res["tokens_used"]}
+                }
+            },
+            "quick_answer": quick_answer,
+            "executive_summary": agent4_res.get("executive_summary", agent2_res.get("executive_summary", "")),
+            "complexity": agent2_res.get("complexity", {}),
+            "dossier_sections": agent4_res.get("dossier_sections", []),
+            "citations": agent4_res.get("citations", []),
+            "evaluated_claims": agent4_res.get("evaluated_claims", []),
+            "comparison_table": agent4_res.get("comparison_table", agent2_res.get("comparison_table", {})),
+            "dialectical_friction": agent4_res.get("dialectical_friction", agent2_res.get("dialectical_friction", [])),
+            "epistemic_limitations": agent4_res.get("epistemic_limitations", agent2_res.get("epistemic_limitations", [])),
+            "stats": {
+                "papers_scraped": agent1_res["papers_found"],
+                "claims_total": agent4_res.get("total_claims_synthesized", 0),
+                "auto_verified_zero_token": agent3_res["auto_verified_count"],
+                "llm_fact_checked": agent4_res.get("unverified_claims_processed", 0)
+            }
+        }
+        
+        final_output = post_process_dossier(final_output)
+
+        # Asynchronously log to SQLite database (BUG-01)
+        await asyncio.to_thread(log_pipeline_run, run_id, user_query, total_tokens, elapsed, final_output, total_prompt, total_comp, user_id)
+        
+        # Save to query response cache (TOK-03-REVISED)
+        await asyncio.to_thread(set_response_cache, user_query, final_output)
+        
+        return final_output
+
+    except Exception as e:
+        logger.error(f"Pipeline execution failed: {e}")
+        raise
 
 async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] = None) -> AsyncGenerator[str, None]:
     """
     FastAPI Server-Sent Events (SSE) generator streaming real-time stage hand-offs.
+    Optimized with zero artificial sleep delays (TOK-04) and dual-output format (DUAL-01).
     """
     config = config or {}
+    ensure_pipeline_db()
     start_time = time.time()
     run_id = f"run_{uuid.uuid4().hex[:8]}"
 
@@ -103,12 +309,29 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         "timestamp": time.time(),
         "status": "Pipeline initiated. Strict 2-LLM budget locked."
     })
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.01)
+
+    # Check cache first
+    use_cache = not config.get("bypass_cache", False)
+    if use_cache:
+        cached_result = await asyncio.to_thread(get_response_cache, user_query)
+        if cached_result:
+            yield sse_message("agent_completed", {
+                "agent_id": 0,
+                "name": "Semantic Cache",
+                "tokens_used": 0,
+                "status": "Cache hit: restored from local SQLite response cache (0 tokens)."
+            })
+            yield sse_message("pipeline_complete", cached_result)
+            return
 
     disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", False))
     disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", False))
+    demo_mode = bool(config.get("demo_mode", False))
     scraper_sources = config.get("scraper_sources", "all")
+    active_scrapers = config.get("active_scrapers")
     serpapi_key = config.get("serpapi_key")
+    user_id = config.get("user_id")
     
     partial_data = {
         "query": user_query,
@@ -117,26 +340,35 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         "agent3_cacher": None
     }
     
-    #AGENT 1: Academic Scraper
+    scraper_label = f"{len(active_scrapers)} selected" if active_scrapers else "6 public academic"
+    # AGENT 1: Academic Scraper
     yield sse_message("agent_active", {
         "agent_id": 1,
         "name": "Academic Scraper",
-        "action": f"Querying {scraper_sources} APIs (0 LLM Tokens)...",
+        "action": f"Querying {scraper_label} repositories (Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed)...",
         "status": "active"
     })
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.01)
     
     try:
-        agent1_res = await run_agent1_academic_scraper(user_query, limit=int(config.get("paper_limit", 5)), sources=scraper_sources, serpapi_key=serpapi_key)
+        agent1_res = await run_agent1_academic_scraper(
+            user_query, 
+            limit=int(config.get("paper_limit", 5)), 
+            sources=scraper_sources, 
+            serpapi_key=serpapi_key,
+            disable_fallback=disable_fallback_agent2,
+            demo_mode=demo_mode,
+            active_scrapers=active_scrapers,
+            max_pdf_pages=int(config.get("max_pdf_pages", 15))
+        )
         partial_data["agent1_scraped"] = agent1_res
         
         yield sse_message("agent_progress", {
             "agent_id": 1,
             "name": "Academic Scraper",
-            "details": f"Retrieved {agent1_res['papers_found']} papers. Extracted {agent1_res['total_sentences_extracted']} sentences, selected top {len(agent1_res['dense_sentences'])} info-dense facts.",
+            "details": f"Retrieved {agent1_res['papers_found']} papers. Selected top {len(agent1_res['dense_sentences'])} info-dense facts.",
             "tokens_used": 0
         })
-        await asyncio.sleep(0.4)
         
         yield sse_message("agent_completed", {
             "agent_id": 1,
@@ -147,20 +379,28 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                 "top_facts": len(agent1_res["dense_sentences"])
             }
         })
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.01)
 
-        #AGENT 2: The Drafter (LLM Call 1)
+        # Phase 1 Pre-Filter
+        distilled_sentences = await asyncio.to_thread(
+            run_agent3_context_distiller,
+            user_query, agent1_res, top_k=15
+        )
+        distilled_agent1_res = dict(agent1_res)
+        distilled_agent1_res["dense_sentences"] = distilled_sentences
+
+        # AGENT 2: The Drafter (LLM Call 1)
         yield sse_message("agent_active", {
             "agent_id": 2,
             "name": "The Drafter",
             "action": "Synthesizing research draft & embedding <claim> tags (LLM Call 1/2)...",
             "status": "active"
         })
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.01)
 
         agent2_res = await run_agent2_the_drafter(
             user_query, 
-            agent1_res, 
+            distilled_agent1_res, 
             provider=config.get("provider_agent2", "auto"),
             api_key=config.get("gemini_key"),
             anthropic_key=config.get("anthropic_key"),
@@ -171,59 +411,78 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         yield sse_message("agent_progress", {
             "agent_id": 2,
             "name": "The Drafter",
-            "details": f"Formulated {len(agent2_res['sub_questions'])} sub-questions with {len(agent2_res['claims'])} tagged empirical claims.",
+            "details": f"Formulated {len(agent2_res.get('sub_questions', []))} sub-questions with {len(agent2_res.get('claims', []))} tagged empirical claims.",
             "tokens_used": agent2_res["tokens_used"]
         })
-        await asyncio.sleep(0.4)
-
+        
+        a2_prompt = agent2_res.get("prompt_tokens") or round(agent2_res["tokens_used"] * 0.6)
+        a2_comp = agent2_res.get("completion_tokens") or (agent2_res["tokens_used"] - a2_prompt)
         yield sse_message("agent_completed", {
             "agent_id": 2,
             "name": "The Drafter",
             "tokens_used": agent2_res["tokens_used"],
-            "claims_count": len(agent2_res["claims"]),
+            "prompt_tokens": a2_prompt,
+            "completion_tokens": a2_comp,
+            "claims_count": len(agent2_res.get("claims", [])),
             "complexity": agent2_res.get("complexity", {})
         })
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.01)
 
-        #AGENT 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens)
+        # Pillar 5: Dual Execution Engine - Rapid Mode Exit (~5s)
+        execution_mode = config.get("execution_mode", "deep")
+        if execution_mode == "rapid":
+            rapid_res = build_rapid_dossier_output(user_query, run_id, start_time, agent1_res, agent2_res)
+            if not config.get("bypass_cache", False):
+                asyncio.create_task(asyncio.to_thread(set_response_cache, user_query, rapid_res, ttl_hours=24))
+            a2_p = rapid_res["token_usage"]["prompt_tokens"]
+            a2_c = rapid_res["token_usage"]["completion_tokens"]
+            asyncio.create_task(asyncio.to_thread(
+                log_pipeline_run, run_id, user_query, rapid_res["token_usage"]["total_tokens"], rapid_res["elapsed_seconds"], rapid_res, a2_p, a2_c, user_id
+            ))
+            yield sse_message("pipeline_completed", rapid_res)
+            return
+
+        # AGENT 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens)
         yield sse_message("agent_active", {
             "agent_id": 3,
             "name": "Context Cacher & Pre-Filter",
             "action": "Caching to SQLite & executing cosine similarity pre-filtering (0 LLM Tokens)...",
             "status": "active"
         })
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.01)
 
-        agent3_res = run_agent3_context_cacher(
-            user_query, agent1_res, agent2_res, similarity_threshold=float(config.get("similarity_threshold", 0.80))
+        agent3_res = await asyncio.to_thread(
+            run_agent3_context_cacher,
+            user_query, agent1_res, agent2_res, similarity_threshold=float(config.get("similarity_threshold", 0.55))
         )
         partial_data["agent3_cacher"] = agent3_res
 
         yield sse_message("agent_progress", {
             "agent_id": 3,
             "name": "Context Cacher & Pre-Filter",
-            "details": f"Auto-verified {agent3_res['auto_verified_count']} claims via SQLite cosine similarity (Saved LLM tokens). Queued {agent3_res['unverified_for_agent4_count']} for Agent 4.",
+            "details": f"Auto-verified {agent3_res['auto_verified_count']} claims via SQLite cosine similarity. Queued {agent3_res['unverified_for_agent4_count']} for Agent 4.",
             "tokens_used": 0
         })
-        await asyncio.sleep(0.4)
 
         yield sse_message("agent_completed", {
             "agent_id": 3,
             "name": "Context Cacher & Pre-Filter",
             "tokens_used": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
             "auto_verified": agent3_res["auto_verified_count"],
             "unverified_pending": agent3_res["unverified_for_agent4_count"]
         })
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.01)
 
-        # --- AGENT 4: Fact-Checker & Synthesizer (LLM Call 2) ---
+        # AGENT 4: Fact-Checker & Synthesizer (LLM Call 2)
         yield sse_message("agent_active", {
             "agent_id": 4,
             "name": "Fact-Checker & Synthesizer",
             "action": f"Checking {agent3_res['unverified_for_agent4_count']} unverified claims against context & finalizing dossier (LLM Call 2/2)...",
             "status": "active"
         })
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.01)
 
         agent4_res = await run_agent4_fact_checker_synthesizer(
             user_query, 
@@ -240,57 +499,97 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             "agent_id": 4,
             "name": "Fact-Checker & Synthesizer",
             "details": f"Fact-checked all claims. Confidence scores assigned. Citations indexed to source literature.",
-            "tokens_used": agent4_res["tokens_used"]
+            "tokens_used": agent4_res.get("tokens_used", 0)
         })
-        await asyncio.sleep(0.4)
 
+        a4_used = agent4_res.get("tokens_used", 0)
+        a4_prompt = agent4_res.get("prompt_tokens") or round(a4_used * 0.6)
+        a4_comp = agent4_res.get("completion_tokens") or max(0, a4_used - a4_prompt)
         yield sse_message("agent_completed", {
             "agent_id": 4,
             "name": "Fact-Checker & Synthesizer",
-            "tokens_used": agent4_res["tokens_used"]
+            "tokens_used": a4_used,
+            "prompt_tokens": a4_prompt,
+            "completion_tokens": a4_comp
         })
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.01)
 
-        # --- FINAL PIPELINE COMPLETE ---
+        # FINAL PIPELINE COMPLETE
         elapsed = round(time.time() - start_time, 2)
-        total_tokens = agent1_res["tokens_used"] + agent2_res["tokens_used"] + agent3_res["tokens_used"] + agent4_res["tokens_used"]
+        total_prompt = a2_prompt + a4_prompt
+        total_comp = a2_comp + a4_comp
+        a2_used = agent2_res.get("tokens_used", 0)
+        total_tokens = (
+            agent1_res.get("tokens_used", 0) +
+            a2_used +
+            agent3_res.get("tokens_used", 0) +
+            a4_used
+        )
         
+        quick_answer = agent4_res.get("quick_answer") or agent2_res.get("quick_answer", "")
+
         final_payload = {
             "run_id": run_id,
             "query": user_query,
             "elapsed_seconds": elapsed,
             "token_usage": {
                 "total_tokens": total_tokens,
-                "llm_calls_count": 2,
+                "prompt_tokens": total_prompt,
+                "completion_tokens": total_comp,
+                "llm_calls_count": 1 if a4_used == 0 else 2,
                 "llm_budget_limit": 2,
                 "breakdown": {
                     "agent1_scraper": 0,
-                    "agent2_drafter": agent2_res["tokens_used"],
+                    "agent2_drafter": a2_used,
                     "agent3_cacher": 0,
-                    "agent4_fact_checker": agent4_res["tokens_used"]
+                    "agent4_fact_checker": a4_used
+                },
+                "io_breakdown": {
+                    "agent1_scraper": {"input": 0, "output": 0, "total": 0},
+                    "agent2_drafter": {"input": a2_prompt, "output": a2_comp, "total": agent2_res["tokens_used"]},
+                    "agent3_cacher": {"input": 0, "output": 0, "total": 0},
+                    "agent4_fact_checker": {"input": a4_prompt, "output": a4_comp, "total": agent4_res["tokens_used"]}
                 }
             },
+            "quick_answer": quick_answer,
             "complexity": agent2_res.get("complexity", {}),
             "executive_summary": agent4_res.get("executive_summary", agent2_res.get("executive_summary", "")),
-            "dossier_sections": agent4_res["dossier_sections"],
-            "citations": agent4_res["citations"],
+            "dossier_sections": agent4_res.get("dossier_sections", []),
+            "citations": agent4_res.get("citations", []),
             "evaluated_claims": agent4_res.get("evaluated_claims", []),
+            "comparison_table": agent4_res.get("comparison_table", agent2_res.get("comparison_table", {})),
+            "dialectical_friction": agent4_res.get("dialectical_friction", agent2_res.get("dialectical_friction", [])),
+            "epistemic_limitations": agent4_res.get("epistemic_limitations", agent2_res.get("epistemic_limitations", [])),
             "stats": {
                 "papers_scraped": agent1_res["papers_found"],
-                "claims_total": agent4_res["total_claims_synthesized"],
+                "claims_total": agent4_res.get("total_claims_synthesized", 0),
                 "auto_verified_zero_token": agent3_res["auto_verified_count"],
-                "llm_fact_checked": agent4_res["unverified_claims_processed"]
+                "llm_fact_checked": agent4_res.get("unverified_claims_processed", 0)
             }
         }
         
         final_payload = post_process_dossier(final_payload)
 
-        log_pipeline_run(run_id, user_query, total_tokens, elapsed, final_payload)
+        # Asynchronously log to SQLite database and cache (BUG-01, TOK-03-REVISED)
+        await asyncio.to_thread(log_pipeline_run, run_id, user_query, total_tokens, elapsed, final_payload, total_prompt, total_comp, user_id)
+        await asyncio.to_thread(set_response_cache, user_query, final_payload)
 
         yield sse_message("pipeline_complete", final_payload)
     except Exception as exc:
         err_msg = str(exc)
-        print(f"[Pipeline Error] {err_msg}")
+        logger.error(f"Pipeline error: {err_msg}")
+        if partial_data.get("agent2_draft"):
+            a2 = partial_data["agent2_draft"]
+            if "sections" in a2 and "dossier_sections" not in a2:
+                a2["dossier_sections"] = [
+                    {
+                        "sub_question": s.get("sub_question", "Draft Section"),
+                        "content_html": s.get("answer_html", "")
+                    }
+                    for s in a2.get("sections", [])
+                ]
+        if partial_data.get("agent1_scraped") and "agent1_scraper" not in partial_data:
+            partial_data["agent1_scraper"] = partial_data["agent1_scraped"]
         yield sse_message("pipeline_error", {
             "error": err_msg,
             "status": "Execution failed. Live AI returned an error.",

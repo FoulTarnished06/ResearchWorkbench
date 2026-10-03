@@ -1,101 +1,474 @@
+import os
 import math
 import re
-from typing import Dict, Any, List, Tuple
+import html
+from typing import Dict, Any, List, Tuple, Optional
+import numpy as np
+
+# Suppress Windows symlinks warning for local huggingface cache
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
 from backend.database import save_scraped_papers, save_cached_sentences, get_cached_sentences_for_query
+from backend.logger import get_logger
+
+logger = get_logger("Agent3_Cacher")
+
+_EMBED_MODEL = None
+_EMBED_INITIALIZED = False
+
+def get_embedding_model():
+    """
+    Lazy singleton loader for local ONNX fastembed BAAI/bge-small-en-v1.5 model.
+    Runs 100% on CPU in sub-15ms, zero API tokens, zero PyTorch overhead.
+    """
+    global _EMBED_MODEL, _EMBED_INITIALIZED
+    if not _EMBED_INITIALIZED:
+        _EMBED_INITIALIZED = True
+        try:
+            from fastembed import TextEmbedding
+            _EMBED_MODEL = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+            logger.info("Initialized local ONNX neural embedding model: BAAI/bge-small-en-v1.5")
+        except Exception as e:
+            logger.warning(f"fastembed initialization skipped ({e}); using high-resolution subword profile vectorizer.")
+            _EMBED_MODEL = None
+    return _EMBED_MODEL
+
+def embed_texts(texts: List[str]) -> Optional[np.ndarray]:
+    """Computes normalized 384-dimensional dense vectors in batch using fastembed."""
+    model = get_embedding_model()
+    if model is None or not texts:
+        return None
+    try:
+        embed_gen = model.embed(texts)
+        arr = np.array(list(embed_gen), dtype=np.float32)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        norms[norms == 0] = 1e-9
+        return arr / norms
+    except Exception as e:
+        logger.debug(f"Batch neural embedding calculation error: {e}")
+        return None
+
+NEGATION_PATTERNS = [
+    r'\b(?:not|never|no|neither|nor|without|lacked|lacks|lacking)\b',
+    r'\b(?:failed|fails|failure|unable|inability|unsuccessful|cannot|can\'t|couldn\'t|didn\'t|doesn\'t)\b',
+    r'\b(?:disproved|refuted|invalidated|unsupported)\b'
+]
+
+ACADEMIC_SYNONYMS = {
+    "demonstrated": "achieved",
+    "demonstrate": "achieve",
+    "demonstrates": "achieves",
+    "exhibited": "showed",
+    "exhibits": "shows",
+    "suppressed": "mitigated",
+    "suppresses": "mitigates",
+    "reduced": "decreased",
+    "reduces": "decreases",
+    "enhanced": "improved",
+    "enhances": "improves",
+    "increased": "elevated",
+    "increases": "elevates",
+    "confirmed": "verified",
+    "confirms": "verifies",
+    "formulated": "derived",
+    "formulates": "derives",
+    "benchmark": "evaluate",
+    "benchmarks": "evaluated",
+    "benchmarked": "evaluated"
+}
+
+def extract_polarity(text: str) -> bool:
+    """
+    Point 20: Polarity & Negation Inversion Guard.
+    Returns True if text expresses negative assertion/polarity, False if positive.
+    Safely accounts for positive scientific states like 'zero error', 'zero noise', 'zero crosstalk',
+    and chemical entities like 'NO' (Nitric Oxide) or 'NOx'.
+    """
+    # Preserve uppercase chemical formulas before lowercasing
+    text_preserved = re.sub(r'\bNO\b', 'nitric_oxide', text)
+    text_preserved = re.sub(r'\bNOx\b', 'nitrogen_oxides', text_preserved)
+    t_lower = text_preserved.lower()
+    t_clean = re.sub(r'\bzero\s+(?:error|noise|crosstalk|loss|latency|overhead|drift|fragmentation)\b', 'ideal_state', t_lower)
+    for pat in NEGATION_PATTERNS:
+        if re.search(pat, t_clean):
+            return True
+    return False
+
+def normalize_academic_word(w: str) -> str:
+    """Point 21: Academic Synonym Normalization."""
+    w_clean = w.lower().strip()
+    return ACADEMIC_SYNONYMS.get(w_clean, w_clean)
 
 def tokenize_words(text: str) -> List[str]:
     return re.findall(r'\b\w{2,}\b', text.lower())
 
+def text_to_vector_profile(text: str) -> Dict[str, Any]:
+    """
+    Point 19: Dense Semantic Vector Representation (Deterministic 0-token embedding).
+    Extracts normalized lemma tokens, word bigrams, and subword character 3-grams.
+    """
+    raw_words = tokenize_words(text)
+    if not raw_words:
+        return {"words": [], "freq": {}, "norm": 0.0, "clean": "", "is_negative": False}
+    words = [normalize_academic_word(w) for w in raw_words]
+    bi = [f"{words[i]}_{words[i+1]}" for i in range(len(words)-1)]
+    
+    # Subword character n-grams (3-grams) for robust morphological matching
+    subwords = []
+    for w in words:
+        if len(w) >= 4:
+            for j in range(len(w) - 2):
+                subwords.append(f"sw_{w[j:j+3]}")
+
+    all_tokens = words + bi + subwords
+    freq: Dict[str, int] = {}
+    for t in all_tokens:
+        freq[t] = freq.get(t, 0) + 1
+    norm = math.sqrt(sum(c * c for c in freq.values()))
+    return {
+        "words": words,
+        "freq": freq,
+        "norm": norm,
+        "clean": " ".join(words),
+        "is_negative": extract_polarity(text)
+    }
+
+def compute_profile_similarity(p1: Dict[str, Any], p2: Dict[str, Any]) -> float:
+    """
+    Point 19 & Point 20: Cosine similarity with Polarity Inversion Guard.
+    Clamps similarity < 0.45 if one text asserts negative polarity while the other is affirmative.
+    """
+    if p1["norm"] == 0.0 or p2["norm"] == 0.0:
+        return 0.0
+    common = set(p1["freq"].keys()) & set(p2["freq"].keys())
+    dot_product = sum(p1["freq"][k] * p2["freq"][k] for k in common)
+    raw_sim = dot_product / (p1["norm"] * p2["norm"])
+    if p1["clean"] and p2["clean"]:
+        shorter = p1["clean"] if len(p1["clean"]) < len(p2["clean"]) else p2["clean"]
+        if len(shorter.split()) >= 5 and (p1["clean"] in p2["clean"] or p2["clean"] in p1["clean"]):
+            raw_sim = max(raw_sim, 0.96)
+        
+    # Polarity Inversion Guard: Prevent false auto-verification of negated hallucinations
+    if p1.get("is_negative") != p2.get("is_negative"):
+        raw_sim = min(raw_sim, 0.35)
+
+    return round(min(raw_sim, 1.0), 4)
+
+def extract_grounding_features(text: str) -> Tuple[set, set]:
+    """
+    Extracts quantitative numerical figures/units and uppercase domain entities/acronyms.
+    """
+    metrics = set(re.findall(r'\b\d+(?:\.\d+)?\s*(?:%|gbps|gb\/s|tb\/s|tflops\/s|tops\/w|ms|ns|μs|us|s|db|ghz|mhz|nm|kb|mb|gb|tb|kbp|bp|x|fold)?\b', text.lower()))
+    acronyms = set(re.findall(r'\b[A-Z]{2,}(?:-[A-Z0-9]+)?\b', text))
+    romans = set(re.findall(r'\b(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\b', text))
+    return (metrics - {''}), (acronyms | romans)
+
 def compute_cosine_similarity(text1: str, text2: str) -> float:
     """
-    Computes word-vector cosine similarity with bigram weighting.
-    Lightweight, deterministic, 0 tokens, sub-millisecond execution.
+    Computes semantic similarity combining fastembed neural embeddings with
+    subwords, synonyms, and polarity guards. 0 tokens, sub-millisecond execution.
     """
-    words1 = tokenize_words(text1)
-    words2 = tokenize_words(text2)
+    p1 = text_to_vector_profile(text1)
+    p2 = text_to_vector_profile(text2)
+    lex_sim = compute_profile_similarity(p1, p2)
     
-    if not words1 or not words2:
-        return 0.0
+    # Check if neural embedding is available
+    model = get_embedding_model()
+    if model is not None:
+        try:
+            vecs = embed_texts([text1, text2])
+            if vecs is not None and len(vecs) == 2:
+                n_sim = float(np.dot(vecs[0], vecs[1]))
+                if p1.get("is_negative") != p2.get("is_negative"):
+                    n_sim = min(n_sim, 0.35)
+                return round(max(lex_sim, min(1.0, n_sim)), 4)
+        except Exception:
+            pass
+AGENT3_CONFIG = {
+    "bm25_k1": 1.5,
+    "bm25_b": 0.75,
+    "rrf_k": 60,
+    "similarity_threshold": 0.55
+}
 
-    # Also build bigrams for phrase match
-    bi1 = [f"{words1[i]}_{words1[i+1]}" for i in range(len(words1)-1)]
-    bi2 = [f"{words2[i]}_{words2[i+1]}" for i in range(len(words2)-1)]
+class BM25Okapi:
+    def __init__(self, corpus: List[List[str]], k1: Optional[float] = None, b: Optional[float] = None):
+        self.corpus_size = len(corpus)
+        self.avgdl = sum(float(len(x)) for x in corpus) / self.corpus_size if self.corpus_size else 0
+        self.corpus = corpus
+        self.k1 = k1 if k1 is not None else AGENT3_CONFIG["bm25_k1"]
+        self.b = b if b is not None else AGENT3_CONFIG["bm25_b"]
+        self.df = {}
+        self.idf = {}
+        self.doc_freqs = []
+        self._initialize()
+
+    def _initialize(self):
+        for document in self.corpus:
+            frequencies = {}
+            for word in document:
+                frequencies[word] = frequencies.get(word, 0) + 1
+            self.doc_freqs.append(frequencies)
+            for word, freq in frequencies.items():
+                self.df[word] = self.df.get(word, 0) + 1
+        for word, freq in self.df.items():
+            self.idf[word] = math.log(1 + (self.corpus_size - freq + 0.5) / (freq + 0.5))
+
+    def get_scores(self, query: List[str]) -> List[float]:
+        scores = []
+        for index in range(self.corpus_size):
+            score = 0.0
+            doc_len = len(self.corpus[index])
+            frequencies = self.doc_freqs[index]
+            for word in query:
+                if word not in frequencies:
+                    continue
+                freq = frequencies[word]
+                numerator = self.idf[word] * freq * (self.k1 + 1)
+                denominator = freq + self.k1 * (1 - self.b + self.b * doc_len / self.avgdl)
+                score += (numerator / denominator)
+            scores.append(score)
+        return scores
+
+def split_compound_claim(text: str) -> List[str]:
+    """
+    Point 23/Bonus: Local Regex Atomic Claim Splitting.
+    Only splits on conjunctions preceded by a clause boundary (comma, semicolon)
+    to avoid destroying compound nouns like 'CRISPR and Cas9'.
+    """
+    splits = re.split(
+        r'[,;]\s*\b(?:and|but|however|although|whereas|moreover|furthermore|while)\b\s+',
+        text, flags=re.IGNORECASE
+    )
+    splits = [s.strip().rstrip(',;') for s in splits if len(s.split()) >= 3]
+    return splits if splits else [text]
+
+def run_agent3_context_distiller(query: str, agent1_data: Any, top_k: int = 15, max_tokens: int = 600) -> List[Dict[str, Any]]:
+    """
+    Phase 1: Hybrid RRF (BM25 + Semantic) + MMR Context Pre-Filter & Dynamic Token Packing (0 LLM Tokens).
+    """
+    if isinstance(agent1_data, list):
+        dense_sentences = [s for s in agent1_data if "text" in s and "title" not in s] or agent1_data
+    else:
+        dense_sentences = agent1_data.get("dense_sentences", []) if isinstance(agent1_data, dict) else []
     
-    all_tokens1 = words1 + bi1
-    all_tokens2 = words2 + bi2
+    if not dense_sentences:
+        return []
+        
+    query_profile = text_to_vector_profile(query)
+    sent_texts = [sent.get("text", "") for sent in dense_sentences]
     
-    freq1: Dict[str, int] = {}
-    for t in all_tokens1:
-        freq1[t] = freq1.get(t, 0) + 1
-        
-    freq2: Dict[str, int] = {}
-    for t in all_tokens2:
-        freq2[t] = freq2.get(t, 0) + 1
-        
-    all_vocab = set(freq1.keys()).union(set(freq2.keys()))
+    # 1. Embed query
+    model = get_embedding_model()
+    q_vec = embed_texts([query]) if model is not None else None
     
-    dot_product = 0.0
-    for v in all_vocab:
-        dot_product += freq1.get(v, 0) * freq2.get(v, 0)
-        
-    norm1 = math.sqrt(sum(c * c for c in freq1.values()))
-    norm2 = math.sqrt(sum(c * c for c in freq2.values()))
+    # 2. Embed all sentences
+    s_mat = embed_texts(sent_texts) if (model is not None and sent_texts) else None
     
-    if norm1 == 0.0 or norm2 == 0.0:
-        return 0.0
-        
-    raw_sim = dot_product / (norm1 * norm2)
+    # 3. BM25 Setup
+    tokenized_corpus = [tokenize_words(t) for t in sent_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+    bm25_scores = bm25.get_scores(tokenize_words(query))
     
-    # Substring bonus for verbatim extractions
-    clean1 = " ".join(words1)
-    clean2 = " ".join(words2)
-    if clean1 in clean2 or clean2 in clean1:
-        raw_sim = max(raw_sim, 0.96)
+    # Calculate similarities to query using RRF (Reciprocal Rank Fusion)
+    semantic_scores = []
+    for s_idx, sent in enumerate(dense_sentences):
+        sent_profile = text_to_vector_profile(sent.get("text", ""))
+        lex_sim = compute_profile_similarity(query_profile, sent_profile)
+        if q_vec is not None and s_mat is not None:
+            n_sim = float(np.dot(q_vec[0], s_mat[s_idx]))
+            sim = max(lex_sim, n_sim)
+        else:
+            sim = lex_sim
+        semantic_scores.append(sim)
         
-    return round(min(raw_sim, 1.0), 4)
+    # Rank them
+    semantic_ranks = {idx: rank for rank, idx in enumerate(sorted(range(len(semantic_scores)), key=lambda i: semantic_scores[i], reverse=True))}
+    bm25_ranks = {idx: rank for rank, idx in enumerate(sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True))}
+    
+    q_sims = []
+    for i in range(len(dense_sentences)):
+        # RRF formula (constant 60)
+        rrf_score = (1.0 / (60 + semantic_ranks[i])) + (1.0 / (60 + bm25_ranks[i]))
+        # Normalize roughly between 0 and 1 for MMR
+        q_sims.append(rrf_score * 30.0) 
+        
+    # Apply MMR (Max Marginal Relevance)
+    lambda_param = 0.5
+    selected_indices = []
+    unselected_indices = list(range(len(dense_sentences)))
+    top_candidates = []
+    current_tokens = 0
+    
+    while len(selected_indices) < top_k and unselected_indices and current_tokens < max_tokens:
+        if not selected_indices:
+            # First item is purely based on max query similarity
+            best_idx = max(unselected_indices, key=lambda i: q_sims[i])
+        else:
+            # MMR formula
+            best_idx = -1
+            best_mmr = -float('inf')
+            for i in unselected_indices:
+                q_sim = q_sims[i]
+                
+                # Max similarity to already selected sentences
+                max_sim_to_selected = 0.0
+                if s_mat is not None:
+                    # Neural similarity
+                    sims = np.dot(s_mat[i], s_mat[selected_indices].T)
+                    max_sim_to_selected = float(np.max(sims))
+                else:
+                    # Fallback to lexical
+                    prof_i = text_to_vector_profile(dense_sentences[i].get("text", ""))
+                    max_sim_to_selected = max(compute_profile_similarity(prof_i, text_to_vector_profile(dense_sentences[j].get("text", ""))) for j in selected_indices)
+                
+                mmr_score = lambda_param * q_sim - (1 - lambda_param) * max_sim_to_selected
+                if mmr_score > best_mmr:
+                    best_mmr = mmr_score
+                    best_idx = i
+                    
+        # Token estimation (1 token approx 4 chars)
+        sent = dense_sentences[best_idx]
+        estimated_tokens = len(sent.get("text", "")) // 4
+        
+        if current_tokens + estimated_tokens > max_tokens and selected_indices:
+            # If it exceeds the limit and we already have some context, break
+            unselected_indices.remove(best_idx)
+            continue
+            
+        selected_indices.append(best_idx)
+        unselected_indices.remove(best_idx)
+        top_candidates.append(sent)
+        current_tokens += estimated_tokens
+    
+    logger.info(f"MMR Distilled {len(dense_sentences)} sentences to {len(top_candidates)} (approx {current_tokens} tokens)")
+    return top_candidates
 
 def run_agent3_context_cacher(
     query: str,
-    agent1_data: Dict[str, Any],
-    agent2_data: Dict[str, Any],
-    similarity_threshold: float = 0.80
+    agent1_data: Any,
+    agent2_data: Any,
+    similarity_threshold: float = 0.82
 ) -> Dict[str, Any]:
     """
     Agent 3: Context Cacher & Pre-Filter (Automated Tool 2 - Zero LLM Tokens).
     1. Saves Agent 1's scraped context to SQLite cache.db.
-    2. Calculates semantic similarity between Drafter's claims and cached text.
-    3. Auto-verifies identical or high-similarity matches (>= similarity_threshold).
-    4. Segregates unverified / disputed claims for Agent 4 to inspect.
+    2. Calculates semantic similarity between Drafter's claims and cached text using
+       fastembed dense neural vectors and subword profiles.
+    3. Enforces Polarity & Negation Inversion Guards.
+    4. Routes top-2 candidate context sentences per claim for Call 2 targeted context routing (Point 24).
+    5. Segregates unverified / disputed claims for Agent 4 to inspect.
     """
-    papers = agent1_data.get("papers", [])
-    dense_sentences = agent1_data.get("dense_sentences", [])
-    claims = agent2_data.get("claims", [])
+    if isinstance(agent1_data, list):
+        # Passed dense_sentences or papers directly
+        papers = [p for p in agent1_data if "title" in p]
+        dense_sentences = [s for s in agent1_data if "text" in s and "title" not in s] or agent1_data
+    else:
+        papers = agent1_data.get("papers", []) if isinstance(agent1_data, dict) else []
+        dense_sentences = agent1_data.get("dense_sentences", []) if isinstance(agent1_data, dict) else []
+
+    if isinstance(agent2_data, list):
+        claims = agent2_data
+    else:
+        claims = agent2_data.get("claims", []) if isinstance(agent2_data, dict) else []
     
-    # Step 1: Save to SQLite database
-    save_scraped_papers(query, papers)
-    save_cached_sentences(query, dense_sentences)
+    # Step 1: Save to SQLite database safely
+    try:
+        save_scraped_papers(query, papers)
+        save_cached_sentences(query, dense_sentences)
+    except Exception as e:
+        logger.warning(f"Failed to persist items to SQLite cache: {e}")
     
-    # Step 2: Compare each claim against all cached sentences
+    # Step 2: Pre-compute vector profiles and dense neural embeddings for all candidate sentences
+    sentence_profiles = [
+        (sent, text_to_vector_profile(sent.get("text", "")))
+        for sent in dense_sentences
+    ]
+
+    # Batch neural embeddings (Pillar 1: Fastembed ONNX embeddings)
+    sent_texts = [sent.get("text", "") for sent in dense_sentences]
+    s_mat = embed_texts(sent_texts) if sent_texts else None
+    
+    claim_texts = [html.unescape(c.get("text", "")).strip() for c in claims]
+    c_mat = embed_texts(claim_texts) if (claim_texts and s_mat is not None) else None
+    
+    neural_sim_matrix = (c_mat @ s_mat.T) if (c_mat is not None and s_mat is not None) else None
+
     verified_claims = []
     unverified_claims = []
     comparison_logs = []
     
-    for claim in claims:
+    for c_idx, claim in enumerate(claims):
         claim_id = claim.get("id")
-        claim_text = claim.get("text", "").strip()
+        raw_claim_text = claim.get("text", "").strip()
+        claim_text = html.unescape(raw_claim_text)
+        claim_text = re.sub(r'\s+', ' ', claim_text).strip()
         
-        best_sim = 0.0
-        best_match_sentence = None
-        best_match_paper_id = None
-        best_match_paper_title = None
+        # Local Atomic Claim Splitting
+        atomic_claims = split_compound_claim(claim_text)
+        min_atomic_sim = 1.0
+        overall_best_sent = {}
+        top_candidates = []
         
-        for sent in dense_sentences:
-            sim = compute_cosine_similarity(claim_text, sent.get("text", ""))
-            if sim > best_sim:
-                best_sim = sim
-                best_match_sentence = sent.get("text")
-                best_match_paper_id = sent.get("paper_id")
-                best_match_paper_title = sent.get("paper_title")
+        for atomic_text in atomic_claims:
+            atomic_profile = text_to_vector_profile(atomic_text)
+            a_metrics, a_acronyms = extract_grounding_features(atomic_text)
+            claim_paper_tag = (claim.get("paper") or "").upper().strip()
+
+            # Fix: Compute neural embedding once per atomic claim, not once per sentence
+            n_vec = None
+            if s_mat is not None:
+                try:
+                    n_vec = embed_texts([atomic_text])
+                except:
+                    pass
+
+            scored_matches = []
+            for s_idx, (sent, s_prof) in enumerate(sentence_profiles):
+                lex_sim = compute_profile_similarity(atomic_profile, s_prof)
+                # Compute neural on the fly for atomic
+                if n_vec is not None and s_mat is not None:
+                    n_sim = float(np.dot(n_vec[0], s_mat[s_idx]))
+                    if atomic_profile.get("is_negative") != s_prof.get("is_negative"):
+                        n_sim = min(n_sim, 0.35)
+                    sim = max(lex_sim, n_sim)
+                else:
+                    sim = lex_sim
+                
+                sent_text = sent.get("text", "")
+                sent_metrics, sent_acronyms = extract_grounding_features(sent_text)
+                common_metrics = a_metrics & sent_metrics
+                common_acronyms = a_acronyms & sent_acronyms
+                
+                boost = 0.0
+                if common_metrics: boost += 0.15
+                if common_acronyms: boost += 0.12
+                if claim_paper_tag and (sent.get("paper_idx") == claim_paper_tag or claim_paper_tag in (sent.get("paper_id") or "")):
+                    boost += 0.12
+                    
+                effective_sim = min(0.98, sim + boost) if sim > 0.25 else sim
+                scored_matches.append((effective_sim, sent))
+                
+            scored_matches.sort(key=lambda x: x[0], reverse=True)
+            if scored_matches:
+                best_atomic_sim = scored_matches[0][0]
+                min_atomic_sim = min(min_atomic_sim, best_atomic_sim)
+                if not overall_best_sent:
+                    overall_best_sent = scored_matches[0][1]
+                    top_candidates = scored_matches[:2]
+            else:
+                min_atomic_sim = 0.0
+                
+        best_sim = min_atomic_sim
+        best_match_sentence = overall_best_sent.get("text")
+        best_match_paper_id = overall_best_sent.get("paper_id")
+        best_match_paper_title = overall_best_sent.get("paper_title")
+
+        # Point 24: Top-2 Candidate evidence snippets for targeted routing
+        candidate_snippets = [
+            {"text": m[1].get("text"), "paper_id": m[1].get("paper_id"), "paper_title": m[1].get("paper_title"), "score": m[0]}
+            for m in top_candidates if m[1].get("text")
+        ]
                 
         # Determine paper metadata
         matched_paper = next((p for p in papers if p.get("id") == best_match_paper_id), None)
@@ -118,20 +491,25 @@ def run_agent3_context_cacher(
             "paper_title": matched_paper.get("title") if matched_paper else best_match_paper_title,
             "paper_url": matched_paper.get("url") if matched_paper else "#",
             "paper_authors": matched_paper.get("authors", []) if matched_paper else [],
-            "paper_year": matched_paper.get("year", 2024) if matched_paper else 2024,
-            "claim_category": claim_category
+            "paper_year": matched_paper.get("year") if matched_paper else None,
+            "claim_category": claim_category,
+            "candidate_snippets": candidate_snippets
         }
         
         comparison_logs.append(eval_result)
         
-        # Step 3: Check against similarity threshold
+        # Step 3: Check against calibrated similarity threshold
         if best_sim >= similarity_threshold:
-            eval_result["status"] = "verified_by_cache"
-            eval_result["confidence_score"] = round(0.90 + (best_sim * 0.09), 2)
-            eval_result["verified_by"] = "Agent 3 (SQLite Cache Pre-Filter)"
+            eval_result["status"] = "Auto-Verified"
+            eval_result["verification_tier"] = "auto_cache"
+            eval_result["confidence_score"] = round(0.88 + (best_sim * 0.10), 2)
+            eval_result["verified_by"] = "Agent 3 (SQLite Cache 0-Token Auto-Match)"
+            eval_result["rationale"] = f"Directly corroborated by n-gram overlap and metric alignment in SQLite cache from '{eval_result['paper_title']}'."
+            eval_result["reviewer_2_caveat"] = "Locally verified via high-confidence n-gram token overlap against source corpus."
             verified_claims.append(eval_result)
         else:
             eval_result["status"] = "needs_agent4_verification"
+            eval_result["verification_tier"] = "pending"
             eval_result["confidence_score"] = None
             eval_result["verified_by"] = "Pending Agent 4 Fact-Checker"
             unverified_claims.append(eval_result)

@@ -10,29 +10,28 @@ def extract_pdf_metadata_and_text(file_path: str) -> Dict[str, Any]:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"PDF file not found: {file_path}")
 
-    doc = pymupdf.open(file_path)
-    page_count = len(doc)
-    raw_meta = doc.metadata or {}
+    with pymupdf.open(file_path) as doc:
+        page_count = len(doc)
+        raw_meta = doc.metadata or {}
 
-    meta = {
-        "title": raw_meta.get("title") or os.path.basename(file_path).replace(".pdf", ""),
-        "authors": raw_meta.get("author") or "",
-        "subject": raw_meta.get("subject") or "",
-        "creation_date": raw_meta.get("creationDate") or ""
-    }
+        meta = {
+            "title": raw_meta.get("title") or os.path.basename(file_path).replace(".pdf", ""),
+            "authors": raw_meta.get("author") or "",
+            "subject": raw_meta.get("subject") or "",
+            "creation_date": raw_meta.get("creationDate") or ""
+        }
 
-    try:
-        markdown_text = pymupdf4llm.to_markdown(file_path, page_chunks=False)
-    except Exception as e:
-        print(f"[PDF Processor] pymupdf4llm failed ({e}), falling back to fitz get_text")
-        pages = []
-        for page in doc:
-            pages.append(page.get_text("text"))
-        markdown_text = "\n\n".join(pages)
+        try:
+            markdown_text = pymupdf4llm.to_markdown(file_path, page_chunks=False)
+        except Exception as e:
+            print(f"[PDF Processor] pymupdf4llm failed ({e}), falling back to fitz get_text")
+            pages = []
+            for page in doc:
+                pages.append(page.get_text("text"))
+            markdown_text = "\n\n".join(pages)
 
-    words = re.findall(r"\b\w+\b", markdown_text)
-    word_count = len(words)
-    doc.close()
+        words = re.findall(r"\b\w+\b", markdown_text)
+        word_count = len(words)
 
     return {
         "full_text": markdown_text,
@@ -47,66 +46,72 @@ def extract_pdf_figures(file_path: str, output_dir: str, session_id: str, file_i
         return figures
 
     os.makedirs(output_dir, exist_ok=True)
-    doc = pymupdf.open(file_path)
-    seen_hashes = set()
-    fig_idx = 1
+    with pymupdf.open(file_path) as doc:
+        seen_hashes = set()
+        fig_idx = 1
 
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        image_list = page.get_images(full=True)
-        page_text = page.get_text("text")
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            image_list = page.get_images(full=True)
+            page_text = page.get_text("text")
 
-        for img_info in image_list:
-            if fig_idx > 50:
-                break
+            for img_info in image_list:
+                if fig_idx > 50:
+                    break
 
-            xref = img_info[0]
-            base_image = doc.extract_image(xref)
-            image_bytes = base_image.get("image")
-            image_ext = base_image.get("ext", "png")
-            width = base_image.get("width", 0)
-            height = base_image.get("height", 0)
+                xref = img_info[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image.get("image")
+                image_ext = base_image.get("ext", "png").lower()
+                if image_ext not in {"png", "jpg", "jpeg", "webp", "gif"}:
+                    image_ext = "png"
+                width = base_image.get("width", 0)
+                height = base_image.get("height", 0)
 
-            if width < 60 or height < 60:
-                continue
+                if width < 60 or height < 60:
+                    continue
 
-            img_hash = hashlib.md5(image_bytes).hexdigest()
-            if img_hash in seen_hashes:
-                continue
-            seen_hashes.add(img_hash)
+                img_hash = hashlib.sha256(image_bytes).hexdigest()
+                if img_hash in seen_hashes:
+                    continue
+                seen_hashes.add(img_hash)
 
-            fig_filename = f"{file_id}_fig_{fig_idx:03d}.{image_ext}"
-            fig_rel_path = f"{session_id}/figures/{fig_filename}"
-            fig_abs_path = os.path.join(output_dir, fig_filename)
+                safe_file_id = os.path.basename(file_id.strip("/\\"))
+                fig_filename = f"{safe_file_id}_fig_{fig_idx:03d}.{image_ext}"
+                fig_rel_path = f"{session_id}/figures/{fig_filename}"
+                base_output_dir = os.path.realpath(output_dir)
+                fig_abs_path = os.path.realpath(os.path.join(output_dir, fig_filename))
 
-            with open(fig_abs_path, "wb") as f_out:
-                f_out.write(image_bytes)
+                if not fig_abs_path.startswith(base_output_dir):
+                    continue
 
-            caption = f"Figure on page {page_num + 1}"
-            caption_matches = re.findall(
-                rf"(?:Fig(?:ure|\.)\s*{fig_idx}[:.\s][^\n\.\?]{{10,140}}[\.\n])",
-                page_text,
-                re.IGNORECASE
-            )
-            if caption_matches:
-                caption = caption_matches[0].strip().replace("\n", " ")
-            else:
-                generic_matches = re.findall(r"(?:Fig(?:ure|\.)\s*\d+[:.\s][^\n]{10,120})", page_text, re.IGNORECASE)
-                if generic_matches:
-                    caption = generic_matches[min(len(generic_matches)-1, fig_idx-1)].strip()
+                with open(fig_abs_path, "wb") as f_out:
+                    f_out.write(image_bytes)
 
-            figures.append({
-                "figure_id": f"{file_id}_fig_{fig_idx}",
-                "file_path": fig_rel_path,
-                "page": page_num + 1,
-                "caption": caption[:200],
-                "width": width,
-                "height": height,
-                "mime_type": f"image/{image_ext}"
-            })
-            fig_idx += 1
+                caption = f"Figure on page {page_num + 1}"
+                caption_matches = re.findall(
+                    rf"(?:Fig(?:ure|\.)\s*{fig_idx}[:.\s].{{10,140}}?[.\n])",
+                    page_text,
+                    re.IGNORECASE | re.DOTALL
+                )
+                if caption_matches:
+                    caption = caption_matches[0].strip().replace("\n", " ")
+                else:
+                    generic_matches = re.findall(r"(?:Fig(?:ure|\.)\s*\d+[:.\s].{10,120}?(?=[.\n]|$))", page_text, re.IGNORECASE | re.DOTALL)
+                    if generic_matches:
+                        caption = generic_matches[min(len(generic_matches)-1, fig_idx-1)].strip()
 
-    doc.close()
+                figures.append({
+                    "figure_id": f"{file_id}_fig_{fig_idx}",
+                    "file_path": fig_rel_path,
+                    "page": page_num + 1,
+                    "caption": caption[:200],
+                    "width": width,
+                    "height": height,
+                    "mime_type": f"image/{image_ext}"
+                })
+                fig_idx += 1
+
     return figures
 
 def chunk_document(
@@ -147,34 +152,46 @@ def chunk_document(
             has_table = "|" in para and "---" in para
             has_eq = bool(re.search(r"\$[^\$]+\$|\\\[|\\\(", para))
 
-            if len(current_chunk_words) + len(para_words) > chunk_size and current_chunk_words:
-                chunk_text = " ".join(current_chunk_words)
-                approx_start_page = max(1, min(page_count, int((current_char_offset / max(1, total_text_len)) * page_count) + 1))
-                approx_end_page = max(1, min(page_count, int(((current_char_offset + len(chunk_text)) / max(1, total_text_len)) * page_count) + 1))
-
-                chunks.append({
-                    "chunk_id": f"{file_id}_chk_{chunk_index}",
-                    "file_id": file_id,
-                    "chunk_index": chunk_index,
-                    "chunk_text": chunk_text,
-                    "section_title": section_title,
-                    "start_page": approx_start_page,
-                    "end_page": approx_end_page,
-                    "token_count": len(current_chunk_words),
-                    "has_table": current_chunk_has_table,
-                    "has_equation": current_chunk_has_eq
-                })
-                chunk_index += 1
-                current_char_offset += len(chunk_text)
-
-                overlap_words = current_chunk_words[-overlap:] if overlap > 0 else []
-                current_chunk_words = overlap_words + para_words
-                current_chunk_has_table = has_table
-                current_chunk_has_eq = has_eq
+            # BUG-08 fix: If a single paragraph is longer than chunk_size, split into sub-segments
+            segments = []
+            if len(para_words) > chunk_size:
+                step = max(1, chunk_size - overlap)
+                for start_idx in range(0, len(para_words), step):
+                    sub_words = para_words[start_idx:start_idx + chunk_size]
+                    if sub_words:
+                        segments.append(sub_words)
             else:
-                current_chunk_words.extend(para_words)
-                current_chunk_has_table = current_chunk_has_table or has_table
-                current_chunk_has_eq = current_chunk_has_eq or has_eq
+                segments.append(para_words)
+
+            for seg_words in segments:
+                if len(current_chunk_words) + len(seg_words) > chunk_size and current_chunk_words:
+                    chunk_text = " ".join(current_chunk_words)
+                    approx_start_page = max(1, min(page_count, int((current_char_offset / max(1, total_text_len)) * page_count) + 1))
+                    approx_end_page = max(1, min(page_count, int(((current_char_offset + len(chunk_text)) / max(1, total_text_len)) * page_count) + 1))
+
+                    chunks.append({
+                        "chunk_id": f"{file_id}_chk_{chunk_index}",
+                        "file_id": file_id,
+                        "chunk_index": chunk_index,
+                        "chunk_text": chunk_text,
+                        "section_title": section_title,
+                        "start_page": approx_start_page,
+                        "end_page": approx_end_page,
+                        "token_count": len(current_chunk_words),
+                        "has_table": current_chunk_has_table,
+                        "has_equation": current_chunk_has_eq
+                    })
+                    chunk_index += 1
+                    current_char_offset += len(chunk_text)
+
+                    overlap_words = current_chunk_words[-overlap:] if overlap > 0 else []
+                    current_chunk_words = overlap_words + seg_words
+                    current_chunk_has_table = has_table
+                    current_chunk_has_eq = has_eq
+                else:
+                    current_chunk_words.extend(seg_words)
+                    current_chunk_has_table = current_chunk_has_table or has_table
+                    current_chunk_has_eq = current_chunk_has_eq or has_eq
 
         if current_chunk_words:
             chunk_text = " ".join(current_chunk_words)
@@ -244,19 +261,20 @@ def compute_chunk_vectors(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def extract_references(full_text: str, file_id: str) -> List[Dict[str, Any]]:
     refs: List[Dict[str, Any]] = []
+    # BUG-02 fix: Match heading directly without catastrophic backtracking regex
     ref_heading_match = re.search(
-        r"(?:#{1,4}\s*|\*{1,3}|_|\b)(?:References|Bibliography|Works Cited)(?:\*{1,3}|_)?[:\s\n][\s\S]*$",
+        r"(?:#{1,4}\s*|\*{1,3}|_|\b)(?:References|Bibliography|Works Cited)(?:\*{1,3}|_)?[:\s\n]",
         full_text,
         re.IGNORECASE
     )
-    if not ref_heading_match:
-        ref_block_match = re.search(r"\n(?:\[1\]|1\.)\s+[A-Z][\s\S]{100,}$", full_text)
+    if ref_heading_match:
+        ref_section_text = full_text[ref_heading_match.end():]
+    else:
+        ref_block_match = re.search(r"\n(?:\[1\]|1\.)\s+[A-Z]", full_text)
         if ref_block_match:
-            ref_section_text = ref_block_match.group(0)
+            ref_section_text = full_text[ref_block_match.start():]
         else:
             return refs
-    else:
-        ref_section_text = ref_heading_match.group(0)
 
     entries = re.split(r"(?:\n+|\s+)(?:-\s*)?\[\d+\]\s*|(?:\n\d+\.\s+)|(?:\n(?=[A-Z][a-z]+,\s+[A-Z]\.))", ref_section_text)
     ref_idx = 1
@@ -271,7 +289,7 @@ def extract_references(full_text: str, file_id: str) -> List[Dict[str, Any]]:
         raw = re.sub(r"^\s*(?:\[\d+\]|\d+\.)\s*", "", entry).strip()
 
         year_match = re.search(r"\b(19\d\d|20[0-2]\d)\b", raw)
-        year = int(year_match.group(1)) if year_match else 2024
+        year = int(year_match.group(1)) if year_match else None
 
         doi_match = re.search(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", raw, re.IGNORECASE)
         doi = doi_match.group(0) if doi_match else ""
@@ -332,3 +350,46 @@ def build_document_outline(full_text: str) -> List[Dict[str, Any]]:
             })
             idx += 1
     return outline
+
+def extractive_summarize_chunks(chunks: List[Dict[str, Any]], query: str = "", top_k: int = 12) -> List[Dict[str, Any]]:
+    """
+    Zero-token extractive pre-summarizer for PDF context chunks (QUAL-04).
+    Scores chunks based on query term overlap, information density, and section prominence.
+    Ensures high-signal methodology and empirical findings are prioritized over boilerplate.
+    """
+    if not chunks:
+        return []
+    if len(chunks) <= top_k:
+        return chunks
+
+    q_words = set(re.findall(r'\b\w{3,}\b', query.lower())) if query else set()
+    scored_chunks = []
+
+    for idx, c in enumerate(chunks):
+        text = c.get("chunk_text", "")
+        words = re.findall(r'\b\w{3,}\b', text.lower())
+        if not words or c.get("is_boilerplate"):
+            continue
+
+        overlap_score = sum(1 for w in words if w in q_words) if q_words else 0
+
+        sec_title = (c.get("section_title") or "").lower()
+        structural_bonus = 0.0
+        if any(h in sec_title for h in ["result", "method", "finding", "experiment", "benchmark", "discussion", "conclusion"]):
+            structural_bonus += 2.5
+        if c.get("has_equation"):
+            structural_bonus += 1.0
+        if c.get("has_table"):
+            structural_bonus += 1.0
+
+        unique_words = len(set(words))
+        density = unique_words / max(1, len(words))
+
+        total_score = overlap_score * 2.0 + structural_bonus + density * 1.5
+        if idx < 3:
+            total_score += 1.0
+
+        scored_chunks.append((total_score, c))
+
+    scored_chunks.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored_chunks[:top_k]]

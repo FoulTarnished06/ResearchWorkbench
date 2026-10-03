@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="dark-theme">
@@ -22,22 +23,22 @@
   <div class="drawer-backdrop" id="drawer-backdrop"></div>
 
   <!-- RECREATED SLEEK SETTINGS & MODEL CONFIGURATION DRAWER (Positioned at root body level so it sits above backdrop) -->
-  <aside class="settings-drawer" id="settings-drawer" aria-hidden="true">
+  <aside class="settings-drawer" id="settings-drawer" aria-hidden="true" inert>
     <div class="drawer-header">
       <div class="drawer-title-group">
         <div class="drawer-header-badge">Workbench Configuration</div>
         <h3>System Settings & AI Engines</h3>
         <p class="text-subtle">Configure multi-agent parameters, models, and cache storage</p>
       </div>
-      <button class="btn-close-drawer" id="btn-close-drawer" title="Close Settings">&times;</button>
+      <button class="btn-close-drawer" id="btn-close-drawer" title="Close Settings" aria-label="Close Settings">&times;</button>
     </div>
 
     <!-- Settings Navigation Tabs -->
-    <div class="drawer-tabs">
-      <button class="drawer-tab-btn active" data-tab="models">🤖 Models & AI</button>
-      <button class="drawer-tab-btn" data-tab="pipeline">⚙️ Pipeline & Scraping</button>
-      <button class="drawer-tab-btn" data-tab="cache">💾 SQLite Cache</button>
-      <button class="drawer-tab-btn" data-tab="documents">📄 PDF Documents</button>
+    <div class="drawer-tabs" role="tablist" aria-label="Settings categories">
+      <button class="drawer-tab-btn active" data-tab="models" role="tab" aria-selected="true" aria-controls="tab-panel-models">🤖 Models & AI</button>
+      <button class="drawer-tab-btn" data-tab="pipeline" role="tab" aria-selected="false" aria-controls="tab-panel-pipeline">⚙️ Pipeline & Scraping</button>
+      <button class="drawer-tab-btn" data-tab="cache" role="tab" aria-selected="false" aria-controls="tab-panel-cache">💾 SQLite Cache</button>
+      <button class="drawer-tab-btn" data-tab="documents" role="tab" aria-selected="false" aria-controls="tab-panel-documents">📄 PDF Documents</button>
     </div>
 
     <div class="drawer-content">
@@ -95,11 +96,13 @@
           <div class="form-group">
             <label>Drafting Model Provider</label>
             <select id="cfg-agent2-model" class="custom-select">
-              <option value="gemini-3.5-flash" selected>Gemini 3.5 Flash (Recommended)</option>
-              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
-              <option value="claude-sonnet-5">Claude Sonnet 5</option>
+              <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
+              <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (Recommended)</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
+              <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
+              <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
               <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
-              <option value="gpt-5">OpenAI GPT-5</option>
             </select>
           </div>
         </div>
@@ -116,11 +119,13 @@
           <div class="form-group">
             <label>Fact-Checker Model</label>
             <select id="cfg-agent4-model" class="custom-select">
+              <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
               <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (High Precision)</option>
               <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
+              <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
+              <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
               <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
-              <option value="claude-sonnet-5">Claude Sonnet 5</option>
-              <option value="gpt-5">OpenAI GPT-5</option>
             </select>
           </div>
           <div class="form-group">
@@ -167,19 +172,117 @@
             <span class="zero-token-chip">0 Tokens (Deterministic)</span>
           </div>
           <div class="form-group">
-            <label>Literature Database Sources</label>
-            <select id="cfg-agent1-source" class="custom-select">
-              <option value="all" selected>All Repositories (.gov, .edu, SerpAPI, Semantic Scholar, arXiv)</option>
-              <option value="papers">Peer-Reviewed Journals Only (Semantic Scholar + arXiv)</option>
-              <option value="serpapi">Live Web Search Only (SerpAPI Google Search)</option>
-              <option value="gov">Government Repositories Only (.gov - PubMed / NIH)</option>
-              <option value="edu">Academic & University Repositories (.edu - OpenAlex)</option>
-            </select>
+            <label>Literature Database Sources & Scrapers</label>
+            <div class="scraper-presets-row">
+              <span class="preset-label">Presets:</span>
+              <button type="button" class="scraper-preset-btn active" data-preset="all" id="preset-all">All (6 Repos)</button>
+              <button type="button" class="scraper-preset-btn" data-preset="economics" id="preset-econ">Economics & Social</button>
+              <button type="button" class="scraper-preset-btn" data-preset="biomedical" id="preset-bio">Biomedical</button>
+              <button type="button" class="scraper-preset-btn" data-preset="openaccess" id="preset-oa">Open Access Only</button>
+            </div>
+            <div class="scrapers-grid" id="scrapers-selection-grid">
+              <!-- Crossref -->
+              <label class="scraper-card active" data-scraper="crossref">
+                <input type="checkbox" class="scraper-checkbox" value="crossref" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">Crossref Works</span>
+                    <span class="scraper-tag tag-green">Keyless & Free</span>
+                  </div>
+                  <p class="scraper-desc">150M+ scholarly DOI records, journals, books, economics, humanities & STEM.</p>
+                </div>
+              </label>
+              <!-- DOAJ -->
+              <label class="scraper-card active" data-scraper="doaj">
+                <input type="checkbox" class="scraper-checkbox" value="doaj" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">DOAJ Directory</span>
+                    <span class="scraper-tag tag-green">Pure Open Access</span>
+                  </div>
+                  <p class="scraper-desc">10,000+ community-curated peer-reviewed gold open-access journals.</p>
+                </div>
+              </label>
+              <!-- OpenAlex -->
+              <label class="scraper-card active" data-scraper="openalex">
+                <input type="checkbox" class="scraper-checkbox" value="openalex" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">OpenAlex Graph</span>
+                    <span class="scraper-tag tag-blue">Global Knowledge</span>
+                  </div>
+                  <p class="scraper-desc">Global scholarly knowledge graph indexing 250M+ university works and papers.</p>
+                </div>
+              </label>
+              <!-- Semantic Scholar -->
+              <label class="scraper-card active" data-scraper="semantic_scholar">
+                <input type="checkbox" class="scraper-checkbox" value="semantic_scholar" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">Semantic Scholar</span>
+                    <span class="scraper-tag tag-blue">AI2 Corpus</span>
+                  </div>
+                  <p class="scraper-desc">AI-powered paper repository with citation graphs and semantic abstracts.</p>
+                </div>
+              </label>
+              <!-- Europe PMC -->
+              <label class="scraper-card active" data-scraper="europepmc">
+                <input type="checkbox" class="scraper-checkbox" value="europepmc" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">Europe PMC</span>
+                    <span class="scraper-tag tag-purple">Life Sciences</span>
+                  </div>
+                  <p class="scraper-desc">Comprehensive open-access biomedical and European life sciences literature.</p>
+                </div>
+              </label>
+              <!-- PubMed / NCBI -->
+              <label class="scraper-card active" data-scraper="pubmed">
+                <input type="checkbox" class="scraper-checkbox" value="pubmed" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">PubMed / NCBI</span>
+                    <span class="scraper-tag tag-amber">MEDLINE</span>
+                  </div>
+                  <p class="scraper-desc">National Library of Medicine MEDLINE database for clinical health sciences.</p>
+                </div>
+              </label>
+              <!-- CORE -->
+              <label class="scraper-card active" data-scraper="core">
+                <input type="checkbox" class="scraper-checkbox" value="core" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">CORE</span>
+                    <span class="scraper-tag tag-green">Open Access</span>
+                  </div>
+                  <p class="scraper-desc">The world's largest collection of open access research papers.</p>
+                </div>
+              </label>
+              <!-- BASE -->
+              <label class="scraper-card active" data-scraper="base">
+                <input type="checkbox" class="scraper-checkbox" value="base" checked>
+                <div class="scraper-card-body">
+                  <div class="scraper-card-title-row">
+                    <span class="scraper-name">BASE</span>
+                    <span class="scraper-tag tag-blue">Academic Search</span>
+                  </div>
+                  <p class="scraper-desc">Bielefeld Academic Search Engine for multi-disciplinary scientific open web resources.</p>
+                </div>
+              </label>
+            </div>
+            <div class="scrapers-summary-bar">
+              <span id="scrapers-summary-text">Active: 8 of 8 academic repositories selected</span>
+            </div>
           </div>
           <div class="form-group">
             <label>Open-Access Papers to Scrape</label>
             <input type="range" id="cfg-paper-limit" min="3" max="8" value="5" class="range-slider">
             <div class="range-values"><span>3</span><span id="val-paper-limit">5 papers</span><span>8</span></div>
+          </div>
+          <div class="form-group">
+            <label>PDF Fulltext Page Extraction Depth</label>
+            <input type="range" id="cfg-pdf-page-limit" min="5" max="30" value="15" step="1" class="range-slider">
+            <div class="range-values"><span>5 pages</span><span id="val-pdf-page-limit">15 pages</span><span>30 pages</span></div>
           </div>
         </div>
 
@@ -314,39 +417,54 @@
   </aside>
 
   <div class="app-layout">
-    <!-- LEFT ICON DOCK -->
-    <aside class="icon-dock">
+    <!-- LEFT ICON DOCK (Retractable Sidebar) -->
+    <aside class="icon-dock" id="icon-dock" aria-label="Navigation dock">
       <div class="dock-top">
-        <button class="dock-logo-btn" id="dock-home-btn" title="AI Research Workbench">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
+        <div class="dock-brand-row">
+          <button class="dock-logo-btn" id="dock-home-btn" title="AI Research Workbench" aria-label="AI Research Workbench">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+          </button>
+          <div class="dock-brand-meta">
+            <span class="dock-brand-title">Research Workbench</span>
+            <span class="dock-brand-sub">Academic Engine</span>
+          </div>
+        </div>
+        <button class="dock-toggle-btn" id="btn-toggle-dock" title="Expand / Collapse Sidebar (Ctrl+B)" aria-label="Toggle Sidebar Navigation">
+          <svg class="dock-toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+            <polyline class="toggle-arrow" points="14 9 17 12 14 15"></polyline>
           </svg>
         </button>
       </div>
 
       <nav class="dock-nav">
-        <button class="dock-item active" id="nav-about" title="About & Academic Overview">
+        <button class="dock-item active" id="nav-about" title="About & Academic Overview" aria-label="About & Academic Overview">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="16" x2="12" y2="12"></line>
             <line x1="12" y1="8" x2="12.01" y2="8"></line>
           </svg>
+          <span class="dock-label">Overview & Guide</span>
           <span class="dock-tooltip">Overview & Guide</span>
         </button>
 
-        <button class="dock-item" id="nav-canvas" title="Interactive Research Canvas">
+        <button class="dock-item" id="nav-canvas" title="Interactive Research Canvas" aria-label="Interactive Research Canvas">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="3" width="7" height="7"></rect>
             <rect x="14" y="3" width="7" height="7"></rect>
             <rect x="14" y="14" width="7" height="7"></rect>
             <rect x="3" y="14" width="7" height="7"></rect>
           </svg>
+          <span class="dock-label">Pipeline Canvas</span>
           <span class="dock-tooltip">Pipeline Canvas</span>
         </button>
 
-        <button class="dock-item" id="nav-dossier" title="Academic Research Dossier">
+        <button class="dock-item" id="nav-dossier" title="Academic Research Dossier" aria-label="Academic Research Dossier">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
@@ -354,45 +472,73 @@
             <line x1="16" y1="17" x2="8" y2="17"></line>
             <polyline points="10 9 9 9 8 9"></polyline>
           </svg>
+          <span class="dock-label">Synthesis Dossier</span>
           <span class="dock-tooltip">Synthesis Dossier</span>
         </button>
 
-        <button class="dock-item" id="nav-documents" title="PDF Document Analysis">
+        <button class="dock-item" id="nav-dialogue" title="Continuous Research Dialogue (DHS-RCC)" aria-label="Continuous Research Dialogue">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span class="dock-label">Research Dialogue</span>
+          <span class="dock-tooltip">Research Dialogue</span>
+        </button>
+
+        <button class="dock-item" id="nav-documents" title="PDF Document Analysis" aria-label="PDF Document Analysis">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
             <line x1="12" y1="18" x2="12" y2="12"></line>
             <line x1="9" y1="15" x2="15" y2="15"></line>
           </svg>
+          <span class="dock-label">PDF Analysis</span>
           <span class="dock-tooltip">PDF Analysis</span>
         </button>
 
-        <!-- Model Settings Button in Dock (Workbench only) -->
-        <button class="dock-item workbench-only-item" id="nav-settings" title="Model & Agent Configuration">
+        <!-- Model Settings Button in Dock (Available in all views) -->
+        <button class="dock-item" id="nav-settings" title="Model & Agent Configuration" aria-label="Model & Agent Configuration">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
+          <span class="dock-label">Agent & Model Config</span>
           <span class="dock-tooltip">Agent & Model Config</span>
         </button>
 
-        <button class="dock-item workbench-only-item" id="nav-database" title="SQLite Evidence Cache (cache.db)">
+        <!-- SQLite Evidence Cache (Available in all views) -->
+        <button class="dock-item" id="nav-database" title="SQLite Evidence Cache (cache.db)" aria-label="SQLite Evidence Cache">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
             <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
           </svg>
+          <span class="dock-label">SQLite Evidence Cache</span>
           <span class="dock-tooltip">SQLite Cache (cache.db)</span>
+        </button>
+
+        <button class="dock-item" id="nav-history" title="Past Outputs & Research History (Ctrl+H)" aria-label="Past Outputs & Research History">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span class="dock-label">Research History</span>
+          <span class="dock-tooltip">Past Outputs History</span>
         </button>
       </nav>
 
       <div class="dock-bottom">
-        <div class="avatar-badge" title="Researcher Workspace Active">
-          <div class="avatar-circle">
-            <span>RS</span>
+        <button type="button" class="dock-user-profile-btn" id="dock-auth-btn" title="User Account & Session" aria-label="User Account and Authentication">
+          <div class="avatar-badge">
+            <div class="avatar-circle" id="dock-avatar-circle">
+              <span id="dock-avatar-initials">RF</span>
+            </div>
+            <span class="status-indicator online" id="dock-status-dot"></span>
           </div>
-          <span class="status-indicator online"></span>
-        </div>
+          <div class="dock-user-details">
+            <span class="dock-user-name" id="dock-user-name">Research Fellow</span>
+            <span class="dock-user-status" id="dock-user-role">Sign In / Account</span>
+          </div>
+        </button>
       </div>
     </aside>
 
@@ -418,38 +564,40 @@
             <button class="switch-pill active" data-view="about">Overview</button>
             <button class="switch-pill" data-view="canvas">Pipeline Canvas</button>
             <button class="switch-pill" data-view="dossier">Research Dossier</button>
+            <button class="switch-pill" data-view="dialogue">Research Dialogue</button>
             <button class="switch-pill" data-view="documents">Document Analysis</button>
           </div>
         </div>
 
         <div class="telemetry-right">
-          <!-- Theme Toggle (Midnight Obsidian / Aesthetic Warm Beige) -->
-          <button class="btn-secondary theme-toggle-btn" id="btn-toggle-theme" title="Toggle Theme (Midnight Obsidian / Aesthetic Warm Beige)">
-            <span class="theme-icon" id="theme-icon">☀️</span>
-            <span class="theme-text" id="theme-text">Warm Beige</span>
-          </button>
-
-          <!-- Model Settings Toggle: HIDDEN on About page, only visible in Workbench -->
-          <button class="btn-secondary workbench-only-btn" id="btn-toggle-drawer" title="Configure AI Models & Thresholds">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-            </svg>
-            <span>Model Settings</span>
-          </button>
-          
-          <div class="status-pill" id="tele-status-pill">
+          <!-- Unified Connection & Mode Status Pill -->
+          <div class="status-pill" id="tele-status-pill" title="Backend State">
             <span class="pulse-indicator status-green" id="tele-status-dot"></span>
             <span class="status-text" id="tele-status-text">Ready</span>
           </div>
+
+          <!-- Compact Theme Toggle (Obsidian Dark / Warm Beige) -->
+          <button class="btn-icon-only theme-toggle-btn" id="btn-toggle-theme" title="Toggle Theme (Obsidian Dark / Warm Beige)" aria-label="Toggle Theme">
+            <span class="theme-icon" id="theme-icon">☀️</span>
+          </button>
+
+          <!-- Account & Authentication Button -->
+          <button class="btn-icon-only auth-top-btn" id="btn-top-auth" title="User Account & Authentication" aria-label="User Account">
+            <span id="top-auth-icon">👤</span>
+          </button>
+
+          <!-- Shortcuts help button (?) -->
+          <button class="btn-icon-only shortcuts-btn" id="btn-open-shortcuts" title="Keyboard Shortcuts (?)" aria-label="Keyboard Shortcuts">
+            <span style="font-weight: 700; font-size: 13px;">?</span>
+          </button>
+          
           <!-- Abort Pipeline Button (visible during execution) -->
-          <button class="btn-abort" id="btn-abort-pipeline" title="Abort Running Pipeline" style="display: none;">
+          <button class="btn-abort" id="btn-abort-pipeline" title="Abort Running Pipeline" aria-label="Abort Running Pipeline" style="display: none;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
               <rect x="4" y="4" width="16" height="16" rx="2"></rect>
             </svg>
             <span>Abort</span>
           </button>
-          <div class="demo-tag" id="demo-indicator-tag">Demo Mode</div>
         </div>
       </header>
 
@@ -499,7 +647,7 @@
                     <h4>Agent 1: Scraper</h4>
                     <span class="zero-token-chip">0 Tokens</span>
                   </div>
-                  <p>Retrieves open-access papers from Semantic Scholar and ArXiv. Extracts info-dense sentences via term frequency.</p>
+                  <p>Retrieves open-access papers from Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, and PubMed. Extracts info-dense sentences via term frequency.</p>
                   <div class="node-meta-tag">Automated Tool 1</div>
                 </div>
               </div>
@@ -553,7 +701,7 @@
             <div class="feature-card">
               <div class="feature-icon">📚</div>
               <h3>Empirical Literature Grounding</h3>
-              <p>Every factual statement in your research synthesis is backed by peer-reviewed papers indexed with DOI and ArXiv identifiers.</p>
+              <p>Every factual statement in your research synthesis is backed by peer-reviewed papers indexed with DOI and persistent scholarly identifiers.</p>
             </div>
             <div class="feature-card">
               <div class="feature-icon">🎯</div>
@@ -614,7 +762,7 @@
                 </div>
                 <div class="node-title-group">
                   <div class="node-name">Agent 1: Academic Scraper</div>
-                  <div class="node-sub">Semantic Scholar & ArXiv API</div>
+                  <div class="node-sub">Crossref, DOAJ & OpenAlex APIs</div>
                 </div>
                 <div class="node-badge badge-idle" id="badge-agent1">Awaiting</div>
               </div>
@@ -831,6 +979,7 @@
               <div class="toolbar-left">
                 <span class="study-badge">RESEARCH DOSSIER</span>
                 <span class="study-verified-tag">✓ Peer-Reviewed Evidence</span>
+                <span class="dossier-tokens-tag" id="dossier-meta-tokens">⚡ 0 tokens</span>
               </div>
               <div class="toolbar-right">
                 <button class="btn-tool-action" id="btn-copy-synthesis" title="Copy Synthesis to Clipboard">
@@ -841,13 +990,48 @@
                   <span>Copy Synthesis</span>
                 </button>
 
-                <button class="btn-tool-action" id="btn-export-bibtex" title="Copy BibTeX Citations">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-                  </svg>
-                  <span>Export BibTeX</span>
-                </button>
+                <!-- Multi-Format Export Dropdown -->
+                <div class="export-dropdown-wrapper" id="export-dropdown-wrapper">
+                  <button class="btn-tool-action btn-export-trigger" id="btn-export-menu" title="Export Research Dossier">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    <span>Export</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </button>
+                  <div class="export-dropdown-menu hidden" id="export-dropdown-menu">
+                    <button class="export-dropdown-item" id="btn-export-docx">
+                      <span class="dropdown-item-icon">📄</span>
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">Word Document (.docx)</span>
+                        <span class="dropdown-item-sub">Formatted dossier with citations</span>
+                      </div>
+                    </button>
+                    <button class="export-dropdown-item" id="btn-export-latex">
+                      <span class="dropdown-item-icon">📐</span>
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">LaTeX Monograph (.tex)</span>
+                        <span class="dropdown-item-sub">Standard academic paper</span>
+                      </div>
+                    </button>
+                    <button class="export-dropdown-item" id="btn-export-markdown">
+                      <span class="dropdown-item-icon">📝</span>
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">Markdown (.md)</span>
+                        <span class="dropdown-item-sub">Markdown with YAML metadata</span>
+                      </div>
+                    </button>
+                    <button class="export-dropdown-item" id="btn-export-bibtex">
+                      <span class="dropdown-item-icon">📚</span>
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">BibTeX Citations (.bib)</span>
+                        <span class="dropdown-item-sub">Copy citation bibliography</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
 
                 <button class="btn-tool-action" id="btn-toggle-sidebar" title="Toggle Citations Panel">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -879,28 +1063,71 @@
               </div>
             </div>
 
-            <!-- Key Findings Card -->
-            <div class="key-takeaways-card" id="key-takeaways-card">
+            <!-- QUICK ANSWER CARD (DUAL OUTPUT: PLAIN-ENGLISH SUMMARY FIRST) -->
+            <div class="quick-answer-card hidden" id="quick-answer-card">
+              <div class="quick-answer-header">
+                <div class="quick-answer-badge">
+                  <span class="qa-badge-icon">💡</span>
+                  <span class="qa-badge-title">Executive Plain-English Summary</span>
+                </div>
+                <button class="btn-jump-academic" id="btn-jump-academic" title="Jump to deep academic monograph below">
+                  <span>Detailed Academic Monograph</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+              </div>
+              <div class="quick-answer-body" id="quick-answer-text">
+                <!-- Plain-English summary rendered dynamically -->
+              </div>
+            </div>
+
+            <!-- Key Findings Card (Initially hidden until populated) -->
+            <div class="key-takeaways-card hidden" id="key-takeaways-card">
               <div class="takeaway-header">
                 <h4>Key Findings</h4>
               </div>
               <ul class="takeaway-list" id="takeaway-list">
-                <li>Run an academic research query to synthesize key findings and verified citations.</li>
               </ul>
             </div>
 
             <!-- Content Subsections -->
             <div class="dossier-content-body" id="dossier-content-body">
-              <div class="empty-state-card">
-                <div class="empty-icon">📖</div>
-                <h3>No Research Dossier Generated Yet</h3>
-                <p>Enter an academic research query in the prompt bar below to run the 4-agent verification pipeline.</p>
+              <div class="empty-state-card studio-hero-card">
+                <div class="studio-hero-icon">🔬</div>
+                <h3>Academic Research Studio</h3>
+                <p>Enter an academic research topic or paper question below to initiate the multi-agent literature synthesis & verification pipeline.</p>
+                <div class="starter-chips-container">
+                  <span class="starter-chips-label">Or explore an empirical benchmark:</span>
+                  <div class="starter-chips-grid">
+                    <button class="starter-chip" data-query="Quantum Error Mitigation in Neutral Atom Qubits">⚛️ Quantum Error Mitigation in Neutral Atoms</button>
+                    <button class="starter-chip" data-query="KV-Cache Bottlenecks in Long-Context LLMs">🧠 KV-Cache Bottlenecks in Long LLMs</button>
+                    <button class="starter-chip" data-query="CRISPR-Cas Off-Target Prediction Models">🧬 CRISPR-Cas Off-Target Prediction Models</button>
+                  </div>
+                </div>
               </div>
+            </div>
+
+            <!-- CONTINUOUS RESEARCH DIALOGUE CALLOUT BANNER (Initially hidden until monograph generated) -->
+            <div class="dossier-dialogue-banner hidden" id="dossier-dialogue-banner">
+              <div class="dialogue-banner-content">
+                <div class="dialogue-banner-icon">💬</div>
+                <div class="dialogue-banner-text">
+                  <h4>Have continuous, non-targeted follow-up questions?</h4>
+                  <p>Engage in a multi-turn deep research dialogue while strictly bounding tokens via DHS-RCC (~750 input tokens per turn).</p>
+                </div>
+              </div>
+              <button class="btn-primary" id="btn-launch-dialogue" title="Open Interactive Research Dialogue Tab">
+                <span>Continue in Dialogue Tab</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </button>
             </div>
           </div>
 
           <!-- RIGHT CITATIONS & VERIFIED EVIDENCE SIDEBAR (Guaranteed 100% visible on screen) -->
-          <aside class="dossier-citations-sidebar" id="dossier-citations-sidebar">
+          <aside class="dossier-citations-sidebar" id="dossier-citations-sidebar" aria-label="Dossier citations sidebar">
             <div class="citations-header">
               <div class="cit-title-row">
                 <h3>Verified Citations & Sources</h3>
@@ -956,6 +1183,117 @@
               </svg>
               <span>View Canvas Nodes</span>
             </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3.5: CONTINUOUS RESEARCH DIALOGUE (CHAT TAB - DHS-RCC) -->
+      <section class="view-section" id="view-dialogue">
+        <div class="dialogue-container">
+          <!-- Left Anchor Sidebar: Compressed Monograph Digest & Token Telemetry -->
+          <aside class="dialogue-context-sidebar" id="dialogue-context-sidebar" aria-label="Dialogue context sidebar">
+            <div class="dialogue-context-header">
+              <div class="context-header-badge">
+                <span class="badge-icon">⚓</span>
+                <span class="badge-title">Context Anchor</span>
+              </div>
+              <button class="btn-jump-dossier" id="btn-dialogue-return-dossier" title="Return to full academic monograph">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                <span>Dossier</span>
+              </button>
+            </div>
+
+            <div class="dialogue-topic-box">
+              <div class="dialogue-topic-label">Active Research Query</div>
+              <div class="dialogue-topic-title" id="dialogue-active-query">No active monograph selected</div>
+            </div>
+
+            <!-- Real-Time Token Efficiency Meter -->
+            <div class="dialogue-token-telemetry-box">
+              <div class="telemetry-box-title">
+                <span class="telemetry-pulse-dot"></span>
+                <span>DHS-RCC Token Telemetry</span>
+              </div>
+              <div class="telemetry-metric-grid">
+                <div class="telemetry-metric-item">
+                  <span class="metric-val" id="dialogue-turn-tokens">~380</span>
+                  <span class="metric-lbl">Turn Tokens</span>
+                </div>
+                <div class="telemetry-metric-item">
+                  <span class="metric-val text-green" id="dialogue-token-savings">88%</span>
+                  <span class="metric-lbl">Token Savings</span>
+                </div>
+              </div>
+              <div class="dialogue-io-row" id="dialogue-io-row">
+                <span class="io-pill io-pill-in">In: <strong id="dialogue-in-tokens">~245</strong></span>
+                <span class="io-sep">·</span>
+                <span class="io-pill io-pill-out">Out: <strong id="dialogue-out-tokens">~135</strong></span>
+              </div>
+              <p class="telemetry-help-note">Bounded at ~750 input tokens/turn (O(1) constant) vs 4,500–12,000+ unbounded in standard web chat.</p>
+            </div>
+
+            <!-- Key Findings & Propositions List -->
+            <div class="dialogue-anchor-findings">
+              <div class="findings-header">Core Anchored Propositions</div>
+              <ul class="anchor-findings-list" id="dialogue-anchor-claims">
+                <li>Load a research dossier to anchor conversational context.</li>
+              </ul>
+            </div>
+
+            <div class="dialogue-context-footer">
+              <button class="btn-secondary btn-sm" id="btn-clear-dialogue" title="Clear this dialogue history">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                <span>Clear Dialogue</span>
+              </button>
+            </div>
+          </aside>
+
+          <!-- Right Column: Interactive Continuous Dialogue Feed -->
+          <div class="dialogue-feed-wrapper">
+            <div class="dialogue-messages" id="dialogue-messages">
+              <!-- Welcome banner / initial state -->
+              <div class="dialogue-welcome-card" id="dialogue-welcome-card">
+                <div class="welcome-icon">💬</div>
+                <h3>Continuous Research Dialogue</h3>
+                <p>Ask non-targeted, exploratory, or cross-cutting questions about the synthesized research topic. Context is preserved across all turns while strictly compressing tokens.</p>
+                <div class="dialogue-suggested-prompts" id="dialogue-welcome-pills">
+                  <button class="dialogue-pill" data-prompt="What are the biggest open controversies and competing theories surrounding this topic?">⚖️ Open Controversies & Theories</button>
+                  <button class="dialogue-pill" data-prompt="What are the primary theoretical limitations and real-world scaling bottlenecks?">⚠️ Bottlenecks & Practical Limitations</button>
+                  <button class="dialogue-pill" data-prompt="Synthesize a 3-point critical roadmap for future empirical research.">🔮 Future Research Roadmap</button>
+                  <button class="dialogue-pill" data-prompt="Compare the methodologies and assumptions of the key studies cited.">🔬 Methodology Cross-Comparison</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Interactive Input Area -->
+            <div class="dialogue-input-container">
+              <div class="dialogue-quick-pills-row" id="dialogue-quick-pills-row">
+                <button class="dialogue-pill" data-prompt="Can you formalize the key mathematical relationships and asymptotic bounds?">📈 Formal Math & Asymptotics</button>
+                <button class="dialogue-pill" data-prompt="What counter-arguments or conflicting empirical evidence exist?">🥊 Conflicting Evidence</button>
+                <button class="dialogue-pill" data-prompt="Explain this entire synthesis simply as if I am an undergraduate student.">🎓 Undergraduate Intuition</button>
+              </div>
+
+              <div class="dialogue-input-box">
+                <textarea 
+                  id="dialogue-user-input" 
+                  class="dialogue-textarea" 
+                  placeholder="Ask any non-targeted follow-up question about this research (Enter to send, Shift+Enter for new line)..." 
+                  rows="1"
+                ></textarea>
+                <button class="btn-primary dialogue-send-btn" id="btn-send-dialogue" title="Send Inquiry">
+                  <span>Send</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -1024,20 +1362,20 @@
         <div class="doc-workspace" id="doc-workspace" style="display: none;">
           <div class="doc-actions-toolbar" id="doc-actions-toolbar">
             <div class="action-chips">
-              <button class="action-chip active" data-action="qa">💬 Ask Questions</button>
-              <button class="action-chip" data-action="summarize">📋 Executive Summary</button>
-              <button class="action-chip" data-action="deep_analysis">🔬 Methodology Analysis</button>
-              <button class="action-chip" data-action="extract_findings">📊 Extract Findings</button>
-              <button class="action-chip" data-action="critique">✏️ Academic Critique</button>
-              <button class="action-chip" data-action="compare">⚖️ Compare Papers</button>
-              <button class="action-chip" data-action="figures">🖼️ Figure Gallery</button>
+              <button class="action-chip active" data-action="qa">💬 Q&A</button>
+              <button class="action-chip" data-action="summarize">📋 Summary</button>
+              <button class="action-chip" data-action="deep_analysis">🔬 Methodology</button>
+              <button class="action-chip" data-action="extract_findings">📊 Findings</button>
+              <button class="action-chip" data-action="critique">✏️ Critique</button>
+              <button class="action-chip" data-action="compare">⚖️ Compare</button>
+              <button class="action-chip" data-action="figures">🖼️ Figures</button>
               <button class="action-chip" data-action="citation_graph">🕸️ Citation Graph</button>
             </div>
             <div class="pdf-toolbar-controls">
               <label class="doc-toggle-switch" title="Strict API Call Mode: Fails cleanly if LLM call fails or API key is missing. Never outputs dummy text.">
-                <input type="checkbox" id="toggle-pdf-strict-api" checked>
+                <input type="checkbox" id="toggle-pdf-strict-api">
                 <span class="toggle-slider-sm"></span>
-                <span class="toggle-label-text">Strict API Mode</span>
+                <span class="toggle-label-text">Strict API</span>
               </label>
               <label class="doc-toggle-switch" title="Demo Mode: Returns verified pre-computed answers & mathematical formulations without using API tokens.">
                 <input type="checkbox" id="toggle-pdf-demo-mode">
@@ -1061,27 +1399,31 @@
                     <p>💡 Documents indexed. Ask questions regarding findings, equations, figures, or methodologies. Inline page citations <code>[p.X]</code> are attached to every claim.</p>
                   </div>
                 </div>
-                <!-- Preset Demo / Quick Inquiries Row -->
-                <div class="doc-demo-chips-row" id="doc-demo-chips">
-                  <span class="doc-demo-label">Demo Inquiries:</span>
-                  <button class="doc-demo-chip" data-query="How does the attention mechanism compute queries, keys, and values? Show mathematical formulation.">
-                    💡 Attention Math & Equations
-                  </button>
-                  <button class="doc-demo-chip" data-query="Compare the computational complexity per layer of self-attention versus recurrent and convolutional layers.">
-                    ⚖️ Self-Attention vs RNN Complexity
-                  </button>
-                  <button class="doc-demo-chip" data-query="What are the core thesis, BLEU benchmark results, and hardware training setup?">
-                    📋 Core Thesis & BLEU Benchmarks
-                  </button>
-                </div>
-                <div class="doc-chat-input-bar">
-                  <textarea id="doc-query-input" placeholder="Ask a targeted question about the uploaded document(s)..." rows="1"></textarea>
-                  <button class="btn-send-doc-query" id="btn-send-doc-query" title="Submit Question">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                      <line x1="22" y1="2" x2="11" y2="13"></line>
-                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                    </svg>
-                  </button>
+
+                <!-- Pinned Bottom Dock with Demo Queries & Input Bar -->
+                <div class="doc-chat-bottom-dock">
+                  <!-- Preset Demo / Quick Inquiries Row -->
+                  <div class="doc-demo-chips-row" id="doc-demo-chips">
+                    <span class="doc-demo-label">Quick Inquiries:</span>
+                    <button class="doc-demo-chip" data-query="How does the attention mechanism compute queries, keys, and values? Show mathematical formulation.">
+                      💡 Attention Math
+                    </button>
+                    <button class="doc-demo-chip" data-query="Compare the computational complexity per layer of self-attention versus recurrent and convolutional layers.">
+                      ⚖️ Self-Attention vs RNN
+                    </button>
+                    <button class="doc-demo-chip" data-query="What are the core thesis, BLEU benchmark results, and hardware training setup?">
+                      📋 Core Thesis & Benchmarks
+                    </button>
+                  </div>
+                  <div class="doc-chat-input-bar">
+                    <textarea id="doc-query-input" placeholder="Ask a targeted question about the uploaded document(s)..." rows="1"></textarea>
+                    <button class="btn-send-doc-query" id="btn-send-doc-query" title="Submit Question" aria-label="Submit Question">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1121,7 +1463,7 @@
             </div>
 
             <!-- Right Sidebar: Source Chunks & Outline -->
-            <aside class="doc-chunks-sidebar" id="doc-chunks-sidebar">
+            <aside class="doc-chunks-sidebar" id="doc-chunks-sidebar" aria-label="Document chunks sidebar">
               <div class="chunks-sidebar-header">
                 <h4>Grounding Context Chunks</h4>
                 <span class="text-subtle" id="chunks-count-label">Evidence</span>
@@ -1142,7 +1484,7 @@
               <h3>SQLite Context Cache (backend/cache.db)</h3>
               <p class="text-subtle">Inspect papers and granular sentence chunks indexed by Agent 3</p>
             </div>
-            <button class="btn-close-modal" id="btn-close-db-modal">&times;</button>
+            <button class="btn-close-modal" id="btn-close-db-modal" title="Close Database Inspector" aria-label="Close Database Inspector">&times;</button>
           </div>
           <div class="db-modal-body">
             <div class="db-table-wrapper">
@@ -1167,6 +1509,178 @@
         </div>
       </div>
 
+      <!-- VIEW 5: PAST RESEARCH OUTPUTS & TIMELINE MODAL (ZERO TOKEN REPLAY) -->
+      <div class="history-modal" id="history-modal">
+        <div class="history-modal-content">
+          <div class="history-modal-header">
+            <div class="modal-title-group">
+              <div class="history-title-row">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <h3>Past Research Outputs</h3>
+                <span class="history-count-badge" id="history-count-badge">0 saved runs</span>
+              </div>
+              <p class="text-subtle">Inspect, replay, and export previously synthesized research monographs without consuming API credits</p>
+            </div>
+            <button class="btn-close-modal" id="btn-close-history-modal" title="Close History" aria-label="Close History">&times;</button>
+          </div>
+
+          <div class="history-nav-tabs">
+            <button class="history-tab-btn active" id="tab-history-dossiers">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+              <span>Research Dossiers</span>
+            </button>
+            <button class="history-tab-btn" id="tab-history-prompts">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              <span>Prompt & Follow-Up Tree</span>
+            </button>
+          </div>
+
+          <div class="history-modal-toolbar">
+            <div class="history-search-wrapper">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="history-search-input" placeholder="Search past topics, queries, or dates..." />
+            </div>
+            <div class="history-toolbar-actions">
+              <button class="btn-secondary btn-sm" id="btn-refresh-history" title="Refresh List" aria-label="Refresh List">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="history-modal-body">
+            <!-- View A: Full Research Dossier Runs -->
+            <div class="history-list" id="history-list">
+              <div class="history-loading">
+                <span class="mini-pulse-dot active"></span>
+                <span>Loading past research history...</span>
+              </div>
+            </div>
+            <!-- View B: Prompt & Follow-Up Tree Lineage -->
+            <div class="prompt-history-list" id="prompt-history-list" style="display: none;">
+              <div class="history-loading">
+                <span class="mini-pulse-dot active"></span>
+                <span>Loading prompt & follow-up lineage...</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 6: KEYBOARD SHORTCUTS MODAL -->
+      <div class="shortcuts-modal" id="shortcuts-modal">
+        <div class="shortcuts-modal-content">
+          <div class="shortcuts-modal-header">
+            <div class="modal-title-group">
+              <h3>Keyboard Shortcuts</h3>
+              <p class="text-subtle">Quick navigation & execution commands</p>
+            </div>
+            <button class="btn-close-modal" id="btn-close-shortcuts-modal" title="Close Shortcuts" aria-label="Close Shortcuts">&times;</button>
+          </div>
+          <div class="shortcuts-modal-body">
+            <table class="shortcuts-table">
+              <tbody>
+                <tr><td><kbd class="kbd-chip">Enter</kbd></td><td>Execute research query from prompt input</td></tr>
+                <tr><td><kbd class="kbd-chip">Ctrl</kbd> + <kbd class="kbd-chip">B</kbd></td><td>Expand or collapse navigation sidebar</td></tr>
+                <tr><td><kbd class="kbd-chip">Ctrl</kbd> + <kbd class="kbd-chip">H</kbd></td><td>Open Past Outputs History timeline</td></tr>
+                <tr><td><kbd class="kbd-chip">Ctrl</kbd> + <kbd class="kbd-chip">U</kbd></td><td>Upload PDF document for analysis</td></tr>
+                <tr><td><kbd class="kbd-chip">Ctrl</kbd> + <kbd class="kbd-chip">Shift</kbd> + <kbd class="kbd-chip">D</kbd></td><td>Toggle between Pipeline Canvas & Document View</td></tr>
+                <tr><td><kbd class="kbd-chip">?</kbd></td><td>Show this keyboard shortcuts guide</td></tr>
+                <tr><td><kbd class="kbd-chip">Esc</kbd></td><td>Close any open drawer, modal, or dropdown</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 7: USER AUTHENTICATION MODAL (AUTH-01) -->
+      <div class="auth-modal" id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" style="display: none;">
+        <div class="auth-modal-content">
+          <div class="auth-modal-header">
+            <div class="modal-title-group">
+              <div class="modal-badge-mini">Secure Access</div>
+              <h3 id="auth-modal-title">Researcher Account</h3>
+              <p class="text-subtle" id="auth-modal-subtitle">Sign in to save syntheses, PDF libraries, and dialogue across devices</p>
+            </div>
+            <button class="btn-close-modal" id="btn-close-auth-modal" title="Close" aria-label="Close Authentication Modal">&times;</button>
+          </div>
+
+          <!-- Auth Tabs: Sign In / Create Account -->
+          <div class="auth-tabs" role="tablist">
+            <button type="button" class="auth-tab-btn active" id="auth-tab-login" role="tab" aria-selected="true">Sign In</button>
+            <button type="button" class="auth-tab-btn" id="auth-tab-register" role="tab" aria-selected="false">Create Account</button>
+          </div>
+
+          <div class="auth-modal-body">
+            <!-- Alert Banner for Feedback / Errors -->
+            <div class="auth-alert" id="auth-alert" style="display: none;"></div>
+
+            <!-- LOGIN FORM -->
+            <form id="auth-login-form" class="auth-form" onsubmit="return false;">
+              <div class="form-group">
+                <label for="login-username" class="form-label">Username or Email</label>
+                <input type="text" id="login-username" class="form-input" placeholder="e.g. MarieCurie or marie@lab.edu" required autocomplete="username">
+              </div>
+              <div class="form-group">
+                <label for="login-password" class="form-label">Password</label>
+                <input type="password" id="login-password" class="form-input" placeholder="••••••••" required autocomplete="current-password">
+              </div>
+              <button type="submit" class="btn-primary auth-submit-btn" id="btn-submit-login">
+                <span>Sign In to Workbench</span>
+              </button>
+            </form>
+
+            <!-- REGISTER FORM -->
+            <form id="auth-register-form" class="auth-form" style="display: none;" onsubmit="return false;">
+              <div class="form-group">
+                <label for="reg-username" class="form-label">Username</label>
+                <input type="text" id="reg-username" class="form-input" placeholder="e.g. RosalindFranklin" required minlength="3" maxlength="30" autocomplete="username">
+                <span class="form-hint">3–30 letters, numbers, underscores, or hyphens</span>
+              </div>
+              <div class="form-group">
+                <label for="reg-email" class="form-label">Email Address</label>
+                <input type="email" id="reg-email" class="form-input" placeholder="e.g. rosalind@cam.ac.uk" required autocomplete="email">
+              </div>
+              <div class="form-group">
+                <label for="reg-password" class="form-label">Password</label>
+                <input type="password" id="reg-password" class="form-input" placeholder="Minimum 6 characters" required minlength="6" autocomplete="new-password">
+              </div>
+              <button type="submit" class="btn-primary auth-submit-btn" id="btn-submit-register">
+                <span>Create Researcher Account</span>
+              </button>
+            </form>
+
+            <!-- USER LOGGED IN VIEW (Active Profile & Sign Out) -->
+            <div id="auth-profile-view" class="auth-profile-box" style="display: none;">
+              <div class="profile-card-header">
+                <div class="profile-avatar-large" id="profile-avatar-display">RF</div>
+                <div class="profile-info-block">
+                  <h4 id="profile-name-display">Researcher</h4>
+                  <span class="profile-email-badge" id="profile-email-display">user@lab.edu</span>
+                  <span class="profile-role-badge" id="profile-role-display">Role: User</span>
+                </div>
+              </div>
+              <div class="profile-meta-row">
+                <span class="meta-label">Session Status:</span>
+                <span class="meta-val status-green">Encrypted JWT Token Active</span>
+              </div>
+              <div class="profile-actions-row">
+                <button type="button" class="btn-secondary" id="btn-auth-logout">Sign Out</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- BOTTOM CHAT COMMAND INTERFACE (Chatbot style, input clears on enter) -->
       <footer class="bottom-chat-container" id="bottom-chat-container">
         <div class="chat-bar-wrapper">
@@ -1184,6 +1698,21 @@
             </button>
           </div>
 
+          <!-- Prompt Options Row (Decluttered & Moved Above) -->
+          <div class="prompt-options-row">
+            <div class="execution-mode-toggle" id="execution-mode-toggle" title="Toggle Pipeline Execution Mode">
+              <button type="button" class="mode-toggle-btn" id="btn-mode-rapid" data-mode="rapid" title="⚡ Rapid Synthesis: Accelerated 5s answer with authenticated citations">⚡ Rapid (5s)</button>
+              <button type="button" class="mode-toggle-btn active" id="btn-mode-deep" data-mode="deep" title="🔬 Deep Monograph: Full 4-Agent pipeline with 3-tier claim audit (~30s)">🔬 Deep Monograph</button>
+            </div>
+            <button type="button" class="provider-pill-badge scraper-badge-btn" id="prompt-scrapers-badge" title="Click to customize active academic scrapers & search repositories">
+              <span id="prompt-scrapers-count">📚 6 Repos Active</span>
+            </button>
+            <div class="provider-pill-badge" id="prompt-model-badge" title="Active Model Architecture">
+              <span>Gemini 3.5 + SQLite</span>
+            </div>
+            <span id="query-char-count" class="query-char-counter" title="Character limit (1,000 max)">0 / 1,000</span>
+          </div>
+
           <!-- Prompt Bar -->
           <div class="prompt-bar">
             <div class="prompt-input-wrapper">
@@ -1193,21 +1722,18 @@
                 placeholder="Enter an academic research topic or paper question (Press Enter to execute)..." 
                 autocomplete="off"
               ></textarea>
+              <div class="search-suggestions-dropdown hidden" id="search-suggestions-dropdown"></div>
             </div>
 
             <div class="prompt-actions-right">
-              <div class="provider-pill-badge" id="prompt-model-badge" title="Active Model Architecture">
-                <span>Gemini 3.5 + SQLite</span>
-              </div>
-
-              <button class="btn-clear-input" id="btn-clear-input" title="Clear Query Text">
+              <button class="btn-clear-input" id="btn-clear-input" title="Clear Query Text" aria-label="Clear Query Text">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
               </button>
 
-              <button class="btn-send-query" id="btn-send-query" title="Execute Sequential Pipeline">
+              <button class="btn-send-query" id="btn-send-query" title="Execute Sequential Pipeline" aria-label="Execute Sequential Pipeline">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                   <line x1="22" y1="2" x2="11" y2="13"></line>
                   <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -1223,6 +1749,26 @@
   <!-- Toast Notification element -->
   <div class="toast-notification" id="toast-notification"></div>
 
-  <script src="app.js"></script>
+  <script>
+    // Protocol-aware script loader:
+    // When opened directly as a local file (file://), browsers block ES module imports via CORS.
+    // In that context, seamlessly load the bundled app.js so all local features work.
+    // When served over HTTP/HTTPS, load the modular ES architecture via js/main.js.
+    if (window.location.protocol === 'file:') {
+      const s = document.createElement('script');
+      s.src = 'app.js';
+      document.body.appendChild(s);
+    } else {
+      const s = document.createElement('script');
+      s.type = 'module';
+      s.src = 'js/main.js';
+      document.body.appendChild(s);
+    }
+  </script>
+  <noscript>
+    <div style="padding: 2rem; color: #ff5555; background: #1a1a2e; text-align: center;">
+      JavaScript is required to run the AI Research Workbench.
+    </div>
+  </noscript>
 </body>
 </html>
