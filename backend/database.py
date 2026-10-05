@@ -932,16 +932,92 @@ def clear_all_cache() -> Dict[str, int]:
         sentences_deleted = cursor.rowcount
         cursor.execute("DELETE FROM scraped_papers")
         papers_deleted = cursor.rowcount
+        cursor.execute("DELETE FROM response_cache")
+        response_cache_deleted = cursor.rowcount
+        cursor.execute("DELETE FROM dialogue_messages")
+        cursor.execute("DELETE FROM followup_interactions")
         cursor.execute("DELETE FROM pipeline_runs")
         runs_deleted = cursor.rowcount
+        cursor.execute("DELETE FROM pdf_references")
+        cursor.execute("DELETE FROM pdf_figures")
+        cursor.execute("DELETE FROM pdf_chunks")
+        cursor.execute("DELETE FROM pdf_files")
+        cursor.execute("DELETE FROM pdf_sessions")
         conn.commit()
         return {
             "papers_deleted": papers_deleted,
             "sentences_deleted": sentences_deleted,
-            "runs_deleted": runs_deleted
+            "runs_deleted": runs_deleted,
+            "response_cache_deleted": response_cache_deleted
         }
     finally:
         conn.close()
+
+def reset_database(hard: bool = False) -> Dict[str, Any]:
+    """
+    Completely resets the database for both SQLite and cloud PostgreSQL.
+    - If hard=False: Clears all research runs, cached papers, sentences, response cache,
+      dialogue turns, follow-ups, and PDF workspaces while preserving registered users and API keys.
+    - If hard=True: Complete factory wipe — drops and recreates all tables from scratch,
+      including users, API keys, and schema versions, restoring a 100% blank state.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if hard:
+            logger.info("Executing HARD factory reset: Dropping all database tables...")
+            all_tables = [
+                "user_api_keys",
+                "pdf_references",
+                "pdf_figures",
+                "pdf_chunks",
+                "pdf_files",
+                "pdf_sessions",
+                "dialogue_messages",
+                "followup_interactions",
+                "pipeline_runs",
+                "cached_sentences",
+                "scraped_papers",
+                "response_cache",
+                "schema_version",
+                "users",
+            ]
+            if _DEFAULT_ENGINE.is_sqlite:
+                cursor.execute("PRAGMA foreign_keys = OFF;")
+                for tbl in all_tables:
+                    cursor.execute(f"DROP TABLE IF EXISTS {tbl}")
+                cursor.execute("PRAGMA foreign_keys = ON;")
+            else:
+                for tbl in all_tables:
+                    cursor.execute(f"DROP TABLE IF EXISTS {tbl} CASCADE")
+            conn.commit()
+            conn.close()
+            
+            # Recreate all tables cleanly from scratch at schema version 3
+            init_db()
+            logger.info("Database schema cleanly recreated from scratch.")
+            return {"status": "success", "mode": "hard_factory_reset", "tables_recreated": all_tables}
+        else:
+            logger.info("Executing SOFT reset: Clearing all data while preserving users...")
+            cursor.execute("DELETE FROM cached_sentences")
+            cursor.execute("DELETE FROM scraped_papers")
+            cursor.execute("DELETE FROM response_cache")
+            cursor.execute("DELETE FROM dialogue_messages")
+            cursor.execute("DELETE FROM followup_interactions")
+            cursor.execute("DELETE FROM pipeline_runs")
+            cursor.execute("DELETE FROM pdf_references")
+            cursor.execute("DELETE FROM pdf_figures")
+            cursor.execute("DELETE FROM pdf_chunks")
+            cursor.execute("DELETE FROM pdf_files")
+            cursor.execute("DELETE FROM pdf_sessions")
+            conn.commit()
+            return {"status": "success", "mode": "soft_reset", "preserved": ["users", "user_api_keys"]}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 def get_cache_stats() -> Dict[str, int]:
     conn = get_db_connection()
