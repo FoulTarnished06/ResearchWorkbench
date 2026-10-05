@@ -143,7 +143,6 @@ function initEventListeners() {
   elements.navDatabase?.addEventListener('click', openDatabaseModal);
   elements.navHistory?.addEventListener('click', openHistoryModal);
   elements.dockHomeBtn?.addEventListener('click', () => switchView('about'));
-  elements.btnToggleDock?.addEventListener('click', () => toggleSidebarDock());
   
   document.querySelectorAll('.switch-pill').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));

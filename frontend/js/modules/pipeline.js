@@ -430,6 +430,7 @@ export async function executeLiveBackend(query) {
       elements.teleTokens.textContent = formatTokenBreakdown(totTok, pTok, cTok);
 
       finishPipeline({
+        run_id: data.run_id,
         query: data.query,
         quick_answer: data.quick_answer || "",
         elapsed: data.elapsed_seconds,

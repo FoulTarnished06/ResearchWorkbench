@@ -77,7 +77,6 @@ export function initPDFWorkspace() {
   elements.togglePdfStrictApi = document.getElementById('toggle-pdf-strict-api');
   elements.docApiStatus = document.getElementById('doc-api-status');
   elements.docApiText = document.getElementById('doc-api-text');
-  elements.docDemoChips = document.getElementById('doc-demo-chips');
 
   // Initialize Strict API Toggle
   if (elements.togglePdfStrictApi) {
@@ -91,21 +90,6 @@ export function initPDFWorkspace() {
       localStorage.setItem('workbench_pdf_strict_api', e.target.checked ? 'true' : 'false');
       updateDocAPIStatus();
       showToast(e.target.checked ? 'Strict API Mode ON: Live LLM calls will fail cleanly if keys are invalid.' : 'Strict Mode OFF: Offline fallback enabled.', 'info');
-    });
-  }
-
-  // Preset Inquiries / Suggested Chips
-  if (elements.docDemoChips) {
-    elements.docDemoChips.querySelectorAll('.doc-demo-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const queryText = chip.getAttribute('data-query');
-        if (!queryText) return;
-        handlePDFActionSelect('qa');
-        if (elements.docQueryInput) {
-          elements.docQueryInput.value = queryText;
-        }
-        executePDFQuestion(queryText);
-      });
     });
   }
 

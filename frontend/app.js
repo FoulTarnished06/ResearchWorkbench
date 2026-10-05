@@ -209,7 +209,6 @@ const elements = {
   themeIcon: document.getElementById('theme-icon'),
   toggleDisableFallbackAgent2: document.getElementById('toggle-disable-fallback-agent2'),
   toggleDisableFallbackAgent4: document.getElementById('toggle-disable-fallback-agent4'),
-  queryChipsRow: document.getElementById('query-chips-row'),
   bottomChatContainer: document.getElementById('bottom-chat-container'),
   
   // History & Shortcuts UI
@@ -1077,7 +1076,13 @@ function initSidebarDock() {
 
   const toggleBtn = document.getElementById('btn-toggle-dock');
   if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => toggleSidebarDock());
+    toggleBtn.setAttribute('aria-expanded', shouldExpand ? 'true' : 'false');
+    toggleBtn.title = shouldExpand ? "Collapse Sidebar (Ctrl+B)" : "Expand Sidebar (Ctrl+B)";
+    toggleBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSidebarDock();
+    };
   }
 }
 
@@ -1095,7 +1100,6 @@ function initEventListeners() {
   elements.navDatabase?.addEventListener('click', openDatabaseModal);
   elements.navHistory?.addEventListener('click', openHistoryModal);
   elements.dockHomeBtn?.addEventListener('click', () => switchView('about'));
-  elements.btnToggleDock?.addEventListener('click', () => toggleSidebarDock());
   
   document.querySelectorAll('.switch-pill').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
@@ -1448,9 +1452,6 @@ function updateDemoModeUI() {
   }
   if (elements.teleStatusDot) elements.teleStatusDot.className = "pulse-indicator status-blue";
   if (elements.teleStatusText) elements.teleStatusText.textContent = "Live AI Ready";
-  if (elements.queryChipsRow) {
-    elements.queryChipsRow.style.display = "flex";
-  }
 }
 
 // Toggle citations sidebar collapse/expand
@@ -1890,6 +1891,7 @@ async function executeLiveBackend(query) {
       elements.teleTokens.textContent = formatTokenBreakdown(totTok, pTok, cTok);
 
       finishPipeline({
+        run_id: data.run_id,
         query: data.query,
         quick_answer: data.quick_answer || "",
         elapsed: data.elapsed_seconds,
@@ -3657,7 +3659,6 @@ elements.btnClearPdfLibrary = document.getElementById('btn-clear-pdf-library');
 elements.togglePdfStrictApi = document.getElementById('toggle-pdf-strict-api');
 elements.docApiStatus = document.getElementById('doc-api-status');
 elements.docApiText = document.getElementById('doc-api-text');
-elements.docDemoChips = document.getElementById('doc-demo-chips');
 
 // PDF State extensions
 UIState.pdfSessionId = null;
@@ -3708,21 +3709,6 @@ function initPDFWorkspace() {
       localStorage.setItem('workbench_pdf_strict_api', e.target.checked ? 'true' : 'false');
       updateDocAPIStatus();
       showToast(e.target.checked ? 'Strict API Mode ON: Live LLM calls will fail cleanly if keys are invalid.' : 'Strict Mode OFF: Offline fallback enabled.', 'info');
-    });
-  }
-
-  // Preset Inquiries / Demo Chips
-  if (elements.docDemoChips) {
-    elements.docDemoChips.querySelectorAll('.doc-demo-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const queryText = chip.getAttribute('data-query');
-        if (!queryText) return;
-        handlePDFActionSelect('qa');
-        if (elements.docQueryInput) {
-          elements.docQueryInput.value = queryText;
-        }
-        executePDFQuestion(queryText);
-      });
     });
   }
 

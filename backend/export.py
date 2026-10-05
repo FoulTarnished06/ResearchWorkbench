@@ -110,10 +110,13 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     meta_run.font.size = Pt(9.5)
     meta_run.font.color.rgb = RGBColor(100, 116, 139)
 
+    sec_num = 1
+
     # 1. Quick Answer (Basic TL;DR)
     quick_answer = str(dossier_data.get("quick_answer", "") or "").strip()
     if quick_answer:
-        doc.add_heading("1. Executive Quick Answer (Plain-English TL;DR)", level=2)
+        doc.add_heading(f"{sec_num}. Executive Quick Answer (Plain-English TL;DR)", level=2)
+        sec_num += 1
         qa_p = doc.add_paragraph()
         qa_p.style = 'Intense Quote'
         qa_run = qa_p.add_run(strip_html_tags(quick_answer))
@@ -122,14 +125,16 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     # 2. Key Takeaways
     takeaways = dossier_data.get("takeaways", [])
     if takeaways:
-        doc.add_heading("2. Core Empirical Findings & Takeaways", level=2)
+        doc.add_heading(f"{sec_num}. Core Empirical Findings & Takeaways", level=2)
+        sec_num += 1
         for t in takeaways:
             doc.add_paragraph(strip_html_tags(t), style='List Bullet')
 
     # 3. Quantitative Comparative Benchmarks (Table)
     cols, rows = _normalize_comparison_table(dossier_data.get("comparison_table"))
     if cols and rows:
-        doc.add_heading("3. Quantitative Comparative Benchmarks", level=2)
+        doc.add_heading(f"{sec_num}. Quantitative Comparative Benchmarks", level=2)
+        sec_num += 1
         table = doc.add_table(rows=1, cols=len(cols))
         table.style = 'Table Grid'
         hdr_cells = table.rows[0].cells
@@ -152,7 +157,8 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     # 4. Dialectical Friction & Disagreements
     friction_items = _normalize_dialectical_friction(dossier_data.get("dialectical_friction"))
     if friction_items:
-        doc.add_heading("4. Dialectical Friction & Methodological Disagreements", level=2)
+        doc.add_heading(f"{sec_num}. Dialectical Friction & Methodological Disagreements", level=2)
+        sec_num += 1
         for f_label, f_body in friction_items:
             p = doc.add_paragraph()
             p.add_run(f"• {strip_html_tags(f_label)}: ").bold = True
@@ -161,21 +167,25 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     # 5. Executive Monograph Summary
     exec_summary = str(dossier_data.get("executive_summary", "") or "").strip()
     if exec_summary:
-        doc.add_heading("5. Comprehensive Academic Monograph", level=2)
+        doc.add_heading(f"{sec_num}. Comprehensive Academic Monograph", level=2)
+        sec_num += 1
         doc.add_paragraph(strip_html_tags(exec_summary))
 
     # 6. Detailed Thematic Sections or Monograph Output (System B & C support)
     sections = dossier_data.get("dossier_sections", dossier_data.get("sections", []))
     if sections:
-        doc.add_heading("6. Thematic Literature Synthesis & Analysis", level=2)
+        t_num = sec_num
+        doc.add_heading(f"{sec_num}. Thematic Literature Synthesis & Analysis", level=2)
+        sec_num += 1
         for idx, sec in enumerate(sections):
             sub_q = sec.get("sub_question", f"Section {idx+1}")
             clean_title = re.sub(r'^(?:Subtopic\s*\d+[:.-]?|\d+[\.\):]|\d+\s+[-–:]\s*)\s*', '', str(sub_q), flags=re.IGNORECASE)
-            doc.add_heading(f"6.{idx+1} {strip_html_tags(clean_title)}", level=3)
+            doc.add_heading(f"{t_num}.{idx+1} {strip_html_tags(clean_title)}", level=3)
             doc.add_paragraph(strip_html_tags(sec.get("answer_html", sec.get("content_html", ""))))
     elif dossier_data.get("output_text"):
         # For System B or System C baseline runs where sections are stored as markdown in output_text
-        doc.add_heading("6. Monograph Output", level=2)
+        doc.add_heading(f"{sec_num}. Monograph Output", level=2)
+        sec_num += 1
         paragraphs = str(dossier_data.get("output_text", "")).split("\n\n")
         for p_chunk in paragraphs:
             cleaned_chunk = strip_html_tags(p_chunk.strip())
@@ -189,14 +199,16 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     # 7. Epistemic Horizons & Limitations
     epistemic_items = _normalize_epistemic_limitations(dossier_data.get("epistemic_limitations"))
     if epistemic_items:
-        doc.add_heading("7. Epistemic Horizons & Unresolved Frontiers", level=2)
+        doc.add_heading(f"{sec_num}. Epistemic Horizons & Unresolved Frontiers", level=2)
+        sec_num += 1
         for item in epistemic_items:
             doc.add_paragraph(strip_html_tags(item), style='List Bullet')
 
     # 8. References & Bibliography
     citations = dossier_data.get("citations", [])
     if citations:
-        doc.add_heading("8. Grounded Citations & Bibliographic Evidence", level=2)
+        doc.add_heading(f"{sec_num}. Grounded Citations & Bibliographic Evidence", level=2)
+        sec_num += 1
         for cit in citations:
             ref_id = strip_html_tags(cit.get("ref_id", "REF"))
             raw_authors = cit.get("authors", "Unknown Authors")
@@ -415,16 +427,20 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
         ""
     ]
 
+    sec_num = 1
+
     # Quick answer
     quick = str(dossier_data.get("quick_answer", "") or "").strip()
     if quick:
-        md.append("## 1. Executive Quick Answer (TL;DR)")
+        md.append(f"## {sec_num}. Executive Quick Answer (TL;DR)")
+        sec_num += 1
         md.append(f"> {strip_html_tags(quick)}\n")
 
     # Takeaways
     takeaways = dossier_data.get("takeaways", [])
     if takeaways:
-        md.append("## 2. Core Empirical Findings & Takeaways")
+        md.append(f"## {sec_num}. Core Empirical Findings & Takeaways")
+        sec_num += 1
         for t in takeaways:
             md.append(f"- {strip_html_tags(t)}")
         md.append("")
@@ -432,7 +448,8 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
     # Benchmark Table
     cols, rows = _normalize_comparison_table(dossier_data.get("comparison_table"))
     if cols and rows:
-        md.append("## 3. Quantitative Comparative Benchmarks\n")
+        md.append(f"## {sec_num}. Quantitative Comparative Benchmarks\n")
+        sec_num += 1
         header_line = "| " + " | ".join(cols) + " |"
         sep_line = "| " + " | ".join([":---"] * len(cols)) + " |"
         md.append(header_line)
@@ -444,7 +461,8 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
     # Dialectical Friction
     friction_items = _normalize_dialectical_friction(dossier_data.get("dialectical_friction"))
     if friction_items:
-        md.append("## 4. Dialectical Friction & Methodological Disagreements\n")
+        md.append(f"## {sec_num}. Dialectical Friction & Methodological Disagreements\n")
+        sec_num += 1
         for f_label, f_body in friction_items:
             md.append(f"- **{strip_html_tags(f_label)}:** {strip_html_tags(f_body)}")
         md.append("")
@@ -452,26 +470,31 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
     # Executive Monograph
     exec_summary = str(dossier_data.get("executive_summary", "") or "").strip()
     if exec_summary:
-        md.append("## 5. Comprehensive Academic Monograph\n")
+        md.append(f"## {sec_num}. Comprehensive Academic Monograph\n")
+        sec_num += 1
         md.append(strip_html_tags(exec_summary) + "\n")
 
     # Thematic Sections or Monograph Output (System B/C)
     sections = dossier_data.get("dossier_sections", dossier_data.get("sections", []))
     if sections:
-        md.append("## 6. Thematic Literature Synthesis & Analysis\n")
+        t_num = sec_num
+        md.append(f"## {sec_num}. Thematic Literature Synthesis & Analysis\n")
+        sec_num += 1
         for idx, sec in enumerate(sections):
             sub_q = sec.get("sub_question", f"Section {idx+1}")
             clean_title = re.sub(r'^(?:Subtopic\s*\d+[:.-]?|\d+[\.\):]|\d+\s+[-–:]\s*)\s*', '', str(sub_q), flags=re.IGNORECASE)
-            md.append(f"### 6.{idx+1} {strip_html_tags(clean_title)}\n")
+            md.append(f"### {t_num}.{idx+1} {strip_html_tags(clean_title)}\n")
             md.append(strip_html_tags(sec.get("answer_html", sec.get("content_html", ""))) + "\n")
     elif dossier_data.get("output_text"):
-        md.append("## 6. Monograph Output\n")
+        md.append(f"## {sec_num}. Monograph Output\n")
+        sec_num += 1
         md.append(sanitize_xml(dossier_data["output_text"]) + "\n")
 
     # Epistemic Limitations
     epistemic_items = _normalize_epistemic_limitations(dossier_data.get("epistemic_limitations"))
     if epistemic_items:
-        md.append("## 7. Epistemic Horizons & Unresolved Frontiers\n")
+        md.append(f"## {sec_num}. Epistemic Horizons & Unresolved Frontiers\n")
+        sec_num += 1
         for item in epistemic_items:
             md.append(f"- {strip_html_tags(item)}")
         md.append("")
@@ -479,7 +502,8 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
     # Citations
     citations = dossier_data.get("citations", [])
     if citations:
-        md.append("## 8. Grounded Citations & Bibliographic Evidence\n")
+        md.append(f"## {sec_num}. Grounded Citations & Bibliographic Evidence\n")
+        sec_num += 1
         for cit in citations:
             ref_id = strip_html_tags(cit.get("ref_id", "REF"))
             raw_authors = cit.get("authors", "Unknown Authors")

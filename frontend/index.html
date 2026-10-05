@@ -1822,19 +1822,6 @@
 
                 <!-- Pinned Bottom Dock with Quick Inquiries & Input Bar -->
                 <div class="doc-chat-bottom-dock">
-                  <!-- Preset Quick Inquiries Row -->
-                  <div class="doc-demo-chips-row" id="doc-demo-chips">
-                    <span class="doc-demo-label">Quick Inquiries:</span>
-                    <button class="doc-demo-chip" data-query="How does the attention mechanism compute queries, keys, and values? Show mathematical formulation.">
-                      💡 Attention Math
-                    </button>
-                    <button class="doc-demo-chip" data-query="Compare the computational complexity per layer of self-attention versus recurrent and convolutional layers.">
-                      ⚖️ Self-Attention vs RNN
-                    </button>
-                    <button class="doc-demo-chip" data-query="What are the core thesis, BLEU benchmark results, and hardware training setup?">
-                      📋 Core Thesis & Benchmarks
-                    </button>
-                  </div>
                   <div class="doc-chat-input-bar">
                     <textarea id="doc-query-input" placeholder="Ask a targeted question about the uploaded document(s)..." rows="1"></textarea>
                     <button class="btn-send-doc-query" id="btn-send-doc-query" title="Submit Question" aria-label="Submit Question">
@@ -2222,26 +2209,6 @@
       <!-- BOTTOM CHAT COMMAND INTERFACE (Chatbot style, input clears on enter) -->
       <footer class="bottom-chat-container" id="bottom-chat-container">
         <div class="chat-bar-wrapper">
-          <!-- Suggestion Chips (Benchmark Presets) -->
-          <div class="query-chips-row" id="query-chips-row">
-            <span class="chips-label">Research Presets:</span>
-            <button type="button" class="query-chip" data-query="Evaluate quantum error mitigation techniques in neutral-atom qubit architectures, comparing randomized compiling against zero-noise extrapolation for two-qubit gate fidelities.">
-              ⚛️ Neutral-Atom Qubits
-            </button>
-            <button type="button" class="query-chip" data-query="Analyze the functional implications of recursive model collapse in large language models trained on synthetic recursive data, detailing mathematical divergence of tails.">
-              🔄 Model Collapse
-            </button>
-            <button type="button" class="query-chip" data-query="Investigate the neuroprotective mechanisms of GLP-1 receptor agonists in Alzheimer's disease pathology, focusing on neuroinflammation and amyloid-beta clearance.">
-              🧠 GLP-1 in Alzheimer's
-            </button>
-            <button type="button" class="query-chip" data-query="Explain IO complexity and tiling optimizations in FlashAttention-3 compared to FlashAttention-2 on Hopper GPUs.">
-              ⚡ FlashAttention-3 IO
-            </button>
-            <button type="button" class="query-chip" data-query="Evaluate the electronic band structure and Cu2S structural phase transition claims in purported ambient superconductor LK-99.">
-              🧲 LK-99 Cu2S Transition
-            </button>
-          </div>
-
           <!-- Prompt Options Row (Decluttered & Moved Above) -->
           <div class="prompt-options-row">
             <!-- Active Architecture Quick Toggle -->

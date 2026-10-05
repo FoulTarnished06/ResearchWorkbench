@@ -76,7 +76,6 @@ export const elements = {
   themeIcon: document.getElementById('theme-icon'),
   toggleDisableFallbackAgent2: document.getElementById('toggle-disable-fallback-agent2'),
   toggleDisableFallbackAgent4: document.getElementById('toggle-disable-fallback-agent4'),
-  queryChipsRow: document.getElementById('query-chips-row'),
   bottomChatContainer: document.getElementById('bottom-chat-container'),
   
   // History & Shortcuts UI
@@ -597,9 +596,6 @@ export function updateDemoModeUI() {
   }
   if (elements.teleStatusDot) elements.teleStatusDot.className = "pulse-indicator status-blue";
   if (elements.teleStatusText) elements.teleStatusText.textContent = "Live AI Ready";
-  if (elements.queryChipsRow) {
-    elements.queryChipsRow.style.display = "flex";
-  }
 }
 
 // Load saved API Keys and Settings on startup
@@ -945,7 +941,13 @@ export function initSidebarDock() {
 
   const toggleBtn = document.getElementById('btn-toggle-dock');
   if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => toggleSidebarDock());
+    toggleBtn.setAttribute('aria-expanded', shouldExpand ? 'true' : 'false');
+    toggleBtn.title = shouldExpand ? "Collapse Sidebar (Ctrl+B)" : "Expand Sidebar (Ctrl+B)";
+    toggleBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSidebarDock();
+    };
   }
 }
 

@@ -247,7 +247,7 @@ body {
    2. ICON DOCK (Left) - Retractable Sidebar
    ========================================================= */
 body.dock-expanded {
-  --dock-width: 220px;
+  --dock-width: 250px;
 }
 
 .icon-dock {
@@ -294,6 +294,7 @@ body.dock-expanded .dock-top {
   align-items: center;
   gap: 10px;
   overflow: hidden;
+  min-width: 0;
 }
 
 .dock-logo-btn {
@@ -320,6 +321,7 @@ body.dock-expanded .dock-top {
   line-height: 1.2;
   overflow: hidden;
   white-space: nowrap;
+  min-width: 0;
 }
 
 body.dock-expanded .dock-brand-meta {
@@ -331,6 +333,9 @@ body.dock-expanded .dock-brand-meta {
   font-weight: 700;
   color: var(--text-title);
   letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dock-brand-sub {
@@ -339,6 +344,9 @@ body.dock-expanded .dock-brand-meta {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dock-toggle-btn {
