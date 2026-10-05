@@ -625,11 +625,19 @@ function saveApiKeys() {
   localStorage.removeItem('workbench_openai_key');
   localStorage.removeItem('workbench_gemini_key');
   localStorage.removeItem('workbench_anthropic_key');
-  localStorage.removeItem('workbench_serpapi_key');
-  
   updateApiKeyBadges();
   updateDemoModeUI();
-  showToast("API credentials saved to session storage.");
+
+  // If user is currently signed in, also automatically sync keys to their encrypted account vault
+  if (typeof getAuthToken === 'function' && getAuthToken()) {
+    if (openaiKey && typeof saveUserApiKey === 'function') saveUserApiKey('openai', openaiKey);
+    if (geminiKey && typeof saveUserApiKey === 'function') saveUserApiKey('gemini', geminiKey);
+    if (anthropicKey && typeof saveUserApiKey === 'function') saveUserApiKey('anthropic', anthropicKey);
+    if (serpapiKey && typeof saveUserApiKey === 'function') saveUserApiKey('serpapi', serpapiKey);
+    showToast("API credentials saved and synced to your encrypted account vault.");
+  } else {
+    showToast("API credentials saved to session storage.");
+  }
 }
 
 function updateApiKeyBadges() {

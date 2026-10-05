@@ -219,6 +219,24 @@ def init_db():
         if not has_version_records:
             cursor.execute("INSERT INTO schema_version (version, description) VALUES (3, 'Initial schema with all v3 tables')")
             current_version = 3
+
+        # Users table for authentication (AUTH-01) - Must be created before foreign-key references
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT DEFAULT 'user',
+                oauth_provider TEXT DEFAULT 'local',
+                oauth_id TEXT,
+                avatar_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
         
         # Scraped academic papers table
         cursor.execute("""
@@ -332,24 +350,6 @@ def init_db():
                             logger.error(f"Migration error adding {col} to {tbl}: {e}")
                             raise
             cursor.execute("INSERT INTO schema_version (version, description) VALUES (1, 'Add prompt_tokens and completion_tokens columns')")
-
-        # Users table for authentication (AUTH-01)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'user',
-                oauth_provider TEXT DEFAULT 'local',
-                oauth_id TEXT,
-                avatar_url TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP
-            )
-        """)
-        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
-        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
 
         # Ensure OAuth columns exist on both SQLite and PostgreSQL
         for col, col_def in [("oauth_provider", "TEXT DEFAULT 'local'"), ("oauth_id", "TEXT"), ("avatar_url", "TEXT")]:
