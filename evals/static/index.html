@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ResearchWorkbench — Comparative Scientific Study Harness</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Markdown & KaTeX rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --surface: #111827;
+      --surface-border: #1e293b;
+      --surface-hover: #1f293d;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-hover: #0ea5e9;
+      --accent-sys-a: #10b981;
+      --accent-sys-b: #8b5cf6;
+      --accent-sys-c: #f59e0b;
+      --danger: #ef4444;
+      --card-radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--surface-border);
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-badge {
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: white;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn-download-docx {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .btn-download-docx:hover { background: #0369a1; }
+
+    /* Controls Panel */
+    .controls-panel {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--card-radius);
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .prompt-selector-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+
+    .prompt-selector-row label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .prompt-select {
+      flex: 1;
+      background: #0b1120;
+      border: 1px solid var(--surface-border);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .query-textarea {
+      width: 100%;
+      height: 75px;
+      background: #0b1120;
+      border: 1px solid var(--surface-border);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      resize: vertical;
+      margin-bottom: 16px;
+      outline: none;
+    }
+    .query-textarea:focus { border-color: var(--primary); }
+
+    /* 3 Systems Config Columns */
+    .systems-config-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .sys-card {
+      background: #0b1120;
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 16px;
+      position: relative;
+    }
+
+    .sys-card.sys-a { border-top: 3px solid var(--accent-sys-a); }
+    .sys-card.sys-b { border-top: 3px solid var(--accent-sys-b); }
+    .sys-card.sys-c { border-top: 3px solid var(--accent-sys-c); }
+
+    .sys-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .sys-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .sys-a .sys-title { color: var(--accent-sys-a); }
+    .sys-b .sys-title { color: var(--accent-sys-b); }
+    .sys-c .sys-title { color: var(--accent-sys-c); }
+
+    .input-group {
+      margin-bottom: 10px;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .input-group select,
+    .input-group input {
+      width: 100%;
+      background: #111827;
+      border: 1px solid #1e293b;
+      color: #fff;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+    .input-group input:focus,
+    .input-group select:focus { border-color: var(--primary); }
+
+    .single-run-btn {
+      width: 100%;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn-run-a { background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.4); }
+    .btn-run-a:hover { background: #10b981; color: white; }
+    .btn-run-b { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border-color: rgba(139, 92, 246, 0.4); }
+    .btn-run-b:hover { background: #8b5cf6; color: white; }
+    .btn-run-c { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.4); }
+    .btn-run-c:hover { background: #f59e0b; color: white; }
+
+    .master-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 14px;
+      border-top: 1px solid var(--surface-border);
+    }
+
+    .btn-run-all {
+      background: linear-gradient(135deg, #0284c7, #6366f1);
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    .btn-run-all:hover { opacity: 0.95; transform: translateY(-1px); }
+    .btn-run-all:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Ground Truth Banner */
+    .ground-truth-banner {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: var(--card-radius);
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .ground-truth-banner h3 {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--primary);
+      margin-bottom: 8px;
+    }
+    .anchors-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 8px;
+    }
+    .anchor-item {
+      font-size: 12px;
+      color: #cbd5e1;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      background: #111827;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #1e293b;
+    }
+    .anchor-item input { margin-top: 3px; }
+
+    /* Live Telemetry Scoreboard */
+    .scoreboard-section {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--card-radius);
+      padding: 18px;
+      margin-bottom: 24px;
+    }
+    .scoreboard-section h3 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+    .scoreboard-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .scoreboard-table th,
+    .scoreboard-table td {
+      padding: 10px 14px;
+      border: 1px solid var(--surface-border);
+      text-align: center;
+    }
+    .scoreboard-table th {
+      background: #0f172a;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .scoreboard-table th:first-child,
+    .scoreboard-table td:first-child { text-align: left; font-weight: 600; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+
+    /* 3-Column Output View */
+    .outputs-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .output-column {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--card-radius);
+      display: flex;
+      flex-direction: column;
+      height: 700px;
+      overflow: hidden;
+    }
+
+    .output-column-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0f172a;
+    }
+    .output-column-header h4 { font-size: 14px; font-weight: 700; }
+    .sys-a-header h4 { color: var(--accent-sys-a); }
+    .sys-b-header h4 { color: var(--accent-sys-b); }
+    .sys-c-header h4 { color: var(--accent-sys-c); }
+
+    .output-body {
+      flex: 1;
+      padding: 18px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #e2e8f0;
+    }
+
+    .output-body h1, .output-body h2, .output-body h3 {
+      color: #fff;
+      margin-top: 14px;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
+    .output-body p { margin-bottom: 12px; }
+    .output-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 12px;
+    }
+    .output-body th, .output-body td {
+      border: 1px solid #334155;
+      padding: 6px 10px;
+    }
+    .output-body th { background: #1e293b; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 24px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <span class="brand-badge">Evaluation Harness</span>
+      <h1>ResearchWorkbench — 3-System Scientific Benchmark</h1>
+    </div>
+    <div class="header-actions">
+      <a href="/api/download-docx" class="btn-download-docx">
+        📄 Download Word Report (.docx)
+      </a>
+    </div>
+  </header>
+
+  <!-- Controls Panel -->
+  <section class="controls-panel">
+    <div class="prompt-selector-row">
+      <label for="promptSelect">Select Benchmark Prompt:</label>
+      <select id="promptSelect" class="prompt-select" onchange="onSelectPrompt(this.value)">
+        <option value="">-- Choose a Standardized Academic Prompt --</option>
+      </select>
+    </div>
+
+    <textarea id="queryText" class="query-textarea" placeholder="Enter or customize the scientific research query to evaluate..."></textarea>
+
+    <!-- 3 Systems Config Columns -->
+    <div class="systems-config-grid">
+      
+      <!-- System A Card -->
+      <div class="sys-card sys-a">
+        <div class="sys-header">
+          <span class="sys-title">System A: ResearchWorkbench</span>
+          <span class="badge badge-success">4-Agent Pipeline</span>
+        </div>
+        <div class="input-group">
+          <label>Model Preference</label>
+          <select id="modelSysA">
+            <optgroup label="OpenAI GPT-6 Series">
+              <option value="gpt-6.1-sol">GPT-6.1 Sol (Flagship SOTA)</option>
+              <option value="gpt-6-luna">GPT-6 Luna (Ultra-Low Cost)</option>
+              <option value="gpt-6-astra">GPT-6 Astra (Max Reasoning)</option>
+            </optgroup>
+            <optgroup label="OpenAI GPT-5 Series">
+              <option value="gpt-5.5">GPT-5.5 (Deep Reasoning)</option>
+              <option value="gpt-5.4">GPT-5.4 (Core Workhorse)</option>
+              <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast &amp; Cheap)</option>
+            </optgroup>
+            <optgroup label="Anthropic Claude">
+              <option value="claude-sonnet-5.5" selected>Claude Sonnet 5.5 (8192 tok)</option>
+              <option value="claude-opus-5.5">Claude Opus 5.5 (4096 tok ceiling)</option>
+              <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
+            </optgroup>
+            <optgroup label="Google Gemini">
+              <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+              <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="input-group">
+          <label>API Key for System A (Optional)</label>
+          <input type="password" id="apiKeySysA" placeholder="Leave blank to use .env key">
+        </div>
+        <button class="single-run-btn btn-run-a" onclick="runSingle('a')">▶ Run System A Only</button>
+      </div>
+
+      <!-- System B Card -->
+      <div class="sys-card sys-b">
+        <div class="sys-header">
+          <span class="sys-title">System B: Conventional RAG</span>
+          <span class="badge badge-warning">Vector Top-K + 1 Call</span>
+        </div>
+        <div class="input-group">
+          <label>Model Preference</label>
+          <select id="modelSysB">
+            <optgroup label="OpenAI GPT-6 Series">
+              <option value="gpt-6.1-sol">GPT-6.1 Sol (Flagship SOTA)</option>
+              <option value="gpt-6-luna">GPT-6 Luna (Ultra-Low Cost)</option>
+              <option value="gpt-6-astra">GPT-6 Astra (Max Reasoning)</option>
+            </optgroup>
+            <optgroup label="OpenAI GPT-5 Series">
+              <option value="gpt-5.5">GPT-5.5 (Deep Reasoning)</option>
+              <option value="gpt-5.4">GPT-5.4 (Core Workhorse)</option>
+              <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast &amp; Cheap)</option>
+            </optgroup>
+            <optgroup label="Anthropic Claude">
+              <option value="claude-sonnet-5.5" selected>Claude Sonnet 5.5 (8192 tok)</option>
+              <option value="claude-opus-5.5">Claude Opus 5.5 (4096 tok ceiling)</option>
+              <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
+            </optgroup>
+            <optgroup label="Google Gemini">
+              <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+              <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="input-group">
+          <label>API Key for System B (Optional)</label>
+          <input type="password" id="apiKeySysB" placeholder="Leave blank to use .env key">
+        </div>
+        <div class="input-group">
+          <label>Top-K Chunks to Retrieve</label>
+          <select id="topKSysB">
+            <option value="3">Top 3 Chunks</option>
+            <option value="5" selected>Top 5 Chunks (Standard)</option>
+            <option value="8">Top 8 Chunks</option>
+          </select>
+        </div>
+        <button class="single-run-btn btn-run-b" onclick="runSingle('b')">▶ Run System B Only</button>
+      </div>
+
+      <!-- System C Card -->
+      <div class="sys-card sys-c">
+        <div class="sys-header">
+          <span class="sys-title">System C: Direct Single API</span>
+          <span class="badge badge-danger">Zero-Shot Parametric</span>
+        </div>
+        <div class="input-group">
+          <label>Model Preference</label>
+          <select id="modelSysC">
+            <optgroup label="OpenAI GPT-6 Series">
+              <option value="gpt-6.1-sol">GPT-6.1 Sol (Flagship SOTA)</option>
+              <option value="gpt-6-luna">GPT-6 Luna (Ultra-Low Cost)</option>
+              <option value="gpt-6-astra">GPT-6 Astra (Max Reasoning)</option>
+            </optgroup>
+            <optgroup label="OpenAI GPT-5 Series">
+              <option value="gpt-5.5">GPT-5.5 (Deep Reasoning)</option>
+              <option value="gpt-5.4">GPT-5.4 (Core Workhorse)</option>
+              <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast &amp; Cheap)</option>
+            </optgroup>
+            <optgroup label="Anthropic Claude">
+              <option value="claude-sonnet-5.5" selected>Claude Sonnet 5.5 (8192 tok)</option>
+              <option value="claude-opus-5.5">Claude Opus 5.5 (4096 tok ceiling)</option>
+              <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
+            </optgroup>
+            <optgroup label="Google Gemini">
+              <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+              <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="input-group">
+          <label>API Key for System C (Optional)</label>
+          <input type="password" id="apiKeySysC" placeholder="Leave blank to use .env key">
+        </div>
+        <button class="single-run-btn btn-run-c" onclick="runSingle('c')">▶ Run System C Only</button>
+      </div>
+
+    </div>
+
+    <!-- Master Action -->
+    <div class="master-actions">
+      <span style="font-size: 13px; color: var(--text-muted);">
+        All 3 systems enforce identical system persona instructions & token ceilings for strict scientific fairness.
+      </span>
+      <button id="btnRunAll" class="btn-run-all" onclick="runAllConcurrently()">
+        <span>⚡ Run All 3 Systems Concurrently</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Ground Truth Anchors Banner -->
+  <section id="groundTruthSection" class="ground-truth-banner" style="display: none;">
+    <h3 id="groundTruthTitle">Ground Truth Empirical Verification Checklist</h3>
+    <div id="anchorsContainer" class="anchors-list"></div>
+  </section>
+
+  <!-- Live Telemetry Scoreboard -->
+  <section class="scoreboard-section">
+    <h3>Live Evaluation Telemetry Scoreboard</h3>
+    <table class="scoreboard-table">
+      <thead>
+        <tr>
+          <th>Evaluation Metric</th>
+          <th style="color: var(--accent-sys-a);">System A: ResearchWorkbench</th>
+          <th style="color: var(--accent-sys-b);">System B: Conventional RAG</th>
+          <th style="color: var(--accent-sys-c);">System C: Direct Single API</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Architecture</td>
+          <td>4-Agent Pipeline</td>
+          <td>Vector Top-K + 1 Call</td>
+          <td>Zero-Shot 1 Call</td>
+        </tr>
+        <tr>
+          <td>External Literature Sources</td>
+          <td id="telSourcesA">—</td>
+          <td id="telSourcesB">—</td>
+          <td id="telSourcesC">0 (Pure Parametric)</td>
+        </tr>
+        <tr>
+          <td>Confidence Score</td>
+          <td id="telConfA"><strong>—</strong></td>
+          <td id="telConfB">N/A (Unmeasured)</td>
+          <td id="telConfC">N/A (Unmeasured)</td>
+        </tr>
+        <tr>
+          <td>Input Tokens</td>
+          <td id="telInTokA">—</td>
+          <td id="telInTokB">—</td>
+          <td id="telInTokC">—</td>
+        </tr>
+        <tr>
+          <td>Output Tokens</td>
+          <td id="telOutTokA">—</td>
+          <td id="telOutTokB">—</td>
+          <td id="telOutTokC">—</td>
+        </tr>
+        <tr>
+          <td>Total Tokens</td>
+          <td id="telTotTokA">—</td>
+          <td id="telTotTokB">—</td>
+          <td id="telTotTokC">—</td>
+        </tr>
+        <tr>
+          <td>Estimated Cost ($ USD)</td>
+          <td id="telCostA">—</td>
+          <td id="telCostB">—</td>
+          <td id="telCostC">—</td>
+        </tr>
+        <tr>
+          <td>Wall-Clock Latency</td>
+          <td id="telLatA">—</td>
+          <td id="telLatB">—</td>
+          <td id="telLatC">—</td>
+        </tr>
+        <tr>
+          <td>LaTeX Equations Detected</td>
+          <td id="telEqA">—</td>
+          <td id="telEqB">—</td>
+          <td id="telEqC">—</td>
+        </tr>
+        <tr>
+          <td>Forbidden Platitudes Detected</td>
+          <td id="telPlatA">—</td>
+          <td id="telPlatB">—</td>
+          <td id="telPlatC">—</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 3-Column Output View -->
+  <section class="outputs-grid">
+
+    <!-- Column A -->
+    <div class="output-column">
+      <div class="output-column-header sys-a-header">
+        <h4>System A: ResearchWorkbench</h4>
+        <span id="statusA" class="badge badge-success">Ready</span>
+      </div>
+      <div id="outputA" class="output-body">
+        <div class="empty-state">
+          <p>Click "Run System A" or "Run All Concurrently" to synthesize monograph with claim-level verification.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column B -->
+    <div class="output-column">
+      <div class="output-column-header sys-b-header">
+        <h4>System B: Conventional RAG</h4>
+        <span id="statusB" class="badge badge-warning">Ready</span>
+      </div>
+      <div id="outputB" class="output-body">
+        <div class="empty-state">
+          <p>Click "Run System B" to execute dense vector search and single augmented generation.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column C -->
+    <div class="output-column">
+      <div class="output-column-header sys-c-header">
+        <h4>System C: Direct Single API</h4>
+        <span id="statusC" class="badge badge-danger">Ready</span>
+      </div>
+      <div id="outputC" class="output-body">
+        <div class="empty-state">
+          <p>Click "Run System C" to generate monograph using zero-shot parametric weights.</p>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <script>
+    let gPrompts = [];
+
+    async function loadPrompts() {
+      try {
+        const res = await fetch('/api/prompts');
+        gPrompts = await res.json();
+        const sel = document.getElementById('promptSelect');
+        gPrompts.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `Prompt #${p.id}: ${p.title} (${p.domain})`;
+          sel.appendChild(opt);
+        });
+        setupKeyAutoDetection();
+      } catch (err) {
+        console.error('Failed to load prompts:', err);
+      }
+    }
+
+    function setupKeyAutoDetection() {
+      ['A', 'B', 'C'].forEach(u => {
+        const keyInput = document.getElementById(`apiKeySys${u}`);
+        const modelSelect = document.getElementById(`modelSys${u}`);
+        keyInput.addEventListener('input', () => {
+          const val = keyInput.value.trim();
+          if (val.startsWith('AIzaSy')) {
+            if (!modelSelect.value.startsWith('gemini')) {
+              modelSelect.value = 'gemini-3.8-flash';
+            }
+          } else if (val.startsWith('sk-ant-')) {
+            if (!modelSelect.value.startsWith('claude')) {
+              modelSelect.value = 'claude-sonnet-5.5';
+            }
+          }
+        });
+      });
+    }
+
+    function onSelectPrompt(pid) {
+      if (!pid) return;
+      const p = gPrompts.find(x => x.id === parseInt(pid));
+      if (!p) return;
+      document.getElementById('queryText').value = p.query;
+
+      // Show ground truth anchors
+      const gtSec = document.getElementById('groundTruthSection');
+      const anchorsCont = document.getElementById('anchorsContainer');
+      document.getElementById('groundTruthTitle').textContent = `Ground Truth Verification Checklist (Prompt #${p.id}: ${p.title})`;
+      anchorsCont.innerHTML = '';
+      p.ground_truth_anchors.forEach((anchor, i) => {
+        const div = document.createElement('div');
+        div.className = 'anchor-item';
+        div.innerHTML = `
+          <input type="checkbox" id="chk_${i}">
+          <label for="chk_${i}">${anchor}</label>
+        `;
+        anchorsCont.appendChild(div);
+      });
+      gtSec.style.display = 'block';
+    }
+
+    function updateTelemetry(sys, data) {
+      const u = sys.toUpperCase();
+      if (!data || data.error) return;
+
+      const ta = data.text_analysis || {};
+      document.getElementById(`telInTok${u}`).textContent = data.input_tokens || 0;
+      document.getElementById(`telOutTok${u}`).textContent = data.output_tokens || 0;
+      document.getElementById(`telTotTok${u}`).textContent = data.total_tokens || 0;
+      document.getElementById(`telCost${u}`).textContent = `$${(data.cost_usd || 0).toFixed(4)}`;
+      document.getElementById(`telLat${u}`).textContent = `${(data.latency_seconds || 0).toFixed(2)}s`;
+      document.getElementById(`telEq${u}`).textContent = ta.latex_equations_count || 0;
+      
+      const platCount = ta.platitudes_count || 0;
+      const platEl = document.getElementById(`telPlat${u}`);
+      if (platCount === 0) {
+        platEl.innerHTML = `<span class="badge badge-success">0 Platitudes</span>`;
+      } else {
+        platEl.innerHTML = `<span class="badge badge-danger">${platCount} detected</span>`;
+      }
+
+      if (sys === 'a') {
+        document.getElementById('telSourcesA').textContent = `${data.retrieved_sources_count || 0} retrieved`;
+        document.getElementById('telConfA').innerHTML = `<span class="badge badge-success">${data.confidence_score || 0}%</span>`;
+      } else if (sys === 'b') {
+        document.getElementById('telSourcesB').textContent = `${data.retrieved_sources_count || 0} top-k chunks`;
+      }
+    }
+
+    async function runSingle(sys) {
+      const query = document.getElementById('queryText').value.trim();
+      if (!query) {
+        alert('Please select a benchmark prompt or enter a research query.');
+        return;
+      }
+
+      const u = sys.toUpperCase();
+      const model = document.getElementById(`modelSys${u}`).value;
+      const apiKey = document.getElementById(`apiKeySys${u}`).value.trim() || null;
+      const topK = sys === 'b' ? parseInt(document.getElementById('topKSysB').value) : 5;
+
+      const statusEl = document.getElementById(`status${u}`);
+      const outputEl = document.getElementById(`output${u}`);
+
+      statusEl.innerHTML = `<span class="spinner"></span> Running...`;
+      outputEl.innerHTML = `<div class="empty-state"><span class="spinner"></span><p style="margin-top:10px;">Synthesizing monograph for System ${u}...</p></div>`;
+
+      try {
+        const res = await fetch('/api/run-system', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_type: sys,
+            query: query,
+            model: model,
+            api_key: apiKey,
+            top_k: topK
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || 'Execution error');
+        }
+
+        const data = await res.json();
+        statusEl.textContent = 'Completed';
+        outputEl.innerHTML = marked.parse(data.output_text || '');
+        updateTelemetry(sys, data);
+      } catch (err) {
+        statusEl.innerHTML = `<span class="badge badge-danger">Failed</span>`;
+        outputEl.innerHTML = `<div class="empty-state" style="color:var(--danger)"><p><strong>Error:</strong> ${err.message}</p></div>`;
+      }
+    }
+
+    async function runAllConcurrently() {
+      const query = document.getElementById('queryText').value.trim();
+      if (!query) {
+        alert('Please select a benchmark prompt or enter a research query.');
+        return;
+      }
+
+      const btn = document.getElementById('btnRunAll');
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner"></span> Executing 3 Systems in Parallel...`;
+
+      ['A', 'B', 'C'].forEach(u => {
+        document.getElementById(`status${u}`).innerHTML = `<span class="spinner"></span> Running...`;
+        document.getElementById(`output${u}`).innerHTML = `<div class="empty-state"><span class="spinner"></span><p style="margin-top:10px;">Synthesizing monograph...</p></div>`;
+      });
+
+      const payload = {
+        query: query,
+        system_a: {
+          enabled: true,
+          model: document.getElementById('modelSysA').value,
+          api_key: document.getElementById('apiKeySysA').value.trim() || null
+        },
+        system_b: {
+          enabled: true,
+          model: document.getElementById('modelSysB').value,
+          api_key: document.getElementById('apiKeySysB').value.trim() || null,
+          top_k: parseInt(document.getElementById('topKSysB').value)
+        },
+        system_c: {
+          enabled: true,
+          model: document.getElementById('modelSysC').value,
+          api_key: document.getElementById('apiKeySysC').value.trim() || null
+        }
+      };
+
+      try {
+        const res = await fetch('/api/run-comparison', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        const results = data.results || {};
+
+        ['a', 'b', 'c'].forEach(sys => {
+          const u = sys.toUpperCase();
+          const sRes = results[`system_${sys}`];
+          const statusEl = document.getElementById(`status${u}`);
+          const outputEl = document.getElementById(`output${u}`);
+
+          if (sRes && !sRes.error) {
+            statusEl.textContent = 'Completed';
+            outputEl.innerHTML = marked.parse(sRes.output_text || '');
+            updateTelemetry(sys, sRes);
+          } else {
+            statusEl.innerHTML = `<span class="badge badge-danger">Failed</span>`;
+            outputEl.innerHTML = `<div class="empty-state" style="color:var(--danger)"><p><strong>Error:</strong> ${(sRes && sRes.error) || 'Failed'}</p></div>`;
+          }
+        });
+      } catch (err) {
+        alert('Comparison runner failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<span>⚡ Run All 3 Systems Concurrently</span>`;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', loadPrompts);
+  </script>
+</body>
+</html>

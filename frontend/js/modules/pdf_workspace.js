@@ -12,14 +12,14 @@ import { buildComparisonTableHTML, buildDialecticalFrictionHTML, buildEpistemicL
 
 // Helper to retrieve user API config and mode toggles
 export function getWorkbenchAPIConfig() {
+  const openaiKey = (document.getElementById('cfg-openai-key')?.value.trim()) || sessionStorage.getItem('workbench_openai_key') || '';
   const geminiKey = (document.getElementById('cfg-gemini-key')?.value.trim()) || sessionStorage.getItem('workbench_gemini_key') || '';
   const anthropicKey = (document.getElementById('cfg-anthropic-key')?.value.trim()) || sessionStorage.getItem('workbench_anthropic_key') || '';
   const agent2ModelVal = document.getElementById('cfg-agent2-model')?.value || 'gemini-3.6-flash';
   const provider = agent2ModelVal;
   const strictMode = elements.togglePdfStrictApi ? elements.togglePdfStrictApi.checked : false;
-  const demoMode = elements.togglePdfDemoMode ? elements.togglePdfDemoMode.checked : false;
 
-  return { geminiKey, anthropicKey, provider, strictMode, demoMode };
+  return { openaiKey, geminiKey, anthropicKey, provider, strictMode };
 }
 
 export function updateDocAPIStatus() {
@@ -27,11 +27,7 @@ export function updateDocAPIStatus() {
   if (!elements.docApiStatus || !elements.docApiText) return;
   const dot = elements.docApiStatus.querySelector('.doc-api-dot');
 
-  if (config.demoMode) {
-    elements.docApiText.innerText = 'Demo Mode';
-    if (dot) dot.className = 'doc-api-dot warning';
-    if (elements.docDemoChips) elements.docDemoChips.style.display = 'flex';
-  } else if (config.geminiKey || config.anthropicKey) {
+  if (config.openaiKey || config.geminiKey || config.anthropicKey) {
     elements.docApiText.innerText = config.strictMode ? 'Strict API (Online)' : 'API Connected';
     if (dot) dot.className = 'doc-api-dot';
   } else {
@@ -79,12 +75,11 @@ export function initPDFWorkspace() {
   elements.chunksCountLabel = document.getElementById('chunks-count-label');
   elements.btnClearPdfLibrary = document.getElementById('btn-clear-pdf-library');
   elements.togglePdfStrictApi = document.getElementById('toggle-pdf-strict-api');
-  elements.togglePdfDemoMode = document.getElementById('toggle-pdf-demo-mode');
   elements.docApiStatus = document.getElementById('doc-api-status');
   elements.docApiText = document.getElementById('doc-api-text');
   elements.docDemoChips = document.getElementById('doc-demo-chips');
 
-  // Initialize Strict API & Demo Mode Toggles
+  // Initialize Strict API Toggle
   if (elements.togglePdfStrictApi) {
     const savedStrict = localStorage.getItem('workbench_pdf_strict_api');
     if (savedStrict !== null) {
@@ -99,19 +94,7 @@ export function initPDFWorkspace() {
     });
   }
 
-  if (elements.togglePdfDemoMode) {
-    const savedDemo = localStorage.getItem('workbench_pdf_demo_mode');
-    if (savedDemo !== null) {
-      elements.togglePdfDemoMode.checked = (savedDemo === 'true');
-    }
-    elements.togglePdfDemoMode.addEventListener('change', (e) => {
-      localStorage.setItem('workbench_pdf_demo_mode', e.target.checked ? 'true' : 'false');
-      updateDocAPIStatus();
-      showToast(e.target.checked ? 'Demo Mode Active: Returning pre-computed formulations with 0 tokens.' : 'Demo Mode Disabled: Routing requests to AI pipeline.', 'info');
-    });
-  }
-
-  // Preset Inquiries / Demo Chips
+  // Preset Inquiries / Suggested Chips
   if (elements.docDemoChips) {
     elements.docDemoChips.querySelectorAll('.doc-demo-chip').forEach(chip => {
       chip.addEventListener('click', () => {
@@ -466,21 +449,20 @@ export async function executePDFQuestion(overrideQuery = null) {
   // Append loading assistant bubble
   const loadingBubble = appendChatBubble('assistant', 'Searching indexed document chunks and synthesizing answer...');
 
-  const { geminiKey, anthropicKey, provider, strictMode, demoMode } = getWorkbenchAPIConfig();
+  const { openaiKey, geminiKey, anthropicKey, provider, strictMode } = getWorkbenchAPIConfig();
 
   // Fail-closed client validation if Strict Mode is ON and no API keys are present
-  if (strictMode && !demoMode && !geminiKey && !anthropicKey) {
+  if (strictMode && !openaiKey && !geminiKey && !anthropicKey) {
     loadingBubble.innerHTML = `
       <div style="padding: 6px 0;">
         <strong style="color: var(--accent-rose);">⚠️ Strict API Mode Active — Missing API Key</strong>
         <p style="margin: 6px 0 12px; font-size: 0.88rem; color: var(--text-muted); line-height: 1.5;">
-          Strict API mode requires a valid Gemini or Anthropic Claude API key. 
+          Strict API mode requires a valid OpenAI, Gemini, or Anthropic Claude API key. 
           Configure your API key in <strong>Model Settings</strong>, or switch to <strong>Offline Heuristic Mode</strong> to analyze locally.
         </p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <button class="btn-primary btn-sm" onclick="document.getElementById('nav-settings')?.click()">⚙️ Configure API Key</button>
           <button class="btn-secondary btn-sm" onclick="if(elements.togglePdfStrictApi){ elements.togglePdfStrictApi.checked = false; elements.togglePdfStrictApi.dispatchEvent(new Event('change')); showToast('Switched to Offline Heuristic Mode'); }">⚡ Offline Heuristic Mode</button>
-          <button class="btn-secondary btn-sm" onclick="document.getElementById('toggle-pdf-demo-mode').click();">💡 Enable Demo Mode</button>
         </div>
       </div>
     `;
@@ -488,19 +470,27 @@ export async function executePDFQuestion(overrideQuery = null) {
   }
 
   try {
+    const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
     const resp = await fetch('/api/pdf/qa', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(openaiKey ? { 'x-openai-key': openaiKey } : {}),
+        ...(geminiKey ? { 'x-gemini-key': geminiKey } : {}),
+        ...(anthropicKey ? { 'x-anthropic-key': anthropicKey } : {})
+      },
+      credentials: 'same-origin',
       body: JSON.stringify({
         session_id: UIState.pdfSessionId,
         action: 'qa',
         query: query,
         chat_history: UIState.pdfChatHistory,
         provider: provider,
+        openai_key: openaiKey,
         gemini_key: geminiKey,
         anthropic_key: anthropicKey,
-        disable_fallback: strictMode,
-        demo_mode: demoMode
+        disable_fallback: strictMode
       })
     });
 
@@ -561,10 +551,10 @@ export async function executePDFAnalysisPipeline(action) {
   if (!UIState.pdfSessionId) return;
   elements.docOutputContent.innerHTML = '<div class="empty-state-card"><div class="empty-icon">⏳</div><h3>Synthesizing Academic Analysis...</h3><p>Extracting grounded assertions across document chunks.</p></div>';
 
-  const { geminiKey, anthropicKey, provider, strictMode, demoMode } = getWorkbenchAPIConfig();
+  const { openaiKey, geminiKey, anthropicKey, provider, strictMode } = getWorkbenchAPIConfig();
 
   // Fail-closed client validation if Strict Mode is ON and no API keys are present
-  if (strictMode && !demoMode && !geminiKey && !anthropicKey) {
+  if (strictMode && !openaiKey && !geminiKey && !anthropicKey) {
     elements.docOutputContent.innerHTML = `
       <div class="empty-state-card" style="border-color: rgba(244,63,94,0.4); text-align: left; padding: 24px;">
         <div class="empty-icon">⚠️</div>
@@ -575,7 +565,6 @@ export async function executePDFAnalysisPipeline(action) {
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
           <button class="btn-primary btn-sm" onclick="document.getElementById('nav-settings')?.click()">⚙️ Configure API Key</button>
           <button class="btn-secondary btn-sm" onclick="if(elements.togglePdfStrictApi){ elements.togglePdfStrictApi.checked = false; elements.togglePdfStrictApi.dispatchEvent(new Event('change')); executePDFAnalysisPipeline('${action}'); }">⚡ Offline Heuristic Mode</button>
-          <button class="btn-secondary btn-sm" onclick="document.getElementById('toggle-pdf-demo-mode').click(); executePDFAnalysisPipeline('${action}');">💡 Switch to Demo Mode</button>
         </div>
       </div>
     `;
@@ -588,7 +577,7 @@ export async function executePDFAnalysisPipeline(action) {
     query: "",
     provider: provider,
     disable_fallback: strictMode,
-    demo_mode: demoMode,
+    openai_key: openaiKey,
     gemini_key: geminiKey,
     anthropic_key: anthropicKey
   };

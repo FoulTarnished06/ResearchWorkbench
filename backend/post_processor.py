@@ -159,7 +159,7 @@ def diversify_section_subheadings(sections: List[Dict[str, Any]]) -> List[Dict[s
 
 def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
     """
-    Extracts or synthesizes 3 substantive, peer-reviewed scientific findings.
+    Extracts or synthesizes 3 substantive scientific findings grounded in literature.
     Eliminates all backend meta-commentary, telemetry, and system artifacts.
     """
     takeaways: List[str] = []
@@ -213,7 +213,7 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
     citations = dossier_data.get("citations") or []
     cit_count = len(citations) if citations else 5
     academic_defaults = [
-        f"Consensus corroborated across {cit_count} peer-reviewed source publications.",
+        f"Consensus corroborated across {cit_count} source publications.",
         "Empirical evaluations confirm dominant operational scaling thresholds and throughput bounds.",
         "Comparative literature synthesis establishes key trade-offs between computational overhead and execution latency."
     ]

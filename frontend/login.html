@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In & Register | AI Research Workbench</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-body: #0b0d13;
+      --bg-surface: #121620;
+      --bg-card: rgba(18, 22, 32, 0.75);
+      --bg-card-solid: #151a26;
+      --bg-input: #1a2030;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.18);
+      --border-focus: #6366f1;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent-cyan: #38bdf8;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 20px;
+      --radius-full: 9999px;
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --shadow-card: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 1px 1px rgba(255, 255, 255, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    /* Ambient animated cosmic mesh background */
+    .ambient-mesh {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .ambient-glow {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.35;
+      animation: pulseGlow 14s ease-in-out infinite alternate;
+    }
+    .glow-1 {
+      top: -10%;
+      left: 10%;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, #4338ca, transparent 70%);
+    }
+    .glow-2 {
+      bottom: -15%;
+      right: 5%;
+      width: 650px;
+      height: 650px;
+      background: radial-gradient(circle, #0284c7, transparent 70%);
+      animation-delay: -6s;
+    }
+    .glow-3 {
+      top: 40%;
+      left: 45%;
+      width: 450px;
+      height: 450px;
+      background: radial-gradient(circle, #7e22ce, transparent 70%);
+      animation-delay: -3s;
+      opacity: 0.2;
+    }
+    @keyframes pulseGlow {
+      0% { transform: scale(1) translate(0, 0); }
+      50% { transform: scale(1.15) translate(30px, -20px); }
+      100% { transform: scale(0.95) translate(-25px, 25px); }
+    }
+
+    /* Navigation Header */
+    .auth-header {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      padding: 24px 36px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1, #0284c7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+    }
+    .brand-name {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+    }
+    .brand-badge {
+      font-size: 0.70rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: rgba(99, 102, 241, 0.15);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .auth-system-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 16px;
+      border-radius: var(--radius-full);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      background: rgba(99, 102, 241, 0.08);
+      color: #cbd5e1;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      backdrop-filter: blur(8px);
+    }
+    .auth-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
+      display: inline-block;
+    }
+
+    /* Main Container Split View */
+    .auth-main-layout {
+      position: relative;
+      z-index: 10;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 20px 32px 48px;
+      gap: 60px;
+    }
+
+    /* Left Hero Showcase */
+    .hero-showcase {
+      flex: 1.1;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+    .hero-badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 14px;
+      border-radius: var(--radius-full);
+      background: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+      font-size: 0.80rem;
+      font-weight: 700;
+      width: fit-content;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 10px #38bdf8;
+      animation: blink 2s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .hero-headline {
+      font-size: 2.75rem;
+      font-weight: 800;
+      line-height: 1.18;
+      letter-spacing: -0.03em;
+      color: #fff;
+    }
+    .hero-headline span.gradient-text {
+      background: linear-gradient(135deg, #38bdf8, #818cf8 60%, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-description {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      line-height: 1.65;
+      max-width: 540px;
+    }
+
+    /* Feature Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-top: 6px;
+    }
+    .feature-card-mini {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      backdrop-filter: blur(10px);
+      transition: all 0.2s ease;
+    }
+    .feature-card-mini:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(99, 102, 241, 0.3);
+      transform: translateY(-2px);
+    }
+    .feature-icon-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      font-weight: 700;
+      font-size: 0.92rem;
+      color: var(--text-main);
+    }
+    .feature-icon-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      background: rgba(99, 102, 241, 0.18);
+      color: #818cf8;
+    }
+    .feature-desc-mini {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    /* Trust / Telemetry Metrics Row */
+    .hero-telemetry-row {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-subtle);
+    }
+    .tele-stat-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .tele-stat-num {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+    }
+    .tele-stat-label {
+      font-size: 0.74rem;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* Right Auth Card */
+    .auth-card-wrapper {
+      flex: 0.95;
+      max-width: 480px;
+      width: 100%;
+    }
+    .auth-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 36px 36px 32px;
+      box-shadow: var(--shadow-card);
+      backdrop-filter: blur(24px);
+      position: relative;
+    }
+
+    .auth-card-header {
+      margin-bottom: 24px;
+      text-align: left;
+    }
+    .auth-card-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+    .auth-card-subtitle {
+      font-size: 0.90rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* One-Click Social SSO */
+    .social-sso-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .btn-sso {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      text-decoration: none;
+    }
+    .btn-sso:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--border-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }
+    .sso-icon {
+      flex-shrink: 0;
+    }
+
+    /* Auth Divider */
+    .auth-separator {
+      display: flex;
+      align-items: center;
+      text-align: center;
+      margin: 20px 0 22px;
+      color: var(--text-subtle);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+    .auth-separator::before,
+    .auth-separator::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .auth-separator span {
+      padding: 0 14px;
+    }
+
+    /* Auth Tabs (Sign In / Register) */
+    .auth-pill-tabs {
+      display: flex;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 4px;
+      margin-bottom: 22px;
+    }
+    .tab-pill-btn {
+      flex: 1;
+      padding: 9px 14px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.18s ease;
+      font-family: inherit;
+    }
+    .tab-pill-btn.active {
+      background: var(--bg-card-solid);
+      color: var(--text-main);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* Form & Input Fields */
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .input-field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+    }
+    .input-field-group label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .input-with-icon {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .input-icon-prefix {
+      position: absolute;
+      left: 14px;
+      color: var(--text-subtle);
+      display: flex;
+      align-items: center;
+      pointer-events: none;
+    }
+    .form-text-input {
+      width: 100%;
+      padding: 11px 14px 11px 40px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      color: var(--text-main);
+      font-size: 0.90rem;
+      font-family: inherit;
+      transition: all 0.18s ease;
+    }
+    .form-text-input:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      background: #1e2538;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    }
+    .form-text-input:user-invalid {
+      border-color: rgba(244, 63, 94, 0.6);
+    }
+    .btn-toggle-pwd {
+      position: absolute;
+      right: 12px;
+      background: transparent;
+      border: none;
+      color: var(--text-subtle);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      padding: 4px;
+      transition: color 0.15s ease;
+    }
+    .btn-toggle-pwd:hover {
+      color: var(--text-main);
+    }
+
+    /* Form Extra Options (Remember Me / Forgot) */
+    .form-options-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: -2px;
+    }
+    .remember-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .remember-label input[type="checkbox"] {
+      accent-color: var(--primary);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+    }
+    .link-subtle {
+      color: #818cf8;
+      text-decoration: none;
+      font-weight: 500;
+      transition: color 0.15s ease;
+    }
+    .link-subtle:hover {
+      color: #a5b4fc;
+      text-decoration: underline;
+    }
+
+    /* Submit Button */
+    .btn-submit-auth {
+      margin-top: 6px;
+      width: 100%;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 4px 18px rgba(99, 102, 241, 0.4);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      font-family: inherit;
+    }
+    .btn-submit-auth:hover {
+      background: linear-gradient(135deg, #4f46e5, #4338ca);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(99, 102, 241, 0.55);
+    }
+    .btn-submit-auth:active {
+      transform: translateY(0);
+    }
+    .btn-submit-auth:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Alert Banner */
+    .auth-status-alert {
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      font-size: 0.85rem;
+      margin-bottom: 18px;
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      animation: alertSlideIn 0.2s ease;
+    }
+    @keyframes alertSlideIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .auth-status-alert.error {
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      color: #fb7185;
+    }
+    .auth-status-alert.success {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #34d399;
+    }
+
+    /* Key Vault Security Banner at bottom */
+    .vault-security-footer {
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 0.78rem;
+      color: var(--text-subtle);
+      line-height: 1.45;
+    }
+    .vault-lock-icon {
+      color: var(--accent-green);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* Logged In Active State Box */
+    .active-session-box {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 18px;
+      padding: 10px 0;
+    }
+    .active-user-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0284c7, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+      overflow: hidden;
+    }
+    .active-user-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .active-user-name {
+      font-size: 1.35rem;
+      font-weight: 800;
+      margin-bottom: 2px;
+    }
+    .active-user-email {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+    .session-badge-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .badge-session {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: var(--radius-full);
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .badge-provider {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: var(--radius-full);
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .session-actions-grid {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+      margin-top: 8px;
+    }
+    .btn-session-continue {
+      flex: 2;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #fff;
+      font-weight: 700;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-session-logout {
+      flex: 1;
+      padding: 12px;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+    .btn-session-logout:hover {
+      background: rgba(244, 63, 94, 0.15);
+      color: #fb7185;
+      border-color: rgba(244, 63, 94, 0.3);
+    }
+
+    /* Responsive Queries */
+    @media (max-width: 960px) {
+      .auth-main-layout {
+        flex-direction: column;
+        gap: 36px;
+        padding-top: 10px;
+      }
+      .hero-showcase {
+        text-align: center;
+        align-items: center;
+      }
+      .hero-headline {
+        font-size: 2.1rem;
+      }
+      .features-grid {
+        grid-template-columns: 1fr;
+        max-width: 500px;
+      }
+      .hero-telemetry-row {
+        justify-content: center;
+      }
+      .auth-header {
+        padding: 18px 24px;
+      }
+    }
+    @media (max-width: 480px) {
+      .auth-card {
+        padding: 24px 20px 24px;
+      }
+      .hero-headline {
+        font-size: 1.75rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Ambient Cosmic Mesh -->
+  <div class="ambient-mesh" aria-hidden="true">
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+  </div>
+
+  <!-- Top Header Navigation -->
+  <header class="auth-header">
+    <a href="/login" class="brand-group" title="AI Research Workbench">
+      <div class="brand-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+          <polyline points="2 17 12 22 22 17"></polyline>
+          <polyline points="2 12 12 17 22 12"></polyline>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">AI Research Workbench</div>
+      </div>
+      <span class="brand-badge">v3.0</span>
+    </a>
+
+    <div class="auth-system-status">
+      <span class="auth-status-dot"></span>
+      <span>Workstation Secure Access</span>
+    </div>
+  </header>
+
+  <!-- Main Hero & Auth Portal -->
+  <main class="auth-main-layout">
+    <!-- Left Hero Column -->
+    <section class="hero-showcase">
+      <div class="hero-badge-pill">
+        <span class="pulse-dot"></span>
+        <span>Multi-Agent Research Workstation</span>
+      </div>
+
+      <h1 class="hero-headline">
+        Academic Rigor, <br/>
+        <span class="gradient-text">Deterministic Consensus.</span>
+      </h1>
+
+      <p class="hero-description">
+        Access an autonomous 4-agent research pipeline designed to minimize hallucinations through automated 3-tier claim audits, zero-token local caching, and verbatim citation grounding.
+      </p>
+
+      <!-- 4 Core Pillars -->
+      <div class="features-grid">
+        <div class="feature-card-mini">
+          <div class="feature-icon-title">
+            <span class="feature-icon-badge">🏛️</span>
+            <span>4-Agent Sequential Core</span>
+          </div>
+          <p class="feature-desc-mini">
+            Scraper &rarr; Drafter &rarr; Cacher &rarr; Adversarial Fact-Checker running on a strict 2-LLM credit ceiling.
+          </p>
+        </div>
+
+        <div class="feature-card-mini">
+          <div class="feature-icon-title">
+            <span class="feature-icon-badge">⚡</span>
+            <span>Zero-Token Local Caching</span>
+          </div>
+          <p class="feature-desc-mini">
+            Local ONNX BGE neural embeddings index literature for instantaneous 0-token replay & follow-ups.
+          </p>
+        </div>
+
+        <div class="feature-card-mini">
+          <div class="feature-icon-title">
+            <span class="feature-icon-badge">🔐</span>
+            <span>AES-256-GCM Encrypted Vault</span>
+          </div>
+          <p class="feature-desc-mini">
+            AES-256-GCM authenticated encryption isolates your API keys with per-user HKDF salts. Zero plaintext stored.
+          </p>
+        </div>
+
+        <div class="feature-card-mini">
+          <div class="feature-icon-title">
+            <span class="feature-icon-badge">📄</span>
+            <span>PDF Document Analysis</span>
+          </div>
+          <p class="feature-desc-mini">
+            Ingest full papers with embedded figure extraction, citation graph linking, and semantic chapter Q&A.
+          </p>
+        </div>
+      </div>
+
+      <!-- Telemetry Highlights -->
+      <div class="hero-telemetry-row">
+        <div class="tele-stat-item">
+          <span class="tele-stat-num">4.2%</span>
+          <span class="tele-stat-label">Benchmark Error Rate (vs 38.6%)</span>
+        </div>
+        <div class="tele-stat-item">
+          <span class="tele-stat-num">6 Repos</span>
+          <span class="tele-stat-label">Direct Open-Access Querying</span>
+        </div>
+        <div class="tele-stat-item">
+          <span class="tele-stat-num">AES-256</span>
+          <span class="tele-stat-label">Per-User Vault Cryptography</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Login / Registration Portal -->
+    <section class="auth-card-wrapper">
+      <div class="auth-card" id="auth-portal-card">
+        <!-- Error / Status Alert Banner -->
+        <div class="auth-status-alert" id="auth-alert" role="alert" aria-live="polite">
+          <span id="alert-message"></span>
+        </div>
+
+        <!-- ACTIVE LOGGED IN VIEW (If user already has an active session) -->
+        <div class="active-session-box" id="active-session-view">
+          <div class="active-user-avatar" id="active-user-avatar">RF</div>
+          <div>
+            <h3 class="active-user-name" id="active-user-name">Active Researcher</h3>
+            <div class="active-user-email" id="active-user-email">researcher@lab.edu</div>
+            <div class="session-badge-row">
+              <span class="badge-session">Session Active</span>
+              <span class="badge-provider" id="active-user-provider">Local Account</span>
+            </div>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">
+            You are currently signed in. You can return directly to your research workspace or switch accounts.
+          </p>
+          <div class="session-actions-grid">
+            <a href="/" class="btn-session-continue" id="btn-continue-workbench">
+              <span>Go to Workbench</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </a>
+            <button type="button" class="btn-session-logout" id="btn-session-signout">Sign Out</button>
+          </div>
+        </div>
+
+        <!-- AUTH FORMS VIEW (Sign In / Register) -->
+        <div id="auth-forms-view">
+          <div class="auth-card-header">
+            <h2 class="auth-card-title" id="auth-header-title">Researcher Access</h2>
+            <p class="auth-card-subtitle" id="auth-header-subtitle">
+              Sign in to save research monographs, PDF libraries, and encrypted API credentials.
+            </p>
+          </div>
+
+          <!-- One-Click Social SSO Buttons -->
+          <div class="social-sso-group" id="social-sso-group">
+            <button type="button" class="btn-sso btn-sso-google" id="btn-sso-google" title="Sign in with Google Account">
+              <svg class="sso-icon" width="20" height="20" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.66-5.17 3.66-9.12z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.36 7.33 24 12 24z"/>
+                <path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.13z"/>
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.13c.95-2.83 3.6-4.96 6.72-4.96z"/>
+              </svg>
+              <span>Continue with Google</span>
+            </button>
+
+            <button type="button" class="btn-sso btn-sso-github" id="btn-sso-github" title="Sign in with GitHub Account">
+              <svg class="sso-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+              </svg>
+              <span>Continue with GitHub</span>
+            </button>
+          </div>
+
+          <div class="auth-separator">
+            <span>or continue with email</span>
+          </div>
+
+          <!-- Auth Mode Tabs -->
+          <div class="auth-pill-tabs" role="tablist">
+            <button type="button" class="tab-pill-btn active" id="tab-login" role="tab" aria-selected="true">Sign In</button>
+            <button type="button" class="tab-pill-btn" id="tab-register" role="tab" aria-selected="false">Create Account</button>
+          </div>
+
+          <!-- SIGN IN FORM -->
+          <form id="form-login" class="auth-form" method="post" action="javascript:void(0);">
+            <div class="input-field-group">
+              <label for="login-username">Username or Institutional Email</label>
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                </span>
+                <input 
+                  type="text" 
+                  id="login-username" 
+                  name="username" 
+                  class="form-text-input" 
+                  placeholder="e.g. MarieCurie or marie@sorbonne.fr" 
+                  autocomplete="username" 
+                  required 
+                  enterkeyhint="next"
+                />
+              </div>
+            </div>
+
+            <div class="input-field-group">
+              <label for="login-password">Password</label>
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </span>
+                <input 
+                  type="password" 
+                  id="login-password" 
+                  name="password" 
+                  class="form-text-input" 
+                  placeholder="••••••••••••" 
+                  autocomplete="current-password" 
+                  required 
+                  enterkeyhint="done"
+                />
+                <button type="button" class="btn-toggle-pwd" data-target="login-password" aria-label="Toggle password visibility">
+                  <svg class="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-options-row">
+              <label class="remember-label">
+                <input type="checkbox" id="remember-me" checked>
+                <span>Remember this device</span>
+              </label>
+              <a href="#" class="link-subtle" id="link-forgot-pwd">Forgot password?</a>
+            </div>
+
+            <button type="submit" class="btn-submit-auth" id="btn-submit-login">
+              <span>Sign In to Workbench</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          </form>
+
+          <!-- REGISTER FORM -->
+          <form id="form-register" class="auth-form" method="post" action="javascript:void(0);" style="display: none;">
+            <div class="input-field-group">
+              <label for="reg-username">Username</label>
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                </span>
+                <input 
+                  type="text" 
+                  id="reg-username" 
+                  name="username" 
+                  class="form-text-input" 
+                  placeholder="e.g. RosalindFranklin" 
+                  autocomplete="username" 
+                  required 
+                  minlength="3" 
+                  maxlength="30"
+                  enterkeyhint="next"
+                />
+              </div>
+            </div>
+
+            <div class="input-field-group">
+              <label for="reg-email">Email Address</label>
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="22,6 12,13 2,6"></polyline>
+                  </svg>
+                </span>
+                <input 
+                  type="email" 
+                  id="reg-email" 
+                  name="email" 
+                  class="form-text-input" 
+                  placeholder="e.g. rosalind@cam.ac.uk" 
+                  autocomplete="email" 
+                  required 
+                  enterkeyhint="next"
+                />
+              </div>
+            </div>
+
+            <div class="input-field-group">
+              <label for="reg-password">Password</label>
+              <div class="input-with-icon">
+                <span class="input-icon-prefix">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </span>
+                <input 
+                  type="password" 
+                  id="reg-password" 
+                  name="password" 
+                  class="form-text-input" 
+                  placeholder="Minimum 6 characters" 
+                  autocomplete="new-password" 
+                  required 
+                  minlength="6"
+                  enterkeyhint="done"
+                />
+                <button type="button" class="btn-toggle-pwd" data-target="reg-password" aria-label="Toggle password visibility">
+                  <svg class="eye-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn-submit-auth" id="btn-submit-register">
+              <span>Create Researcher Account</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+                <polyline points="12 5 19 12 12 19"></polyline>
+              </svg>
+            </button>
+          </form>
+
+          <!-- Cryptographic Vault Notice -->
+          <div class="vault-security-footer">
+            <svg class="vault-lock-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <span>
+              Your sessions and API keys are protected by <strong>AES-256-GCM</strong> authenticated encryption with tenant-isolated HKDF salts. Plaintext credentials are never saved.
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const KEY_TOKEN = "workbench_auth_token";
+      const KEY_USER = "workbench_auth_user";
+
+      const tabLogin = document.getElementById("tab-login");
+      const tabRegister = document.getElementById("tab-register");
+      const formLogin = document.getElementById("form-login");
+      const formRegister = document.getElementById("form-register");
+      const alertEl = document.getElementById("auth-alert");
+      const alertMsg = document.getElementById("alert-message");
+      const authFormsView = document.getElementById("auth-forms-view");
+      const activeSessionView = document.getElementById("active-session-view");
+
+      function showAlert(msg, type = "error") {
+        if (!alertEl || !alertMsg) return;
+        alertMsg.textContent = msg;
+        alertEl.className = `auth-status-alert ${type}`;
+        alertEl.style.display = "flex";
+      }
+
+      function hideAlert() {
+        if (alertEl) alertEl.style.display = "none";
+      }
+
+      function setTab(tab) {
+        hideAlert();
+        if (tab === "register") {
+          tabLogin.classList.remove("active");
+          tabLogin.setAttribute("aria-selected", "false");
+          tabRegister.classList.add("active");
+          tabRegister.setAttribute("aria-selected", "true");
+          formLogin.style.display = "none";
+          formRegister.style.display = "flex";
+          document.getElementById("auth-header-title").textContent = "Create Account";
+          document.getElementById("auth-header-subtitle").textContent = "Get started with authenticated literature-grounded research synthesis.";
+        } else {
+          tabRegister.classList.remove("active");
+          tabRegister.setAttribute("aria-selected", "false");
+          tabLogin.classList.add("active");
+          tabLogin.setAttribute("aria-selected", "true");
+          formRegister.style.display = "none";
+          formLogin.style.display = "flex";
+          document.getElementById("auth-header-title").textContent = "Researcher Access";
+          document.getElementById("auth-header-subtitle").textContent = "Sign in to save research monographs, PDF libraries, and encrypted API credentials.";
+        }
+      }
+
+      tabLogin.addEventListener("click", () => setTab("login"));
+      tabRegister.addEventListener("click", () => setTab("register"));
+
+      // Show/Hide password toggle logic
+      document.querySelectorAll(".btn-toggle-pwd").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const targetId = btn.getAttribute("data-target");
+          const input = document.getElementById(targetId);
+          if (!input) return;
+          if (input.type === "password") {
+            input.type = "text";
+            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
+          } else {
+            input.type = "password";
+            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+          }
+        });
+      });
+
+      // Handle OAuth SSO redirects
+      document.getElementById("btn-sso-google").addEventListener("click", async () => {
+        try {
+          const res = await fetch("/api/auth/providers");
+          const provs = await res.json();
+          if (!provs.google) {
+            showAlert("Google OAuth is not configured yet. Please configure GOOGLE_CLIENT_ID in your .env file or sign in using your email and password below.", "error");
+            return;
+          }
+          window.location.href = "/api/auth/google/login";
+        } catch (e) {
+          window.location.href = "/api/auth/google/login";
+        }
+      });
+
+      document.getElementById("btn-sso-github").addEventListener("click", async () => {
+        try {
+          const res = await fetch("/api/auth/providers");
+          const provs = await res.json();
+          if (!provs.github) {
+            showAlert("GitHub OAuth is not configured yet. Please configure GITHUB_CLIENT_ID in your .env file or sign in using your email and password below.", "error");
+            return;
+          }
+          window.location.href = "/api/auth/github/login";
+        } catch (e) {
+          window.location.href = "/api/auth/github/login";
+        }
+      });
+
+      // Submit Login
+      formLogin.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        hideAlert();
+        const username = document.getElementById("login-username").value.trim();
+        const password = document.getElementById("login-password").value;
+        const btn = document.getElementById("btn-submit-login");
+
+        if (!username || !password) {
+          showAlert("Please provide both username and password.", "error");
+          return;
+        }
+
+        btn.disabled = true;
+        btn.querySelector("span").textContent = "Authenticating...";
+
+        try {
+          const res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.detail || "Invalid username or password.");
+          }
+
+          localStorage.setItem(KEY_TOKEN, data.access_token);
+          localStorage.setItem(KEY_USER, JSON.stringify(data.user));
+
+          showAlert("Authentication successful! Redirecting to Workbench...", "success");
+          setTimeout(() => {
+            const redirectParam = new URLSearchParams(window.location.search).get("redirect");
+            window.location.href = redirectParam || "/";
+          }, 600);
+        } catch (err) {
+          const isUnregistered = err.message.toLowerCase().includes("not registered");
+          if (isUnregistered) {
+            showAlert(`⚠️ Account Not Registered: "${username}" was not found. Please click the "Create Account" tab above to register.`, "error");
+            const regUser = document.getElementById("reg-username");
+            if (regUser && !regUser.value) {
+              regUser.value = username.includes("@") ? username.split("@")[0] : username;
+            }
+            const regEmail = document.getElementById("reg-email");
+            if (regEmail && username.includes("@") && !regEmail.value) {
+              regEmail.value = username;
+            }
+          } else {
+            showAlert(err.message, "error");
+          }
+        } finally {
+          btn.disabled = false;
+          btn.querySelector("span").textContent = "Sign In to Workbench";
+        }
+      });
+
+      // Submit Register
+      formRegister.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        hideAlert();
+        const username = document.getElementById("reg-username").value.trim();
+        const email = document.getElementById("reg-email").value.trim();
+        const password = document.getElementById("reg-password").value;
+        const btn = document.getElementById("btn-submit-register");
+
+        if (!username || !email || !password) {
+          showAlert("Please complete all registration fields.", "error");
+          return;
+        }
+
+        btn.disabled = true;
+        btn.querySelector("span").textContent = "Creating Account...";
+
+        try {
+          const res = await fetch("/api/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, email, password })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.detail || "Account creation failed.");
+          }
+
+          localStorage.setItem(KEY_TOKEN, data.access_token);
+          localStorage.setItem(KEY_USER, JSON.stringify(data.user));
+
+          showAlert("Researcher account created! Launching Workbench...", "success");
+          setTimeout(() => {
+            const redirectParam = new URLSearchParams(window.location.search).get("redirect");
+            window.location.href = redirectParam || "/";
+          }, 600);
+        } catch (err) {
+          showAlert(err.message, "error");
+        } finally {
+          btn.disabled = false;
+          btn.querySelector("span").textContent = "Create Researcher Account";
+        }
+      });
+
+      // Forgot Password Handler
+      document.getElementById("link-forgot-pwd").addEventListener("click", (e) => {
+        e.preventDefault();
+        showAlert("Password reset: Please contact your laboratory workstation administrator or run a local password update script.", "error");
+      });
+
+      // Active Session Sign Out
+      document.getElementById("btn-session-signout").addEventListener("click", async () => {
+        localStorage.removeItem(KEY_TOKEN);
+        localStorage.removeItem(KEY_USER);
+        try {
+          await fetch("/api/auth/logout", { method: "POST" });
+        } catch (e) {}
+        activeSessionView.style.display = "none";
+        authFormsView.style.display = "block";
+        showAlert("Successfully signed out. You may now sign in with another account.", "success");
+      });
+
+      // Check URL parameters for OAuth callbacks or existing sessions on load
+      async function checkInitialState() {
+        const params = new URLSearchParams(window.location.search);
+        const authToken = params.get("auth_token");
+        const authError = params.get("auth_error");
+        const tab = params.get("tab");
+
+        if (tab === "register") {
+          setTab("register");
+        }
+
+        if (authError) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          showAlert(`Authentication Error: ${authError.replace(/_/g, " ")}`, "error");
+          return;
+        }
+
+        if (authToken) {
+          localStorage.setItem(KEY_TOKEN, authToken);
+          window.history.replaceState({}, document.title, window.location.pathname);
+          try {
+            const res = await fetch("/api/auth/me", {
+              headers: { "Authorization": `Bearer ${authToken}` }
+            });
+            if (res.ok) {
+              const user = await res.json();
+              localStorage.setItem(KEY_USER, JSON.stringify(user));
+              showAlert("Social SSO Login Successful! Redirecting to Workbench...", "success");
+              setTimeout(() => {
+                window.location.href = "/";
+              }, 600);
+              return;
+            }
+          } catch (e) {}
+        }
+
+        // Check if user already has valid token
+        const existingToken = localStorage.getItem(KEY_TOKEN);
+        if (existingToken) {
+          try {
+            const res = await fetch("/api/auth/me", {
+              headers: { "Authorization": `Bearer ${existingToken}` }
+            });
+            if (res.ok) {
+              const user = await res.json();
+              localStorage.setItem(KEY_USER, JSON.stringify(user));
+              
+              // Render active session view
+              authFormsView.style.display = "none";
+              activeSessionView.style.display = "flex";
+
+              document.getElementById("active-user-name").textContent = user.username;
+              document.getElementById("active-user-email").textContent = user.email;
+              const provEl = document.getElementById("active-user-provider");
+              const prov = (user.oauth_provider || "local").toLowerCase();
+              provEl.textContent = prov === "google" ? "Google SSO" : (prov === "github" ? "GitHub SSO" : "Local Account");
+
+              const avatarEl = document.getElementById("active-user-avatar");
+              if (user.avatar_url) {
+                avatarEl.innerHTML = `<img src="${user.avatar_url}" alt="${user.username}">`;
+              } else {
+                avatarEl.textContent = (user.username || "RF").slice(0, 2).toUpperCase();
+              }
+            } else {
+              localStorage.removeItem(KEY_TOKEN);
+              localStorage.removeItem(KEY_USER);
+            }
+          } catch (e) {}
+        }
+      }
+
+      checkInitialState();
+    })();
+  </script>
+</body>
+</html>

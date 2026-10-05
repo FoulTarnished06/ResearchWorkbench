@@ -21,7 +21,7 @@ from backend.database import (
 )
 from backend.agents.agent3_cacher import compute_cosine_similarity
 from backend.agents.agent2_drafter import (
-    call_gemini_api, call_anthropic_api, safe_parse_json
+    call_gemini_api, call_anthropic_api, call_openai_api, safe_parse_json, is_openai_provider
 )
 from backend.post_processor import clean_monograph_text
 
@@ -166,6 +166,7 @@ async def run_dialogue_turn(
     provider: str = "auto",
     gemini_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
+    openai_key: Optional[str] = None,
     disable_fallback: bool = False
 ) -> Dict[str, Any]:
     """
@@ -232,13 +233,23 @@ User Follow-Up Question:
 
     active_gemini_key = gemini_key or os.environ.get("GEMINI_API_KEY")
     active_anthropic_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
+    active_openai_key = openai_key or os.environ.get("OPENAI_API_KEY")
 
-    if (active_gemini_key or active_anthropic_key) and provider != "mock":
+    if (active_gemini_key or active_anthropic_key or active_openai_key) and provider != "mock":
         try:
             raw_response = None
             used_tokens = 0
-            is_claude_selected = ("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key))
-            if is_claude_selected and active_anthropic_key:
+            prov_lower = provider.lower()
+            is_openai_selected = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
+            is_claude_selected = not is_openai_selected and (("claude" in prov_lower) or (not active_gemini_key and bool(active_anthropic_key)))
+
+            if is_openai_selected and active_openai_key:
+                pref = provider if provider != "auto" else "gpt-6.1-sol"
+                provider_label = f"{pref} (OpenAI)"
+                raw_response, used_tokens = await call_openai_api(
+                    prompt, active_openai_key, model_pref=pref, system_instruction=system_instruction
+                )
+            elif is_claude_selected and active_anthropic_key:
                 if "opus" in provider.lower():
                     pref = "claude-opus-5.5" if "5.5" in provider.lower() else "claude-opus-4.5"
                     provider_label = "Claude Opus 5.5 (DHS-RCC)" if "5.5" in provider.lower() else "Claude Opus 4.5 (DHS-RCC)"

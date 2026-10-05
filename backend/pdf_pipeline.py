@@ -95,8 +95,8 @@ async def run_pdf_pipeline(
     provider = config.get("provider", "auto")
     gemini_key = config.get("gemini_key")
     anthropic_key = config.get("anthropic_key")
+    openai_key = config.get("openai_key")
     disable_fallback = bool(config.get("disable_fallback", False))
-    demo_mode = bool(config.get("demo_mode", False))
     chat_history = config.get("chat_history", [])
     analysis_type = config.get("analysis_type", "methodology")
 
@@ -142,8 +142,8 @@ async def run_pdf_pipeline(
             provider=provider,
             api_key=gemini_key,
             anthropic_key=anthropic_key,
-            disable_fallback=disable_fallback,
-            demo_mode=demo_mode
+            openai_key=openai_key,
+            disable_fallback=disable_fallback
         )
         res["elapsed_seconds"] = round(time.time() - start_time, 2)
         res["session_id"] = session_id
@@ -158,8 +158,8 @@ async def run_pdf_pipeline(
             provider=provider,
             api_key=gemini_key,
             anthropic_key=anthropic_key,
-            disable_fallback=disable_fallback,
-            demo_mode=demo_mode
+            openai_key=openai_key,
+            disable_fallback=disable_fallback
         )
         res["elapsed_seconds"] = round(time.time() - start_time, 2)
         res["session_id"] = session_id
@@ -179,8 +179,8 @@ async def run_pdf_pipeline(
             provider=provider,
             api_key=gemini_key,
             anthropic_key=anthropic_key,
-            disable_fallback=disable_fallback,
-            demo_mode=demo_mode
+            openai_key=openai_key,
+            disable_fallback=disable_fallback
         )
         res["elapsed_seconds"] = round(time.time() - start_time, 2)
         res["session_id"] = session_id

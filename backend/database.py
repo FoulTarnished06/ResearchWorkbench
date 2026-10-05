@@ -5,18 +5,166 @@ import hashlib
 import datetime
 import time
 import uuid
+import re
 from typing import List, Dict, Any, Optional
 from backend.logger import get_logger
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 logger = get_logger("Database")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "cache.db")
+IS_POSTGRES = bool(os.environ.get("DATABASE_URL", "").strip().startswith(("postgres://", "postgresql://")))
+
+TABLE_PRIMARY_KEYS = {
+    "scraped_papers": ["id"],
+    "cached_sentences": ["id"],
+    "pipeline_runs": ["id"],
+    "response_cache": ["query_hash"],
+    "pdf_sessions": ["session_id"],
+    "pdf_files": ["file_id"],
+    "pdf_chunks": ["chunk_id"],
+    "pdf_figures": ["figure_id"],
+    "pdf_references": ["ref_id"],
+    "user_api_keys": ["user_id", "provider"],
+    "users": ["id"],
+    "schema_version": ["version"],
+}
+
+def adapt_sql_for_postgres(sql: str) -> str:
+    """Translates SQLite statements (INSERT OR REPLACE, ? placeholders) to standard PostgreSQL syntax."""
+    # Convert INSERT OR REPLACE INTO table (cols) VALUES (...) to ON CONFLICT DO UPDATE
+    m = re.search(r"INSERT\s+OR\s+REPLACE\s+INTO\s+(\w+)\s*\((.*?)\)\s*VALUES\s*\((.*?)\)", sql, re.IGNORECASE | re.DOTALL)
+    if m:
+        tbl = m.group(1).lower()
+        cols = [c.strip() for c in m.group(2).split(",")]
+        pks = TABLE_PRIMARY_KEYS.get(tbl, ["id"])
+        non_pks = [c for c in cols if c.lower() not in [p.lower() for p in pks]]
+        if non_pks:
+            updates = ", ".join([f"{c} = EXCLUDED.{c}" for c in non_pks])
+            sql = f"INSERT INTO {tbl} ({m.group(2)}) VALUES ({m.group(3)}) ON CONFLICT ({', '.join(pks)}) DO UPDATE SET {updates}"
+        else:
+            sql = f"INSERT INTO {tbl} ({m.group(2)}) VALUES ({m.group(3)}) ON CONFLICT ({', '.join(pks)}) DO NOTHING"
+    
+    # Replace ? parameter placeholders with %s for psycopg2
+    return sql.replace("?", "%s")
+
+class PostgresRow:
+    """Provides sqlite3.Row-compatible access (by key row['id'], index row[0], and dict(row)) for PostgreSQL."""
+    def __init__(self, raw_tuple, col_names):
+        self._raw = raw_tuple
+        self._cols = col_names
+        self._dict = dict(zip(col_names, raw_tuple)) if raw_tuple else {}
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            return self._raw[item]
+        return self._dict[item]
+
+    def get(self, key, default=None):
+        return self._dict.get(key, default)
+
+    def keys(self):
+        return self._dict.keys()
+
+    def values(self):
+        return self._dict.values()
+
+    def items(self):
+        return self._dict.items()
+
+    def __iter__(self):
+        return iter(self._dict)
+
+    def __contains__(self, key):
+        return key in self._dict
+
+    def __repr__(self):
+        return repr(self._dict)
+
+class PostgresCursorWrapper:
+    """Adapts a psycopg2 cursor to match sqlite3 cursor interfaces."""
+    def __init__(self, raw_cursor):
+        self._cursor = raw_cursor
+
+    def execute(self, sql, params=None):
+        adapted = adapt_sql_for_postgres(sql)
+        if params is not None:
+            return self._cursor.execute(adapted, params)
+        return self._cursor.execute(adapted)
+
+    def executemany(self, sql, seq_of_params):
+        adapted = adapt_sql_for_postgres(sql)
+        return self._cursor.executemany(adapted, seq_of_params)
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        cols = [desc[0] for desc in self._cursor.description] if self._cursor.description else []
+        return PostgresRow(row, cols)
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        cols = [desc[0] for desc in self._cursor.description] if self._cursor.description else []
+        return [PostgresRow(r, cols) for r in rows]
+
+    def fetchmany(self, size=None):
+        rows = self._cursor.fetchmany(size) if size else self._cursor.fetchmany()
+        cols = [desc[0] for desc in self._cursor.description] if self._cursor.description else []
+        return [PostgresRow(r, cols) for r in rows]
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def close(self):
+        return self._cursor.close()
+
+    def __iter__(self):
+        for r in self.fetchall():
+            yield r
+
+class PostgresConnectionWrapper:
+    """Wraps a psycopg2 connection to provide sqlite3-compatible cursor and transaction helpers."""
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def cursor(self):
+        return PostgresCursorWrapper(self._conn.cursor())
+
+    def execute(self, sql, params=None):
+        cur = self.cursor()
+        cur.execute(sql, params)
+        return cur
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback()
+        else:
+            self.commit()
 
 class DatabaseEngine:
     """
     Pluggable database backend engine abstraction (STRAT-02).
     Defaults to high-performance WAL-mode SQLite with row factories and foreign key pragmas.
-    Supports DATABASE_URL configuration for enterprise deployments.
+    Supports DATABASE_URL configuration for 100% free cloud databases (Neon, Supabase, Render, Aiven).
     """
     def __init__(self, db_path: Optional[str] = None):
         self.db_url = os.environ.get("DATABASE_URL", "")
@@ -24,6 +172,8 @@ class DatabaseEngine:
         self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
 
     def connect(self):
+        self.db_url = os.environ.get("DATABASE_URL", self.db_url)
+        self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
         if self.is_sqlite:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.execute("PRAGMA foreign_keys = ON;")
@@ -33,10 +183,10 @@ class DatabaseEngine:
         else:
             try:
                 import psycopg2
-                import psycopg2.extras
-                return psycopg2.connect(self.db_url, cursor_factory=psycopg2.extras.RealDictCursor)
-            except ImportError:
-                logger.warning("psycopg2 not installed; falling back to SQLite engine")
+                conn = psycopg2.connect(self.db_url, connect_timeout=15)
+                return PostgresConnectionWrapper(conn)
+            except Exception as e:
+                logger.warning(f"Failed to connect to cloud database via DATABASE_URL: {e}; falling back to SQLite")
                 self.is_sqlite = True
                 return self.connect()
 
@@ -48,7 +198,8 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     try:
-        conn.execute("PRAGMA journal_mode=WAL;")
+        if _DEFAULT_ENGINE.is_sqlite:
+            conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
         
         # Schema version tracking (FIX-12)
@@ -59,8 +210,15 @@ def init_db():
                 description TEXT
             )
         """)
+        cursor.execute("SELECT COUNT(*) FROM schema_version")
+        has_version_records = (cursor.fetchone()[0] > 0)
         cursor.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version")
         current_version = cursor.fetchone()[0]
+
+        # For fresh databases (including Neon/PostgreSQL cloud databases), initialize directly at schema version 3
+        if not has_version_records:
+            cursor.execute("INSERT INTO schema_version (version, description) VALUES (3, 'Initial schema with all v3 tables')")
+            current_version = 3
         
         # Scraped academic papers table
         cursor.execute("""
@@ -87,7 +245,7 @@ def init_db():
                 sentence_text TEXT NOT NULL,
                 density_score REAL DEFAULT 0.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (paper_id) REFERENCES scraped_papers (id)
+                FOREIGN KEY (paper_id) REFERENCES scraped_papers (id) ON DELETE CASCADE
             )
         """)
         
@@ -103,7 +261,8 @@ def init_db():
                 elapsed_seconds REAL DEFAULT 0.0,
                 status TEXT DEFAULT 'completed',
                 results_json TEXT,
-                user_id TEXT
+                user_id TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
             )
         """)
 
@@ -166,8 +325,8 @@ def init_db():
                 for col in ["prompt_tokens", "completion_tokens"]:
                     try:
                         cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} INTEGER DEFAULT 0")
-                    except sqlite3.OperationalError as e:
-                        if "duplicate column" in str(e).lower():
+                    except Exception as e:
+                        if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
                             pass
                         else:
                             logger.error(f"Migration error adding {col} to {tbl}: {e}")
@@ -182,6 +341,9 @@ def init_db():
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 role TEXT DEFAULT 'user',
+                oauth_provider TEXT DEFAULT 'local',
+                oauth_id TEXT,
+                avatar_url TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP
             )
@@ -189,13 +351,23 @@ def init_db():
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
 
+        # Ensure OAuth columns exist on both SQLite and PostgreSQL
+        for col, col_def in [("oauth_provider", "TEXT DEFAULT 'local'"), ("oauth_id", "TEXT"), ("avatar_url", "TEXT")]:
+            try:
+                if not _DEFAULT_ENGINE.is_sqlite:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {col_def}")
+                else:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
+            except Exception:
+                pass
+
         # Migration V2 (AUTH-01): Ensure user_id columns exist on pipeline_runs and pdf_sessions
         if current_version < 2:
             for tbl in ["pipeline_runs", "pdf_sessions"]:
                 try:
                     cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN user_id TEXT")
-                except sqlite3.OperationalError as e:
-                    if "duplicate column" in str(e).lower():
+                except Exception as e:
+                    if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
                         pass
                     else:
                         logger.warning(f"Note adding user_id to {tbl}: {e}")
@@ -214,7 +386,8 @@ def init_db():
                 total_words INTEGER DEFAULT 0,
                 total_figures INTEGER DEFAULT 0,
                 total_references INTEGER DEFAULT 0,
-                user_id TEXT
+                user_id TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
             )
         """)
 
@@ -304,14 +477,45 @@ def init_db():
             )
         """)
 
+        # Encrypted User API Key Vault Table (AES-256-GCM encrypted per user)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_api_keys (
+                user_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                encrypted_key TEXT NOT NULL,
+                key_hint TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, provider),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id)")
+
+        # Migration V3: Add OAuth provider columns and user_api_keys table
+        if current_version < 3:
+            for col, col_type in [("oauth_provider", "TEXT DEFAULT 'local'"), ("oauth_id", "TEXT"), ("avatar_url", "TEXT")]:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+                except Exception as e:
+                    if "duplicate column" in str(e).lower():
+                        pass
+                    else:
+                        logger.warning(f"Note adding {col} to users: {e}")
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_oauth ON users(oauth_provider, oauth_id)")
+            except Exception as e:
+                logger.warning(f"Note creating idx_users_oauth: {e}")
+            cursor.execute("INSERT INTO schema_version (version, description) VALUES (3, 'Add OAuth fields and encrypted user_api_keys table')")
+
         # Secondary indexes for high-speed O(1) / O(log N) relational queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pdf_chunks_session ON pdf_chunks(session_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pdf_figures_session ON pdf_figures(session_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pdf_refs_session ON pdf_references(session_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pdf_files_session ON pdf_files(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cached_sentences_query ON cached_sentences(query)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_followup_parent_run ON followup_interactions(parent_run_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scraped_papers_query ON scraped_papers(query)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_user_id ON pipeline_runs(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pdf_sessions_user_id ON pdf_sessions(user_id)")
         
         conn.commit()
     finally:
@@ -448,14 +652,19 @@ def get_run_history(limit: int = 50, user_id: Optional[str] = None) -> List[Dict
         for r in rows:
             d = dict(r)
             d["run_id"] = d["id"]
+            d["total_tokens"] = d.get("tokens_used", 0)
             # Parse brief summary for frontend listing
             try:
                 full_data = json.loads(d.get("results_json") or "{}")
+                d["architecture"] = full_data.get("architecture", "system_a")
+                d["model"] = full_data.get("model", "")
                 d["quick_answer"] = full_data.get("quick_answer", "")
                 d["takeaways"] = full_data.get("takeaways", [])[:2]
                 d["citations_count"] = len(full_data.get("citations", []))
                 d["sections_count"] = len(full_data.get("dossier_sections", []))
             except Exception:
+                d["architecture"] = "system_a"
+                d["model"] = ""
                 d["quick_answer"] = ""
                 d["takeaways"] = []
                 d["citations_count"] = 0
@@ -480,6 +689,7 @@ def get_run_by_id(run_id: str) -> Optional[Dict[str, Any]]:
             return None
         d = dict(row)
         d["run_id"] = d["id"]
+        d["total_tokens"] = d.get("tokens_used", 0)
         try:
             parsed_results = json.loads(d.get("results_json") or "{}")
             d["results"] = parsed_results
@@ -548,13 +758,13 @@ def get_followups_for_run(parent_run_id: str) -> List[Dict[str, Any]]:
     finally:
         conn.close()
 
-def get_all_prompt_history(limit: int = 50) -> List[Dict[str, Any]]:
+def get_all_prompt_history(limit: int = 50, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Fetches the unified hierarchical prompt history:
     Every parent query with its full nested tree of follow-up questions,
     timestamps, target claims, and cumulative token consumption.
     """
-    runs = get_run_history(limit=limit)
+    runs = get_run_history(limit=limit, user_id=user_id)
     if not runs:
         return []
     
@@ -1213,6 +1423,155 @@ def update_user_last_login(user_id: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+def get_user_by_oauth(provider: str, oauth_id: str) -> Optional[Dict[str, Any]]:
+    """Fetches user record by OAuth provider and provider unique user ID."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ?",
+            (provider.lower().strip(), str(oauth_id).strip())
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+def create_or_update_oauth_user(provider: str, oauth_id: str, email: str, username: str, avatar_url: str = "") -> Dict[str, Any]:
+    """
+    Finds or creates a user authenticated via OAuth (Google or GitHub).
+    If an account exists with matching oauth_id or matching verified email, it links and updates last_login.
+    """
+    import secrets
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        # 1. Match by provider + oauth_id
+        existing_oauth = get_user_by_oauth(provider, oauth_id)
+        if existing_oauth:
+            cursor.execute("""
+                UPDATE users
+                SET last_login = CURRENT_TIMESTAMP,
+                    avatar_url = COALESCE(NULLIF(?, ''), avatar_url)
+                WHERE id = ?
+            """, (avatar_url, existing_oauth["id"]))
+            conn.commit()
+            return get_user_by_id(existing_oauth["id"])
+
+        # 2. Match by email (Account Linking)
+        existing_email = get_user_by_email(email)
+        if existing_email:
+            cursor.execute("""
+                UPDATE users
+                SET oauth_provider = ?,
+                    oauth_id = ?,
+                    avatar_url = COALESCE(NULLIF(?, ''), avatar_url),
+                    last_login = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (provider.lower().strip(), str(oauth_id).strip(), avatar_url, existing_email["id"]))
+            conn.commit()
+            return get_user_by_id(existing_email["id"])
+
+        # 3. Create new user
+        uid = f"usr_{uuid.uuid4().hex[:16]}"
+        clean_username = re.sub(r"[^a-zA-Z0-9_\-]", "_", username.strip())[:30] or f"user_{secrets.token_hex(4)}"
+        if get_user_by_username(clean_username):
+            clean_username = f"{clean_username[:24]}_{secrets.token_hex(2)}"
+
+        placeholder_hash = f"oauth_{provider}_{secrets.token_hex(16)}"
+        cursor.execute("""
+            INSERT INTO users (id, username, email, password_hash, oauth_provider, oauth_id, avatar_url, last_login)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (uid, clean_username, email.strip().lower(), placeholder_hash, provider.lower().strip(), str(oauth_id).strip(), avatar_url))
+        conn.commit()
+        return get_user_by_id(uid)
+    finally:
+        conn.close()
+
+# ==============================================================================
+# User Encrypted API Key Vault Operations (Per-User Isolation)
+# ==============================================================================
+
+def save_user_api_key(user_id: str, provider: str, encrypted_key: str, key_hint: str) -> None:
+    """Stores or updates an AES-256-GCM encrypted API key for a specific user and provider."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO user_api_keys (user_id, provider, encrypted_key, key_hint, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, provider) DO UPDATE SET
+                encrypted_key = excluded.encrypted_key,
+                key_hint = excluded.key_hint,
+                updated_at = CURRENT_TIMESTAMP
+        """, (user_id, provider.lower().strip(), encrypted_key, key_hint))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_user_api_key_hints(user_id: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Retrieves masked hints and metadata for all API keys stored by a user.
+    CRITICAL: Plaintext or decrypted keys are NEVER returned by this function!
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT provider, key_hint, updated_at
+            FROM user_api_keys
+            WHERE user_id = ?
+        """, (user_id,))
+        rows = cursor.fetchall()
+        out = {
+            "gemini": {"is_set": False, "configured": False, "hint": None, "updated_at": None},
+            "anthropic": {"is_set": False, "configured": False, "hint": None, "updated_at": None},
+            "openai": {"is_set": False, "configured": False, "hint": None, "updated_at": None},
+            "serpapi": {"is_set": False, "configured": False, "hint": None, "updated_at": None}
+        }
+        for r in rows:
+            p = r["provider"].lower()
+            out[p] = {
+                "is_set": True,
+                "configured": True,
+                "hint": r["key_hint"],
+                "updated_at": str(r["updated_at"])
+            }
+        return out
+    finally:
+        conn.close()
+
+def get_user_encrypted_key(user_id: str, provider: str) -> Optional[str]:
+    """Retrieves the encrypted ciphertext blob for in-memory decryption during authorized pipeline execution."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT encrypted_key
+            FROM user_api_keys
+            WHERE user_id = ? AND provider = ?
+        """, (user_id, provider.lower().strip()))
+        row = cursor.fetchone()
+        return row["encrypted_key"] if row else None
+    finally:
+        conn.close()
+
+def delete_user_api_key(user_id: str, provider: str) -> bool:
+    """Deletes a stored encrypted API key for a user and provider."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM user_api_keys
+            WHERE user_id = ? AND provider = ?
+        """, (user_id, provider.lower().strip()))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        return deleted
+    finally:
+        conn.close()
+
 
 
 

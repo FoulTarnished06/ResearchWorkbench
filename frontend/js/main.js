@@ -15,8 +15,6 @@ import {
   debounce
 } from './modules/utils.js';
 
-import { MOCK_SCENARIOS } from './modules/scenarios.js';
-
 import {
   UIState,
   elements,
@@ -38,6 +36,7 @@ import {
   updateScrapersUI,
   initScrapersManager,
   initExecutionMode,
+  initArchitectureControls,
   saveApiKeys,
   clearSQLiteCache,
   resetFactoryDefaults,
@@ -82,10 +81,7 @@ import {
   abortPipeline,
   startElapsedTimer,
   stopElapsedTimer,
-  executeDemoMode,
-  executeLiveBackend,
-  setDemoMode,
-  getDemoMode
+  executeLiveBackend
 } from './modules/pipeline.js';
 
 import {
@@ -137,20 +133,25 @@ import {
 } from './modules/auth.js';
 
 function initEventListeners() {
-  // View Switchers
-  elements.navAbout.addEventListener('click', () => switchView('about'));
-  elements.navCanvas.addEventListener('click', () => switchView('canvas'));
-  elements.navDossier.addEventListener('click', () => switchView('dossier'));
+  // View Switchers - Retractable Sidebar & Navigation Dock
+  elements.navAbout?.addEventListener('click', () => switchView('about'));
+  elements.navCanvas?.addEventListener('click', () => switchView('canvas'));
+  elements.navDossier?.addEventListener('click', () => switchView('dossier'));
   elements.navDialogue?.addEventListener('click', () => switchView('dialogue'));
-  elements.dockHomeBtn.addEventListener('click', () => switchView('about'));
+  elements.navDocuments?.addEventListener('click', () => switchView('documents'));
+  elements.navSettings?.addEventListener('click', openSettingsDrawer);
+  elements.navDatabase?.addEventListener('click', openDatabaseModal);
+  elements.navHistory?.addEventListener('click', openHistoryModal);
+  elements.dockHomeBtn?.addEventListener('click', () => switchView('about'));
+  elements.btnToggleDock?.addEventListener('click', () => toggleSidebarDock());
   
   document.querySelectorAll('.switch-pill').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
   
-  elements.btnLaunchWorkbench.addEventListener('click', () => switchView('canvas'));
-  elements.btnViewPipelineDemo.addEventListener('click', () => switchView('canvas'));
-  elements.btnReopenCanvas.addEventListener('click', () => switchView('canvas'));
+  elements.btnLaunchWorkbench?.addEventListener('click', () => switchView('canvas'));
+  elements.btnViewPipelineDemo?.addEventListener('click', () => switchView('canvas'));
+  elements.btnReopenCanvas?.addEventListener('click', () => switchView('canvas'));
   elements.btnOpenDialogueToolbar?.addEventListener('click', () => switchView('dialogue'));
   elements.btnLaunchDialogue?.addEventListener('click', () => switchView('dialogue'));
   elements.btnDialogueReturnDossier?.addEventListener('click', () => switchView('dossier'));
@@ -177,12 +178,11 @@ function initEventListeners() {
 
   // Settings Drawer triggers
   elements.btnToggleDrawer?.addEventListener('click', openSettingsDrawer);
-  elements.navSettings.addEventListener('click', openSettingsDrawer);
-  elements.btnCloseDrawer.addEventListener('click', closeSettingsDrawer);
-  elements.drawerBackdrop.addEventListener('click', closeSettingsDrawer);
+  elements.btnCloseDrawer?.addEventListener('click', closeSettingsDrawer);
+  elements.drawerBackdrop?.addEventListener('click', closeSettingsDrawer);
   
   // Prevent any click inside the settings drawer from bubbling to backdrop or closing the drawer
-  elements.settingsDrawer.addEventListener('click', (e) => {
+  elements.settingsDrawer?.addEventListener('click', (e) => {
     e.stopPropagation();
   });
 
@@ -220,6 +220,29 @@ function initEventListeners() {
     elements.btnAbortPipeline.addEventListener('click', abortPipeline);
   }
 
+  // Canvas Log Drawer Toggle (Minimize / Expand)
+  const logDrawer = document.getElementById('canvas-log-drawer');
+  const logToggleBtn = document.getElementById('btn-log-drawer-toggle');
+  const logHeader = document.getElementById('log-drawer-header');
+  
+  if (logDrawer && localStorage.getItem('workbench_log_drawer_collapsed') === 'true') {
+    logDrawer.classList.add('collapsed');
+    if (logToggleBtn) logToggleBtn.textContent = '+';
+  }
+
+  const toggleLogDrawer = (e) => {
+    if (e) e.stopPropagation();
+    if (!logDrawer) return;
+    logDrawer.classList.toggle('collapsed');
+    const isCollapsed = logDrawer.classList.contains('collapsed');
+    if (logToggleBtn) logToggleBtn.textContent = isCollapsed ? '+' : '−';
+    localStorage.setItem('workbench_log_drawer_collapsed', isCollapsed ? 'true' : 'false');
+  };
+  logToggleBtn?.addEventListener('click', toggleLogDrawer);
+  logHeader?.addEventListener('click', (e) => {
+    if (e.target !== logToggleBtn) toggleLogDrawer(e);
+  });
+
   // Keyboard shortcuts (BONUS-09)
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -253,19 +276,6 @@ function initEventListeners() {
     }
   });
 
-  // Demo Mode Switch
-  elements.toggleDemoMode.addEventListener('change', (e) => {
-    setDemoMode(e.target.checked);
-    updateDemoModeUI();
-    const noteText = document.getElementById('demo-mode-status-text');
-    if (noteText) {
-      noteText.textContent = getDemoMode() 
-        ? "Simulated execution active (0 tokens consumed from provider)"
-        : "Live execution active (Connecting to backend SSE pipeline)";
-    }
-    showToast(getDemoMode() ? "Showcase Demo Mode Enabled (Zero API Credits)" : "Live Backend Mode Enabled");
-  });
-
   // Strict Live AI (Disable Fallback) Switches (FE-03)
   if (elements.toggleDisableFallbackAgent2) {
     elements.toggleDisableFallbackAgent2.addEventListener('change', (e) => {
@@ -289,23 +299,25 @@ function initEventListeners() {
       elements.valPdfPageLimit.textContent = `${e.target.value} pages`;
     }
   });
-  elements.cfgSimThresh.addEventListener('input', (e) => {
-    elements.valSimThresh.textContent = `${e.target.value} (Auto-Verify)`;
+  elements.cfgSimThresh?.addEventListener('input', (e) => {
+    if (elements.valSimThresh) elements.valSimThresh.textContent = `${e.target.value} (Auto-Verify)`;
   });
 
   // Model Selection Change
-  elements.cfgAgent2Model.addEventListener('change', updateModelLabels);
-  elements.cfgAgent4Model.addEventListener('change', updateModelLabels);
+  elements.cfgAgent2Model?.addEventListener('change', updateModelLabels);
+  elements.cfgAgent4Model?.addEventListener('change', updateModelLabels);
 
   // DB Inspector
-  elements.navDatabase.addEventListener('click', openDatabaseModal);
-  elements.btnCloseDbModal.addEventListener('click', () => elements.dbInspectorModal.classList.remove('open'));
+  elements.navDatabase?.addEventListener('click', openDatabaseModal);
+  elements.btnCloseDbModal?.addEventListener('click', () => elements.dbInspectorModal?.classList.remove('open'));
 
   // Clear Input Button
-  elements.btnClearInput.addEventListener('click', () => {
-    elements.inputQuery.value = '';
-    autoResizeQueryTextarea(elements.inputQuery);
-    updateQueryCharCounter();
+  elements.btnClearInput?.addEventListener('click', () => {
+    if (elements.inputQuery) {
+      elements.inputQuery.value = '';
+      autoResizeQueryTextarea(elements.inputQuery);
+      updateQueryCharCounter();
+    }
   });
 
   // Bottom Chat Prompt Input: Live Character Counter and Auto-Resize
@@ -329,16 +341,18 @@ function initEventListeners() {
       handleQuerySubmit();
     }
   });
-  elements.btnSendQuery.addEventListener('click', handleQuerySubmit);
+  elements.btnSendQuery?.addEventListener('click', handleQuerySubmit);
 
   // Preset query chips
   document.querySelectorAll('.query-chip, .btn-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       const q = btn.dataset.query || btn.textContent.trim();
-      elements.inputQuery.value = q;
-      autoResizeQueryTextarea(elements.inputQuery);
-      updateQueryCharCounter();
-      elements.inputQuery.focus();
+      if (elements.inputQuery) {
+        elements.inputQuery.value = q;
+        autoResizeQueryTextarea(elements.inputQuery);
+        updateQueryCharCounter();
+        elements.inputQuery.focus();
+      }
     });
   });
 
@@ -368,10 +382,10 @@ function initEventListeners() {
   });
 
   // Citations sidebar toggle button
-  elements.btnToggleSidebar.addEventListener('click', toggleCitationsSidebar);
+  elements.btnToggleSidebar?.addEventListener('click', toggleCitationsSidebar);
 
   // Researcher Tool Buttons: Copy Synthesis & Export
-  elements.btnCopySynthesis.addEventListener('click', copySynthesisToClipboard);
+  elements.btnCopySynthesis?.addEventListener('click', copySynthesisToClipboard);
   elements.btnExportBibtex?.addEventListener('click', exportBibtexToClipboard);
 
   // Multi-Format Export Dropdown triggers (BONUS-03)
@@ -467,6 +481,7 @@ function initApp() {
   initSidebarDock();
   initScrapersManager();
   initExecutionMode();
+  initArchitectureControls();
   initBackgroundCanvas();
   loadSavedSettings();
   initEventListeners();

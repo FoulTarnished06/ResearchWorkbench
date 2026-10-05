@@ -15,7 +15,7 @@ except ImportError:
 from backend.logger import get_logger
 from backend.retry import retry_async
 from backend.post_processor import clean_monograph_text
-from backend.agents.agent2_drafter import safe_parse_json, TokenCount, resolve_anthropic_model
+from backend.agents.agent2_drafter import safe_parse_json, TokenCount, resolve_anthropic_model, resolve_openai_model, is_openai_reasoning_model, is_openai_provider
 
 logger = get_logger("Agent4_Synthesizer")
 
@@ -169,7 +169,7 @@ Claims and Targeted Evidence:
         "anthropic-version": "2023-06-01",
         "content-type": "application/json"
     }
-    model_name = resolve_anthropic_model(model_pref)
+    model_name = resolve_anthropic_model(model_pref, default="claude-3-5-haiku-20241022")
     payload = {
         "model": model_name,
         "max_tokens": 2048,
@@ -177,6 +177,112 @@ Claims and Targeted Evidence:
         "messages": [{"role": "user", "content": prompt}]
     }
     return await retry_async(_post_anthropic_factcheck, url, payload, headers, max_retries=2, base_delay=1.0)
+
+async def _post_openai_factcheck(url: str, payload: dict, headers: dict) -> tuple[Dict[str, Any], TokenCount]:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
+        curr_payload = dict(payload)
+        resp = await client.post(url, json=curr_payload, headers=headers)
+        
+        # Resilient parameter auto-adaptation for 400 Bad Request
+        if resp.status_code == 400:
+            err_text = resp.text.lower()
+            modified = False
+            if "max_completion_tokens" in err_text and "max_completion_tokens" in curr_payload:
+                logger.warning("OpenAI Fact-Check requested 'max_tokens' instead of 'max_completion_tokens'. Adapting payload...")
+                val = curr_payload.pop("max_completion_tokens")
+                curr_payload["max_tokens"] = val
+                payload.pop("max_completion_tokens", None)
+                payload["max_tokens"] = val
+                modified = True
+            elif "max_tokens" in err_text and "max_tokens" in curr_payload:
+                logger.warning("OpenAI Fact-Check requested 'max_completion_tokens' instead of 'max_tokens'. Adapting payload...")
+                val = curr_payload.pop("max_tokens")
+                curr_payload["max_completion_tokens"] = val
+                payload.pop("max_tokens", None)
+                payload["max_completion_tokens"] = val
+                modified = True
+            if "temperature" in err_text and "temperature" in curr_payload:
+                logger.warning("OpenAI Fact-Check rejected 'temperature'. Removing parameter for reasoning model...")
+                curr_payload.pop("temperature", None)
+                payload.pop("temperature", None)
+                modified = True
+            if modified:
+                resp = await client.post(url, json=curr_payload, headers=headers)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            choices = data.get("choices", [])
+            if not choices:
+                raise RuntimeError(f"OpenAI Fact-Check error: Empty choices. Response: {data}")
+            raw_text = choices[0].get("message", {}).get("content") or choices[0].get("message", {}).get("refusal") or ""
+            usage = data.get("usage", {})
+            p_tok = int(usage.get("prompt_tokens", 0))
+            c_tok = int(usage.get("completion_tokens", 0))
+            tot_tok = int(usage.get("total_tokens", 0)) or (p_tok + c_tok)
+            try:
+                yaml_match = re.search(r'```(?:yaml|json)?\s*(.*?)\s*```', raw_text, re.DOTALL | re.IGNORECASE)
+                if yaml_match:
+                    raw_text_clean = yaml_match.group(1).strip()
+                else:
+                    raw_text_clean = re.sub(r'^```(yaml|json)?', '', raw_text.strip(), flags=re.MULTILINE).strip()
+                    raw_text_clean = re.sub(r'```$', '', raw_text_clean).strip()
+                parsed = yaml.safe_load(raw_text_clean)
+                ret_dict = parsed if isinstance(parsed, dict) else {}
+                if tot_tok <= 0 and ret_dict:
+                    p_tok, c_tok, tot_tok = 360, 220, 580
+                elif p_tok <= 0 and c_tok <= 0 and tot_tok > 0:
+                    p_tok = round(tot_tok * 0.6)
+                    c_tok = tot_tok - p_tok
+                return ret_dict, TokenCount(tot_tok, p_tok, c_tok)
+            except Exception as e:
+                logger.warning(f"OpenAI YAML parse warning: {e}")
+                return {}, TokenCount(tot_tok, p_tok, c_tok)
+        else:
+            raise RuntimeError(f"OpenAI Fact-Check error ({resp.status_code}): {resp.text}")
+
+async def call_openai_factcheck(claims_to_check: List[Dict[str, Any]], context_sentences: List[Dict[str, Any]], api_key: str, model_pref: str) -> tuple[Dict[str, Any], TokenCount]:
+    claims_payload = []
+    for c in claims_to_check:
+        snips = c.get("candidate_snippets", [])
+        if not snips and context_sentences:
+            snips = [s.get("text", "") for s in context_sentences[:2] if s.get("text")]
+        claims_payload.append({
+            "claim_id": c.get("claim_id"),
+            "claim_text": c.get("claim_text"),
+            "candidate_evidence": snips
+        })
+    claims_str = json.dumps(claims_payload, indent=2)
+    prompt = f"""You are a strict scientific Fact-Checker and Peer-Reviewer LLM.
+Evaluate each unverified claim strictly against its matched candidate evidence from the retrieved literature.
+
+For each claim:
+1. Determine if it is fully supported, plausible/partially supported, or ungrounded/disputed.
+2. Return strictly valid YAML mapping each claim_id to a binary integer (1 if fully/partially supported by evidence, 0 if unsupported/disputed).
+
+Example:
+c1: 1
+c2: 0
+c3: 1
+
+Claims and Targeted Evidence:
+{claims_str}
+"""
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    model_name = resolve_openai_model(model_pref, default="gpt-6-luna")
+    payload = {
+        "model": model_name,
+        "max_completion_tokens": 2048,
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    # Proactively omit temperature for reasoning models
+    if not is_openai_reasoning_model(model_name):
+        payload["temperature"] = 0.1
+    return await retry_async(_post_openai_factcheck, url, payload, headers, max_retries=2, base_delay=1.0)
+
 
 async def run_agent4_fact_checker_synthesizer(
     query: str,
@@ -186,6 +292,7 @@ async def run_agent4_fact_checker_synthesizer(
     provider: str = "gemini-3.6-flash",
     api_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
+    openai_key: Optional[str] = None,
     disable_fallback: bool = False
 ) -> Dict[str, Any]:
     """
@@ -193,10 +300,11 @@ async def run_agent4_fact_checker_synthesizer(
     Takes only unverified or disputed claims from Agent 3, checks them against
     cached context, assigns confidence scores, and finalizes the output dossier
     with full citation mappings and an Executive Summary.
-    Supported models: Gemini 3.6 Flash, Gemini 3.5 Flash, Gemini 3.1 Pro, Claude Sonnet 5, Claude Haiku 4.5, Claude Opus 4.5.
+    Supported models: GPT-6.1 Sol, GPT-6 Luna, GPT-6 Astra, GPT-5.5, GPT-5.4, GPT-5.4 Mini, Gemini 3.6/3.8 Flash, Claude Sonnet 5.5.
     """
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     claude_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
+    active_openai_key = openai_key or os.environ.get("OPENAI_API_KEY")
     unverified_claims = agent3_data.get("unverified_claims", [])
     verified_from_cache = agent3_data.get("verified_claims", [])
     dense_sentences = agent1_data.get("dense_sentences", [])
@@ -205,6 +313,13 @@ async def run_agent4_fact_checker_synthesizer(
     executive_summary_raw = agent2_data.get("executive_summary", "")
     
     provider_labels = {
+        "gpt-6.1-sol": "GPT-6.1 Sol",
+        "gpt-6-sol": "GPT-6 Sol",
+        "gpt-6-luna": "GPT-6 Luna",
+        "gpt-6-astra": "GPT-6 Astra",
+        "gpt-5.5": "GPT-5.5",
+        "gpt-5.4": "GPT-5.4",
+        "gpt-5.4-mini": "GPT-5.4 Mini",
         "gemini-3.8-flash": "Gemini 3.8 Flash",
         "gemini-3.6-flash": "Gemini 3.6 Flash",
         "gemini-3.5-flash": "Gemini 3.5 Flash",
@@ -222,15 +337,30 @@ async def run_agent4_fact_checker_synthesizer(
     
     if unverified_claims:
         tokens_used = TokenCount(620, 380, 240)  # LLM Call 2 default tokens
-        is_claude = ("claude" in provider.lower()) or (not gemini_key and bool(claude_key))
-        active_key = claude_key if is_claude else gemini_key
-        if is_claude and provider == "auto":
-            display_provider = "Claude 3.5 Sonnet (Auto-Routed)"
+        prov_lower = (provider or "").lower()
+        is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not gemini_key and not claude_key)
+        is_claude = not is_openai and (("claude" in prov_lower) or (not gemini_key and bool(claude_key)))
+        
+        if is_openai:
+            active_key = active_openai_key
+        elif is_claude:
+            active_key = claude_key
+        else:
+            active_key = gemini_key
+            
+        if is_claude and (provider == "auto" or not provider or provider == "claude"):
+            display_provider = "Claude 3.5 Haiku (Auto-Routed)"
+        elif is_openai and (provider == "auto" or not provider or provider == "openai"):
+            display_provider = "GPT-6 Luna (Auto-Routed)"
+        elif not is_openai and not is_claude and (provider == "auto" or not provider):
+            display_provider = "Gemini 3.6 Flash (Auto-Routed)"
 
         if active_key:
             try:
                 # Single LLM Bulk Verification for extreme token efficiency
-                if is_claude:
+                if is_openai:
+                    eval_map_tuple = await call_openai_factcheck(unverified_claims, dense_sentences, active_key, provider)
+                elif is_claude:
                     eval_map_tuple = await call_anthropic_factcheck(unverified_claims, dense_sentences, active_key, provider)
                 else:
                     eval_map_tuple = await call_gemini_factcheck(unverified_claims, dense_sentences, active_key, provider)
@@ -285,12 +415,13 @@ async def run_agent4_fact_checker_synthesizer(
     # Merge all evaluated claims
     all_evaluated_claims = {}
     for c in verified_from_cache:
-        c["verification_tier"] = "auto_cache"
+        if not c.get("verification_tier"):
+            c["verification_tier"] = "auto_cache"
         if not c.get("reviewer_2_caveat"):
             c["reviewer_2_caveat"] = "Locally verified via high-confidence n-gram token overlap against source corpus."
         all_evaluated_claims[c["claim_id"]] = c
     for c in checked_claims:
-        if c.get("status") in ["verified_by_llm", "plausible"]:
+        if c.get("status") in ["verified_by_llm", "plausible", "LLM-Verified"]:
             c["verification_tier"] = "llm_rag"
         else:
             c["verification_tier"] = "no_source"
@@ -317,6 +448,8 @@ async def run_agent4_fact_checker_synthesizer(
             "venue": p.get("venue", "Scientific Archive"),
             "url": p.get("url", "#"),
             "citation_count": p.get("citationCount") if p.get("citationCount") is not None else 0,
+            "provenance_tier": p.get("provenance_tier", "peer_reviewed"),
+            "provenance_label": p.get("provenance_label", "Peer-Reviewed Literature"),
             "verified_claims_count": 0,
             "supporting_snippets": []
         })
@@ -347,9 +480,11 @@ async def run_agent4_fact_checker_synthesizer(
         status = eval_info.get("status", "unverified")
         tier = eval_info.get("verification_tier")
         if not tier:
-            if status == "verified_by_cache":
+            if status in ["verified_by_cache", "Auto-Verified"]:
                 tier = "auto_cache"
-            elif status in ["verified_by_llm", "plausible"]:
+            elif status == "Preprint-Corroborated":
+                tier = "auto_cache_preprint"
+            elif status in ["verified_by_llm", "plausible", "LLM-Verified"]:
                 tier = "llm_rag"
             else:
                 tier = "no_source"
@@ -402,6 +537,8 @@ async def run_agent4_fact_checker_synthesizer(
             
             if tier == "auto_cache":
                 badge_html = f'<sup class="citation-anchor tier-cache-badge" data-ref-id="{ref_id}"><a href="#cit-card-{ref_id}" title="Auto-verified in SQLite cache (0 tokens)">[✓ cache • {cite_num}]</a></sup>'
+            elif tier == "auto_cache_preprint":
+                badge_html = f'<sup class="citation-anchor tier-preprint-badge" data-ref-id="{ref_id}"><a href="#cit-card-{ref_id}" title="Corroborated in SQLite cache via unrefereed preprint (0 tokens)">[✓ preprint • {cite_num}]</a></sup>'
             elif tier == "llm_rag":
                 badge_html = f'<sup class="citation-anchor tier-llm-badge" data-ref-id="{ref_id}"><a href="#cit-card-{ref_id}" title="Verified by Peer-Review LLM (Call 2)">[✓ peer-rev • {cite_num}]</a></sup>'
             else:
@@ -416,6 +553,8 @@ async def run_agent4_fact_checker_synthesizer(
         else:
             if tier == "auto_cache":
                 badge_html = '<sup class="citation-anchor tier-cache-badge" title="Auto-verified in SQLite cache (0 tokens)">[✓ cache]</sup>'
+            elif tier == "auto_cache_preprint":
+                badge_html = '<sup class="citation-anchor tier-preprint-badge" title="Corroborated in SQLite cache via unrefereed preprint">[✓ preprint]</sup>'
             elif tier == "llm_rag":
                 badge_html = '<sup class="citation-anchor tier-llm-badge" title="Verified by Peer-Review LLM">[✓ peer-rev]</sup>'
             else:
@@ -459,6 +598,7 @@ async def run_agent4_fact_checker_synthesizer(
     return {
         "agent": "Agent 4: Fact-Checker & Synthesizer",
         "call_index": 2,
+        "provider": display_provider,
         "tokens_used": int(tokens_used),
         "prompt_tokens": p_tok,
         "completion_tokens": c_tok,

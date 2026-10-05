@@ -4,13 +4,15 @@
  */
 
 import { showToast } from './utils.js';
-import { getDemoMode, setDemoMode } from './pipeline.js';
 import { initBackgroundCanvas, drawBezierConnectors, positionNodeCards } from './canvas.js';
 import { loadDocumentLibrary } from './pdf_workspace.js';
 import { initDialogueView } from './dialogue.js';
 
 export const UIState = {
   currentView: 'about',
+  activeArchitecture: 'system_a', // 'system_a', 'system_b', or 'system_c'
+  ragTopK: 5,
+  systemApiKeys: { a: '', b: '', c: '' },
   isRunning: false,
   elapsedTimer: null,
   elapsedSeconds: 0.0,
@@ -64,7 +66,6 @@ export const elements = {
   viewDocuments: document.getElementById('view-documents'),
   
   btnLaunchWorkbench: document.getElementById('btn-launch-workbench'),
-  btnViewPipelineDemo: document.getElementById('btn-view-pipeline-demo'),
   btnReopenCanvas: document.getElementById('btn-reopen-canvas'),
   
   settingsDrawer: document.getElementById('settings-drawer'),
@@ -73,7 +74,6 @@ export const elements = {
   btnToggleTheme: document.getElementById('btn-toggle-theme'),
   btnAbortPipeline: document.getElementById('btn-abort-pipeline'),
   themeIcon: document.getElementById('theme-icon'),
-  toggleDemoMode: document.getElementById('toggle-demo-mode'),
   toggleDisableFallbackAgent2: document.getElementById('toggle-disable-fallback-agent2'),
   toggleDisableFallbackAgent4: document.getElementById('toggle-disable-fallback-agent4'),
   queryChipsRow: document.getElementById('query-chips-row'),
@@ -170,6 +170,7 @@ export const elements = {
   pulse2: document.getElementById('pulse-2'),
   pulse3: document.getElementById('pulse-3'),
   
+  cfgOpenaiKey: document.getElementById('cfg-openai-key'),
   cfgAgent2Model: document.getElementById('cfg-agent2-model'),
   cfgAgent4Model: document.getElementById('cfg-agent4-model'),
   cfgPaperLimit: document.getElementById('cfg-paper-limit'),
@@ -211,6 +212,8 @@ export function switchView(viewName) {
 
   // Update body view state class for CSS enforcement
   document.body.classList.toggle('on-about', viewName === 'about');
+  document.body.classList.toggle('on-canvas', viewName === 'canvas');
+  document.body.classList.toggle('on-dossier', viewName === 'dossier');
   document.body.classList.toggle('on-workbench', isWorkbench);
   document.body.classList.toggle('on-documents', viewName === 'documents');
   document.body.classList.toggle('on-dialogue', viewName === 'dialogue');
@@ -258,14 +261,14 @@ export function switchView(viewName) {
     pill.classList.toggle('active', pill.dataset.view === viewName);
   });
 
-  // HIDE BOTTOM CHAT INTERFACE ON ABOUT PAGE & DOCUMENTS PAGE (Documents has its own inline chat)
-
-
-    if (viewName === 'canvas' || viewName === 'dossier') {
+  // HIDE BOTTOM CHAT INTERFACE ON ALL PAGES EXCEPT CANVAS (Dossier, Dialogue & Docs have dedicated reading/chat interfaces)
+  if (elements.bottomChatContainer) {
+    if (viewName === 'canvas') {
       elements.bottomChatContainer.style.setProperty('display', 'flex', 'important');
     } else {
       elements.bottomChatContainer.style.setProperty('display', 'none', 'important');
     }
+  }
 
   // ALL SIDEBAR OPTIONS AND SETTINGS ARE PERMANENTLY AVAILABLE (At all times across all views)
   if (elements.btnToggleDrawer) {
@@ -318,10 +321,9 @@ export async function refreshCacheStats() {
   } catch (err) {
     // console.log("Could not load cache stats from backend", err);
   }
-  // Fallback demo numbers
-  if (statPapers) statPapers.textContent = "12";
-  if (statSentences) statSentences.textContent = "48";
-  if (statRuns) statRuns.textContent = "3";
+  if (statPapers) statPapers.textContent = "0";
+  if (statSentences) statSentences.textContent = "0";
+  if (statRuns) statRuns.textContent = "0";
 }
 
 // Clear SQLite Cache
@@ -342,7 +344,7 @@ export async function clearSQLiteCache() {
   } catch (err) {
     // console.log("Cache clear API call failed", err);
   }
-  showToast("Local cache reset (Demo mode)");
+  showToast("Local cache reset");
   refreshCacheStats();
 }
 
@@ -372,9 +374,11 @@ export function resetFactoryDefaults() {
   updateScrapersUI();
   
   // SEC-13: Clear ephemeral session credentials and legacy storage
+  sessionStorage.removeItem('workbench_openai_key');
   sessionStorage.removeItem('workbench_gemini_key');
   sessionStorage.removeItem('workbench_anthropic_key');
   sessionStorage.removeItem('workbench_serpapi_key');
+  localStorage.removeItem('workbench_openai_key');
   localStorage.removeItem('workbench_gemini_key');
   localStorage.removeItem('workbench_anthropic_key');
   localStorage.removeItem('workbench_serpapi_key');
@@ -383,9 +387,11 @@ export function resetFactoryDefaults() {
   if (elements.toggleDisableFallbackAgent2) elements.toggleDisableFallbackAgent2.checked = false;
   if (elements.toggleDisableFallbackAgent4) elements.toggleDisableFallbackAgent4.checked = false;
 
+  const openaiInput = document.getElementById('cfg-openai-key');
   const geminiInput = document.getElementById('cfg-gemini-key');
   const anthropicInput = document.getElementById('cfg-anthropic-key');
   const serpapiInput = document.getElementById('cfg-serpapi-key');
+  if (openaiInput) openaiInput.value = '';
   if (geminiInput) geminiInput.value = '';
   if (anthropicInput) anthropicInput.value = '';
   if (serpapiInput) serpapiInput.value = '';
@@ -396,29 +402,173 @@ export function resetFactoryDefaults() {
 
 // Save API Keys locally in ephemeral sessionStorage (SEC-13)
 export function saveApiKeys() {
+  const openaiKey = document.getElementById('cfg-openai-key')?.value.trim() || '';
   const geminiKey = document.getElementById('cfg-gemini-key')?.value.trim() || '';
   const anthropicKey = document.getElementById('cfg-anthropic-key')?.value.trim() || '';
   const serpapiKey = document.getElementById('cfg-serpapi-key')?.value.trim() || '';
+  const keySysA = document.getElementById('cfg-key-sys-a')?.value.trim() || '';
+  const keySysB = document.getElementById('cfg-key-sys-b')?.value.trim() || '';
+  const keySysC = document.getElementById('cfg-key-sys-c')?.value.trim() || '';
+
+  sessionStorage.setItem('workbench_openai_key', openaiKey);
   sessionStorage.setItem('workbench_gemini_key', geminiKey);
   sessionStorage.setItem('workbench_anthropic_key', anthropicKey);
   sessionStorage.setItem('workbench_serpapi_key', serpapiKey);
+  sessionStorage.setItem('workbench_key_sys_a', keySysA);
+  sessionStorage.setItem('workbench_key_sys_b', keySysB);
+  sessionStorage.setItem('workbench_key_sys_c', keySysC);
+
+  UIState.systemApiKeys = {
+    a: keySysA,
+    b: keySysB,
+    c: keySysC
+  };
   
   // Clean out any lingering legacy localStorage keys
+  localStorage.removeItem('workbench_openai_key');
   localStorage.removeItem('workbench_gemini_key');
   localStorage.removeItem('workbench_anthropic_key');
   localStorage.removeItem('workbench_serpapi_key');
   
-  // When user saves an API key, auto-switch to Live API mode
-  if (geminiKey || anthropicKey || serpapiKey) {
-    setDemoMode(false);
-    if (elements.toggleDemoMode) elements.toggleDemoMode.checked = false;
-    updateDemoModeUI();
-    const noteText = document.getElementById('demo-mode-status-text');
-    if (noteText) {
-      noteText.textContent = "Live execution active (Connecting to backend SSE pipeline)";
+  updateApiKeyBadges();
+  showToast("API credentials saved to session storage.");
+}
+
+export function updateApiKeyBadges() {
+  const openai = sessionStorage.getItem('workbench_openai_key') || document.getElementById('cfg-openai-key')?.value.trim() || '';
+  const gemini = sessionStorage.getItem('workbench_gemini_key') || document.getElementById('cfg-gemini-key')?.value.trim() || '';
+  const anthropic = sessionStorage.getItem('workbench_anthropic_key') || document.getElementById('cfg-anthropic-key')?.value.trim() || '';
+  const keyA = sessionStorage.getItem('workbench_key_sys_a') || document.getElementById('cfg-key-sys-a')?.value.trim() || '';
+  const keyB = sessionStorage.getItem('workbench_key_sys_b') || document.getElementById('cfg-key-sys-b')?.value.trim() || '';
+  const keyC = sessionStorage.getItem('workbench_key_sys_c') || document.getElementById('cfg-key-sys-c')?.value.trim() || '';
+
+  const setBadge = (elId, key, defLabel = ".env fallback") => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (!key) {
+      el.className = "key-badge key-badge-default";
+      el.textContent = defLabel;
+    } else if (key.startsWith('AIza')) {
+      el.className = "key-badge key-badge-valid";
+      el.textContent = "Gemini Key";
+    } else if (key.startsWith('sk-ant-')) {
+      el.className = "key-badge key-badge-valid";
+      el.textContent = "Claude Key";
+    } else if (key.startsWith('sk-')) {
+      el.className = "key-badge key-badge-valid";
+      el.textContent = "OpenAI Key";
+    } else {
+      el.className = "key-badge key-badge-valid";
+      el.textContent = "Active Key";
+    }
+  };
+
+  setBadge('badge-key-openai', openai, ".env fallback");
+  setBadge('badge-key-gemini', gemini, ".env fallback");
+  setBadge('badge-key-anthropic', anthropic, ".env fallback");
+  setBadge('badge-key-sys-a', keyA, "Inherited");
+  setBadge('badge-key-sys-b', keyB, "Inherited");
+  setBadge('badge-key-sys-c', keyC, "Inherited");
+
+  const statusBadge = document.getElementById('api-keys-status-badge');
+  if (statusBadge) {
+    if (openai || gemini || anthropic || keyA || keyB || keyC) {
+      statusBadge.className = "badge badge-success";
+      statusBadge.textContent = "Live Keys Active";
+    } else {
+      statusBadge.className = "badge badge-subtle";
+      statusBadge.textContent = "Default Keys";
     }
   }
-  showToast("API keys securely saved to session. Switched to Live API mode.");
+}
+
+export function getSystemApiKey(sys = 'a') {
+  sys = sys.toLowerCase();
+  const perSys = sessionStorage.getItem(`workbench_key_sys_${sys}`) || '';
+  if (perSys) return perSys;
+  
+  // Fall back to preferred model provider key
+  const a2Model = (localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash').toLowerCase();
+  if (a2Model.includes('gpt') || a2Model.includes('sol') || a2Model.includes('luna') || a2Model.includes('astra') || a2Model.includes('openai')) {
+    return sessionStorage.getItem('workbench_openai_key') || '';
+  }
+  if (a2Model.includes('claude') || a2Model.includes('sonnet') || a2Model.includes('opus') || a2Model.includes('haiku')) {
+    return sessionStorage.getItem('workbench_anthropic_key') || '';
+  }
+  return sessionStorage.getItem('workbench_gemini_key') || '';
+}
+
+export function setActiveArchitecture(arch, notify = true) {
+  if (!['system_a', 'system_b', 'system_c'].includes(arch)) arch = 'system_a';
+  UIState.activeArchitecture = arch;
+  try {
+    localStorage.setItem('workbench_active_arch', arch);
+  } catch (e) {}
+
+  // 1. Sync Settings Drawer radio cards
+  document.querySelectorAll('.arch-radio-card').forEach(card => {
+    const isMatch = card.dataset.arch === arch;
+    card.classList.toggle('active', isMatch);
+    const radio = card.querySelector('input[type="radio"]');
+    if (radio) radio.checked = isMatch;
+  });
+
+  const ragSub = document.getElementById('arch-sub-options-rag');
+  if (ragSub) {
+    ragSub.style.display = (arch === 'system_b') ? 'block' : 'none';
+  }
+
+  const archBadge = document.getElementById('cfg-active-arch-badge');
+  if (archBadge) {
+    if (arch === 'system_a') {
+      archBadge.className = 'badge badge-success';
+      archBadge.textContent = 'System A Active';
+    } else if (arch === 'system_b') {
+      archBadge.className = 'badge badge-warning';
+      archBadge.textContent = 'System B (RAG) Active';
+    } else {
+      archBadge.className = 'badge badge-danger';
+      archBadge.textContent = 'System C (Direct API) Active';
+    }
+  }
+
+  // 2. Sync Canvas Floating Selector Pills
+  document.querySelectorAll('.canvas-arch-pill').forEach(pill => {
+    pill.classList.toggle('active', pill.dataset.arch === arch);
+  });
+
+  // 3. Sync Bottom Bar Quick Toggle
+  const quickBtn = document.getElementById('btn-quick-arch-toggle');
+  const quickLabel = document.getElementById('prompt-arch-label');
+  if (quickBtn && quickLabel) {
+    quickBtn.className = `provider-pill-badge arch-pill-badge active-arch-${arch.slice(-1)}`;
+    if (arch === 'system_a') {
+      quickLabel.textContent = '🏛️ System A: 4-Agent';
+      quickBtn.title = 'Active Engine: System A (4-Agent Pipeline). Click to cycle.';
+    } else if (arch === 'system_b') {
+      quickLabel.textContent = '🔍 System B: RAG';
+      quickBtn.title = 'Active Engine: System B (Conventional RAG). Click to cycle.';
+    } else {
+      quickLabel.textContent = '⚡ System C: Direct API';
+      quickBtn.title = 'Active Engine: System C (Direct Single API). Click to cycle.';
+    }
+  }
+
+  // 4. Update Canvas Node Topology visualization
+  import('./canvas.js').then(module => {
+    if (module.updateCanvasArchitectureTopology) {
+      module.updateCanvasArchitectureTopology(arch);
+    }
+  }).catch(() => {});
+
+  if (notify) {
+    const titles = {
+      system_a: "System A Active: 4-Agent ResearchWorkbench (Adversarial Fact-Checking)",
+      system_b: "System B Active: Conventional RAG Baseline (Vector Top-K Chunks)",
+      system_c: "System C Active: Direct Single API Baseline (Zero-Shot Parametric)"
+    };
+    showToast(titles[arch] || "Architecture Updated");
+  }
 }
 
 export function updateModelLabels() {
@@ -441,45 +591,40 @@ export function updateModelLabels() {
 }
 
 export function updateDemoModeUI() {
-  const isDemo = getDemoMode();
-  if (isDemo) {
-    if (elements.demoIndicatorTag) {
-      elements.demoIndicatorTag.textContent = "Demo Mode";
-      elements.demoIndicatorTag.style.display = "inline-block";
-    }
-    if (elements.teleStatusDot) elements.teleStatusDot.className = "pulse-indicator status-green";
-    if (elements.teleStatusText) elements.teleStatusText.textContent = "Demo Ready";
-    if (elements.queryChipsRow) {
-      elements.queryChipsRow.style.display = "flex";
-      elements.queryChipsRow.classList.remove('hidden-live');
-    }
-  } else {
-    if (elements.demoIndicatorTag) {
-      elements.demoIndicatorTag.textContent = "Live Backend";
-      elements.demoIndicatorTag.style.display = "inline-block";
-    }
-    if (elements.teleStatusDot) elements.teleStatusDot.className = "pulse-indicator status-blue";
-    if (elements.teleStatusText) elements.teleStatusText.textContent = "Live AI Ready";
-    if (elements.queryChipsRow) {
-      elements.queryChipsRow.style.display = "none";
-      elements.queryChipsRow.classList.add('hidden-live');
-    }
+  if (elements.demoIndicatorTag) {
+    elements.demoIndicatorTag.textContent = "Live Backend";
+    elements.demoIndicatorTag.style.display = "inline-block";
+  }
+  if (elements.teleStatusDot) elements.teleStatusDot.className = "pulse-indicator status-blue";
+  if (elements.teleStatusText) elements.teleStatusText.textContent = "Live AI Ready";
+  if (elements.queryChipsRow) {
+    elements.queryChipsRow.style.display = "flex";
   }
 }
 
 // Load saved API Keys and Settings on startup
 export function loadSavedSettings() {
   // Purge any stale localStorage keys from prior versions
+  localStorage.removeItem('workbench_openai_key');
   localStorage.removeItem('workbench_gemini_key');
   localStorage.removeItem('workbench_anthropic_key');
   localStorage.removeItem('workbench_serpapi_key');
 
+  const openaiKey = sessionStorage.getItem('workbench_openai_key');
   const geminiKey = sessionStorage.getItem('workbench_gemini_key');
   const anthropicKey = sessionStorage.getItem('workbench_anthropic_key');
   const serpapiKey = sessionStorage.getItem('workbench_serpapi_key');
+  const keySysA = sessionStorage.getItem('workbench_key_sys_a');
+  const keySysB = sessionStorage.getItem('workbench_key_sys_b');
+  const keySysC = sessionStorage.getItem('workbench_key_sys_c');
   const savedDisableFallbackAgent2 = localStorage.getItem('workbench_disable_fallback_agent2');
   const savedDisableFallbackAgent4 = localStorage.getItem('workbench_disable_fallback_agent4');
+  const savedArch = localStorage.getItem('workbench_active_arch') || 'system_a';
+  const savedTopK = localStorage.getItem('workbench_rag_topk') || '5';
 
+  if (openaiKey && document.getElementById('cfg-openai-key')) {
+    document.getElementById('cfg-openai-key').value = openaiKey;
+  }
   if (geminiKey && document.getElementById('cfg-gemini-key')) {
     document.getElementById('cfg-gemini-key').value = geminiKey;
   }
@@ -489,6 +634,22 @@ export function loadSavedSettings() {
   if (serpapiKey && document.getElementById('cfg-serpapi-key')) {
     document.getElementById('cfg-serpapi-key').value = serpapiKey;
   }
+  if (keySysA && document.getElementById('cfg-key-sys-a')) {
+    document.getElementById('cfg-key-sys-a').value = keySysA;
+  }
+  if (keySysB && document.getElementById('cfg-key-sys-b')) {
+    document.getElementById('cfg-key-sys-b').value = keySysB;
+  }
+  if (keySysC && document.getElementById('cfg-key-sys-c')) {
+    document.getElementById('cfg-key-sys-c').value = keySysC;
+  }
+
+  const topkSel = document.getElementById('cfg-rag-topk');
+  if (topkSel) {
+    topkSel.value = savedTopK;
+    UIState.ragTopK = parseInt(savedTopK, 10) || 5;
+  }
+
   if (savedDisableFallbackAgent2 !== null && elements.toggleDisableFallbackAgent2) {
     elements.toggleDisableFallbackAgent2.checked = (savedDisableFallbackAgent2 === 'true');
   }
@@ -501,13 +662,10 @@ export function loadSavedSettings() {
   if (savedA2 && elements.cfgAgent2Model) elements.cfgAgent2Model.value = savedA2;
   if (savedA4 && elements.cfgAgent4Model) elements.cfgAgent4Model.value = savedA4;
   updateModelLabels();
+  updateApiKeyBadges();
+  setActiveArchitecture(savedArch, false);
 
-  // If user already has keys stored in this session, default to Live Mode
-  if (geminiKey || anthropicKey || serpapiKey) {
-    setDemoMode(false);
-    if (elements.toggleDemoMode) elements.toggleDemoMode.checked = false;
-    updateDemoModeUI();
-  }
+  updateDemoModeUI();
 }
 
 
@@ -659,6 +817,104 @@ export function initExecutionMode() {
       }
     });
   });
+
+  // Architecture Quick Toggle in bottom prompt bar
+  const quickArchBtn = document.getElementById('btn-quick-arch-toggle');
+  if (quickArchBtn) {
+    quickArchBtn.addEventListener('click', () => {
+      const order = ['system_a', 'system_b', 'system_c'];
+      const curIdx = order.indexOf(UIState.activeArchitecture);
+      const nextArch = order[(curIdx + 1) % order.length];
+      setActiveArchitecture(nextArch, true);
+    });
+  }
+
+  // Preset Benchmark Prompt Chips
+  document.querySelectorAll('.query-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const q = chip.dataset.query;
+      if (q && elements.inputQuery) {
+        elements.inputQuery.value = q;
+        import('./utils.js').then(u => {
+          u.autoResizeQueryTextarea(elements.inputQuery);
+          u.updateQueryCharCounter();
+        });
+        elements.inputQuery.focus();
+        showToast("Benchmark prompt loaded.");
+      }
+    });
+  });
+}
+
+export function initArchitectureControls() {
+  // 1. Settings Drawer Architecture Radio Cards
+  document.querySelectorAll('.arch-radio-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      const arch = card.dataset.arch;
+      if (arch && arch !== UIState.activeArchitecture) {
+        setActiveArchitecture(arch, true);
+      }
+    });
+  });
+
+  document.querySelectorAll('input[name="pipeline_arch"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      if (e.target.checked && e.target.value !== UIState.activeArchitecture) {
+        setActiveArchitecture(e.target.value, true);
+      }
+    });
+  });
+
+  // Top-K selector for System B
+  const topkSel = document.getElementById('cfg-rag-topk');
+  if (topkSel) {
+    topkSel.addEventListener('change', (e) => {
+      const val = parseInt(e.target.value, 10) || 5;
+      UIState.ragTopK = val;
+      localStorage.setItem('workbench_rag_topk', String(val));
+      showToast(`RAG Retrieval Depth updated: Top ${val} context chunks.`);
+    });
+  }
+
+  // 2. Canvas Floating Architecture Pills
+  document.querySelectorAll('.canvas-arch-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const arch = pill.dataset.arch;
+      if (arch && arch !== UIState.activeArchitecture) {
+        setActiveArchitecture(arch, true);
+      }
+    });
+  });
+
+  // 3. Per-System Keys Accordion
+  const toggleSysKeysBtn = document.getElementById('btnToggleSystemKeys');
+  const sysKeysPanel = document.getElementById('customSystemKeysPanel');
+  const sysKeysArrow = document.getElementById('sys-keys-arrow');
+  if (toggleSysKeysBtn && sysKeysPanel) {
+    toggleSysKeysBtn.addEventListener('click', () => {
+      const isHidden = sysKeysPanel.style.display === 'none' || !sysKeysPanel.style.display;
+      sysKeysPanel.style.display = isHidden ? 'block' : 'none';
+      if (sysKeysArrow) sysKeysArrow.textContent = isHidden ? '▼' : '▶';
+    });
+  }
+
+  // 4. API Key input live badges on typing
+  ['cfg-openai-key', 'cfg-gemini-key', 'cfg-anthropic-key', 'cfg-key-sys-a', 'cfg-key-sys-b', 'cfg-key-sys-c'].forEach(id => {
+    const inp = document.getElementById(id);
+    if (inp) {
+      inp.addEventListener('input', () => {
+        updateApiKeyBadges();
+      });
+    }
+  });
+
+  // Save API Keys Button
+  const saveBtn = document.getElementById('btn-save-keys');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      saveApiKeys();
+    });
+  }
 }
 
 

@@ -168,7 +168,9 @@ class TestAuditFixes(unittest.TestCase):
 
     def test_11_sqlite_foreign_keys_enabled(self):
         """Verify SQLite connections enable PRAGMA foreign_keys = ON by default."""
-        from backend.database import get_db_connection
+        from backend.database import get_db_connection, IS_POSTGRES
+        if IS_POSTGRES:
+            self.skipTest("PRAGMA foreign_keys is SQLite-specific; running on PostgreSQL.")
         conn = get_db_connection()
         try:
             fk_status = conn.execute("PRAGMA foreign_keys;").fetchone()[0]
@@ -276,7 +278,9 @@ class TestAuditFixes(unittest.TestCase):
 
     def test_19_sqlite_synchronous_normal_and_indexes(self):
         """Verify PRAGMA synchronous is NORMAL (1) and secondary indexes exist for O(1) lookups."""
-        from backend.database import get_db_connection
+        from backend.database import get_db_connection, IS_POSTGRES
+        if IS_POSTGRES:
+            self.skipTest("PRAGMA synchronous and sqlite_master are SQLite-specific; running on PostgreSQL.")
         conn = get_db_connection()
         try:
             sync_val = conn.execute("PRAGMA synchronous;").fetchone()[0]
@@ -530,7 +534,6 @@ class TestAuditFixes(unittest.TestCase):
             export_dialogue_to_markdown,
             export_dialogue_to_latex
         )
-        from backend.agents.pdf_synthesizer import DEMO_SUMMARIZE_RESPONSE
 
         dossier_data = {
             "query": "Quantum Computing Fault Tolerance",
@@ -583,12 +586,7 @@ class TestAuditFixes(unittest.TestCase):
         diag_tex = export_dialogue_to_latex("Quantum", messages, dossier_data)
         self.assertIn("\\subsection*{USER}", diag_tex)
 
-        # 5. PDF Synthesizer Demo parity
-        self.assertIn("comparison_table", DEMO_SUMMARIZE_RESPONSE)
-        self.assertIn("dialectical_friction", DEMO_SUMMARIZE_RESPONSE)
-        self.assertIn("epistemic_limitations", DEMO_SUMMARIZE_RESPONSE)
-
-        # 6. Test Export Endpoints via FastAPI TestClient
+        # 5. Test Export Endpoints via FastAPI TestClient
         client = TestClient(app)
         res_md = client.post("/api/export/markdown", json={"dossier": dossier_data})
         self.assertEqual(res_md.status_code, 200)
@@ -631,7 +629,6 @@ class TestAuditFixes(unittest.TestCase):
         demo_res = asyncio.run(run_agent1_academic_scraper(
             "Austrian Economics Opportunity Cost", 
             limit=3, 
-            demo_mode=True, 
             active_scrapers=["crossref", "doaj"]
         ))
         self.assertIn("papers", demo_res)
@@ -640,8 +637,7 @@ class TestAuditFixes(unittest.TestCase):
         # 5. Verify /api/pipeline/run accepts active_scrapers payload
         pipe_resp = client.post("/api/pipeline/run", json={
             "query": "Quantum Error Mitigation",
-            "active_scrapers": ["crossref", "doaj", "openalex"],
-            "demo_mode": True
+            "active_scrapers": ["crossref", "doaj", "openalex"]
         })
         self.assertEqual(pipe_resp.status_code, 200)
         json_data = pipe_resp.json()
@@ -820,7 +816,6 @@ class TestAuditFixes(unittest.TestCase):
             config={
                 "execution_mode": "rapid",
                 "bypass_cache": True,
-                "demo_mode": True,
                 "provider_agent2": "offline"
             }
         ))

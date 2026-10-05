@@ -72,6 +72,8 @@ def build_rapid_dossier_output(
             "url": p.get("url"),
             "source": p.get("source"),
             "source_type": p.get("source_type", "Peer-Reviewed Paper"),
+            "provenance_tier": p.get("provenance_tier", "peer_reviewed"),
+            "provenance_label": p.get("provenance_label", "Peer-Reviewed Literature"),
             "citation_count": p.get("citationCount", 0)
         })
         
@@ -141,11 +143,11 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
     paper_limit = int(config.get("paper_limit", 5))
     gemini_key = config.get("gemini_key")
     anthropic_key = config.get("anthropic_key")
+    openai_key = config.get("openai_key")
     serpapi_key = config.get("serpapi_key")
     disable_fallback = bool(config.get("disable_fallback", False))
     disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", disable_fallback))
     disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", disable_fallback))
-    demo_mode = bool(config.get("demo_mode", False))
     scraper_sources = config.get("scraper_sources", "all")
     active_scrapers = config.get("active_scrapers")
     user_id = config.get("user_id")
@@ -161,7 +163,6 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             sources=scraper_sources, 
             serpapi_key=serpapi_key,
             disable_fallback=disable_fallback_agent2,
-            demo_mode=demo_mode,
             active_scrapers=active_scrapers,
             max_pdf_pages=int(config.get("max_pdf_pages", 15))
         )
@@ -183,6 +184,7 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             provider=provider_agent2, 
             api_key=gemini_key, 
             anthropic_key=anthropic_key, 
+            openai_key=openai_key, 
             disable_fallback=disable_fallback_agent2
         )
         
@@ -205,15 +207,26 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             user_query, agent1_res, agent2_res, similarity_threshold=similarity_thresh
         )
         
-        # Step 4: Fact-Checker & Synthesizer (AI Call 2)
+        # Step 4: Fact-Checker & Synthesizer (AI Call 2 - Asymmetric Fast Verifier Tier)
+        resolved_provider_a4 = provider_agent4
+        if not resolved_provider_a4 or resolved_provider_a4 == "auto":
+            prov_a2_lower = str(provider_agent2).lower()
+            if any(k in prov_a2_lower for k in ("gpt", "openai", "sol", "luna", "astra")):
+                resolved_provider_a4 = "gpt-6-luna"
+            elif "claude" in prov_a2_lower or "anthropic" in prov_a2_lower:
+                resolved_provider_a4 = "claude-haiku-4.5"
+            else:
+                resolved_provider_a4 = "gemini-3.6-flash"
+
         agent4_res = await run_agent4_fact_checker_synthesizer(
             user_query, 
             agent1_res, 
             agent2_res, 
             agent3_res, 
-            provider=provider_agent4, 
+            provider=resolved_provider_a4, 
             api_key=gemini_key, 
             anthropic_key=anthropic_key, 
+            openai_key=openai_key, 
             disable_fallback=disable_fallback_agent4
         )
         
@@ -327,7 +340,6 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
 
     disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", False))
     disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", False))
-    demo_mode = bool(config.get("demo_mode", False))
     scraper_sources = config.get("scraper_sources", "all")
     active_scrapers = config.get("active_scrapers")
     serpapi_key = config.get("serpapi_key")
@@ -357,7 +369,6 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             sources=scraper_sources, 
             serpapi_key=serpapi_key,
             disable_fallback=disable_fallback_agent2,
-            demo_mode=demo_mode,
             active_scrapers=active_scrapers,
             max_pdf_pages=int(config.get("max_pdf_pages", 15))
         )
@@ -404,6 +415,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             provider=config.get("provider_agent2", "auto"),
             api_key=config.get("gemini_key"),
             anthropic_key=config.get("anthropic_key"),
+            openai_key=config.get("openai_key"),
             disable_fallback=disable_fallback_agent2
         )
         partial_data["agent2_draft"] = agent2_res
@@ -475,7 +487,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        # AGENT 4: Fact-Checker & Synthesizer (LLM Call 2)
+        # AGENT 4: Fact-Checker & Synthesizer (LLM Call 2 - Asymmetric Fast Verifier Tier)
         yield sse_message("agent_active", {
             "agent_id": 4,
             "name": "Fact-Checker & Synthesizer",
@@ -484,14 +496,25 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
+        resolved_stream_provider_a4 = config.get("provider_agent4", "auto")
+        if not resolved_stream_provider_a4 or resolved_stream_provider_a4 == "auto":
+            prov_a2_lower = str(config.get("provider_agent2", "auto")).lower()
+            if any(k in prov_a2_lower for k in ("gpt", "openai", "sol", "luna", "astra")):
+                resolved_stream_provider_a4 = "gpt-6-luna"
+            elif "claude" in prov_a2_lower or "anthropic" in prov_a2_lower:
+                resolved_stream_provider_a4 = "claude-haiku-4.5"
+            else:
+                resolved_stream_provider_a4 = "gemini-3.6-flash"
+
         agent4_res = await run_agent4_fact_checker_synthesizer(
             user_query, 
             agent1_res, 
             agent2_res, 
             agent3_res, 
-            provider=config.get("provider_agent4", "auto"),
+            provider=resolved_stream_provider_a4, 
             api_key=config.get("gemini_key"),
             anthropic_key=config.get("anthropic_key"),
+            openai_key=config.get("openai_key"),
             disable_fallback=disable_fallback_agent4
         )
 
@@ -510,7 +533,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             "name": "Fact-Checker & Synthesizer",
             "tokens_used": a4_used,
             "prompt_tokens": a4_prompt,
-            "completion_tokens": a4_comp
+            "completion_tokens": a4_comp,
+            "model": agent4_res.get("provider", resolved_stream_provider_a4)
         })
         await asyncio.sleep(0.01)
 

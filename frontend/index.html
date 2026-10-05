@@ -4,6 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Research Workbench | Academic Synthesis & Fact-Checking Workstation</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <!-- Strict Authentication Guard: Strictly mandates authentication and blocks guest access -->
+  <script>
+    (function() {
+      try {
+        var token = localStorage.getItem('workbench_auth_token');
+        var search = window.location.search || '';
+        var hasAuthParam = search.indexOf('auth_token=') !== -1 || search.indexOf('auth_error=') !== -1;
+        if (!token && !hasAuthParam) {
+          window.location.replace('/login');
+        }
+      } catch (e) {
+        window.location.replace('/login');
+      }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
@@ -11,6 +29,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="dark-theme">
@@ -44,23 +63,98 @@
     <div class="drawer-content">
       <!-- TAB 1: MODELS & AI CONFIGURATION -->
       <div class="drawer-tab-pane active" id="tab-pane-models">
-        <!-- Showcase Demo Mode Toggle -->
-        <div class="config-card demo-mode-card">
-          <div class="config-row-flex">
+        <!-- Active Pipeline Architecture Selection (System A / B / C) -->
+        <div class="config-card arch-selection-card">
+          <div class="card-header-flex">
             <div>
-              <span class="config-label-bold">Showcase Demo Mode</span>
-              <p class="config-help">Simulate realistic peer-reviewed results with zero API credits</p>
+              <div class="config-label-bold">Active Pipeline Architecture</div>
+              <p class="config-help">Select the engine used for research synthesis and evaluation</p>
             </div>
-            <label class="switch">
-              <input type="checkbox" id="toggle-demo-mode" checked>
-              <span class="slider round"></span>
+            <span class="badge badge-success" id="cfg-active-arch-badge">System A Active</span>
+          </div>
+
+          <div class="arch-radio-group" role="radiogroup" aria-label="Pipeline Architecture Selection">
+            <!-- Option A: Multi-Agent ResearchWorkbench -->
+            <label class="arch-radio-card active" data-arch="system_a" id="cfg-card-arch-a">
+              <input type="radio" name="pipeline_arch" value="system_a" checked>
+              <div class="arch-card-content">
+                <div class="arch-card-top">
+                  <span class="arch-letter letter-a">A</span>
+                  <div class="arch-card-titles">
+                    <strong>System A: 4-Agent ResearchWorkbench</strong>
+                    <span class="arch-tag tag-recommended">Recommended · Fact-Checked Multi-Agent</span>
+                  </div>
+                </div>
+                <p class="arch-card-desc">
+                  Sequential 4-agent pipeline (Scraper &rarr; Drafter &rarr; SQLite Cacher &rarr; Adversarial Fact-Checker) with automated claim verification, 0-token caching, and dialectical consensus.
+                </p>
+                <div class="arch-pills-row">
+                  <span class="mini-chip chip-green">4.2% Hallucination Rate</span>
+                  <span class="mini-chip chip-blue">Automated Claim Auditing</span>
+                  <span class="mini-chip chip-purple">6 Academic Repos</span>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option B: Conventional RAG Baseline -->
+            <label class="arch-radio-card" data-arch="system_b" id="cfg-card-arch-b">
+              <input type="radio" name="pipeline_arch" value="system_b">
+              <div class="arch-card-content">
+                <div class="arch-card-top">
+                  <span class="arch-letter letter-b">B</span>
+                  <div class="arch-card-titles">
+                    <strong>System B: Conventional RAG Baseline</strong>
+                    <span class="arch-tag tag-baseline">Vector Top-K Baseline</span>
+                  </div>
+                </div>
+                <p class="arch-card-desc">
+                  Standard FastEmbed ONNX semantic vector search chunking literature into top-K retrieved passages into a single augmented prompt. Bypasses adversarial fact-checking.
+                </p>
+                <div class="arch-pills-row">
+                  <span class="mini-chip chip-amber">24.8% Hallucination Rate</span>
+                  <span class="mini-chip chip-gray">No Claim Verification</span>
+                  <span class="mini-chip chip-blue">Top-K Vector Retrieval</span>
+                </div>
+              </div>
+            </label>
+
+            <!-- Option C: Direct Single API Baseline -->
+            <label class="arch-radio-card" data-arch="system_c" id="cfg-card-arch-c">
+              <input type="radio" name="pipeline_arch" value="system_c">
+              <div class="arch-card-content">
+                <div class="arch-card-top">
+                  <span class="arch-letter letter-c">C</span>
+                  <div class="arch-card-titles">
+                    <strong>System C: Direct Single API Baseline</strong>
+                    <span class="arch-tag tag-baseline">Parametric Zero-Shot</span>
+                  </div>
+                </div>
+                <p class="arch-card-desc">
+                  Direct zero-shot single LLM call relying entirely on pre-trained parametric weights without external document retrieval or citation grounding.
+                </p>
+                <div class="arch-pills-row">
+                  <span class="mini-chip chip-red">38.6% Hallucination Rate</span>
+                  <span class="mini-chip chip-gray">0 External Citations</span>
+                  <span class="mini-chip chip-amber">High Fabrication Risk</span>
+                </div>
+              </div>
             </label>
           </div>
-          <div class="demo-mode-status-note" id="demo-mode-status-note">
-            <span class="status-indicator-mini"></span>
-            <span id="demo-mode-status-text">Simulated execution active (0 tokens consumed from provider)</span>
+
+          <!-- Conventional RAG Options (Visible when System B selected) -->
+          <div class="arch-sub-options" id="arch-sub-options-rag" style="display: none; margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-color);">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="font-size: 12px; font-weight: 600;">Vector Retrieval Top-K Context Depth:</label>
+              <select id="cfg-rag-topk" class="custom-select" style="font-size: 13px;">
+                <option value="3">Top 3 Context Chunks (~1,200 tokens)</option>
+                <option value="5" selected>Top 5 Context Chunks (~2,000 tokens - Standard)</option>
+                <option value="8">Top 8 Context Chunks (~3,200 tokens)</option>
+                <option value="10">Top 10 Context Chunks (~4,000 tokens)</option>
+              </select>
+            </div>
           </div>
         </div>
+
 
         <!-- Strict Live AI Mode Toggles -->
         <div class="config-card">
@@ -96,13 +190,27 @@
           <div class="form-group">
             <label>Drafting Model Provider</label>
             <select id="cfg-agent2-model" class="custom-select">
-              <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
-              <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (Recommended)</option>
-              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
-              <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
-              <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
-              <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+              <optgroup label="OpenAI GPT-6 Series">
+                <option value="gpt-6.1-sol">GPT-6.1 Sol (Flagship SOTA)</option>
+                <option value="gpt-6-luna">GPT-6 Luna (Ultra-Low Cost)</option>
+                <option value="gpt-6-astra">GPT-6 Astra (Max Reasoning)</option>
+              </optgroup>
+              <optgroup label="OpenAI GPT-5 Series">
+                <option value="gpt-5.5">GPT-5.5 (Deep Reasoning)</option>
+                <option value="gpt-5.4">GPT-5.4 (Core Workhorse)</option>
+                <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast &amp; Cheap)</option>
+              </optgroup>
+              <optgroup label="Google Gemini">
+                <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
+                <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (Recommended)</option>
+                <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
+              </optgroup>
+              <optgroup label="Anthropic Claude">
+                <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
+                <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
+                <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+              </optgroup>
             </select>
           </div>
         </div>
@@ -119,13 +227,27 @@
           <div class="form-group">
             <label>Fact-Checker Model</label>
             <select id="cfg-agent4-model" class="custom-select">
-              <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
-              <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (High Precision)</option>
-              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-              <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
-              <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
-              <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
-              <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+              <optgroup label="OpenAI GPT-6 Series">
+                <option value="gpt-6.1-sol">GPT-6.1 Sol (Flagship SOTA)</option>
+                <option value="gpt-6-luna">GPT-6 Luna (Ultra-Low Cost)</option>
+                <option value="gpt-6-astra">GPT-6 Astra (Max Reasoning)</option>
+              </optgroup>
+              <optgroup label="OpenAI GPT-5 Series">
+                <option value="gpt-5.5">GPT-5.5 (Deep Reasoning)</option>
+                <option value="gpt-5.4">GPT-5.4 (Core Workhorse)</option>
+                <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast &amp; Cheap)</option>
+              </optgroup>
+              <optgroup label="Google Gemini">
+                <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
+                <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (High Precision)</option>
+                <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
+              </optgroup>
+              <optgroup label="Anthropic Claude">
+                <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
+                <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
+                <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+              </optgroup>
             </select>
           </div>
           <div class="form-group">
@@ -140,20 +262,87 @@
 
         <!-- API Credentials / Keys Card -->
         <div class="config-card">
-          <div class="config-label-bold">API Credentials (Optional for Live Mode)</div>
-          <p class="config-help">Stored locally in browser memory for live API execution fallback</p>
-          <div class="form-group">
-            <label>Google Gemini API Key</label>
-            <input type="password" id="cfg-gemini-key" class="custom-input" placeholder="AIzaSy... (Leave blank for demo)">
+          <div class="card-header-flex">
+            <div>
+              <div class="config-label-bold">API Credentials & Keys</div>
+              <p class="config-help">Stored securely in session memory for live execution</p>
+            </div>
+            <span class="badge badge-subtle" id="api-keys-status-badge">Default Keys</span>
           </div>
+
           <div class="form-group">
-            <label>Anthropic Claude API Key</label>
-            <input type="password" id="cfg-anthropic-key" class="custom-input" placeholder="sk-ant-... (Leave blank for demo)">
+            <div class="label-with-badge">
+              <label for="cfg-openai-key">OpenAI API Key (GPT-5 / GPT-6)</label>
+              <span id="badge-key-openai" class="key-badge key-badge-default">.env fallback</span>
+            </div>
+            <div class="input-password-wrap">
+              <input type="password" id="cfg-openai-key" class="custom-input" placeholder="sk-proj-... / sk-... (Encrypted in user vault)">
+            </div>
           </div>
+
           <div class="form-group">
-            <label>SerpAPI Web Search API Key</label>
+            <div class="label-with-badge">
+              <label for="cfg-gemini-key">Google Gemini API Key</label>
+              <span id="badge-key-gemini" class="key-badge key-badge-default">.env fallback</span>
+            </div>
+            <div class="input-password-wrap">
+              <input type="password" id="cfg-gemini-key" class="custom-input" placeholder="AIzaSy... (Encrypted in user vault)">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="label-with-badge">
+              <label for="cfg-anthropic-key">Anthropic Claude API Key</label>
+              <span id="badge-key-anthropic" class="key-badge key-badge-default">.env fallback</span>
+            </div>
+            <div class="input-password-wrap">
+              <input type="password" id="cfg-anthropic-key" class="custom-input" placeholder="sk-ant-... (Encrypted in user vault)">
+            </div>
+          </div>
+
+          <!-- Per-System Custom Overrides Accordion -->
+          <div class="custom-system-keys-toggle" style="margin-top: 14px; margin-bottom: 8px;">
+            <button type="button" class="btn-accordion-toggle" id="btnToggleSystemKeys" style="background: none; border: none; color: var(--accent-blue, #3b82f6); font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 0;">
+              <span id="sys-keys-arrow">▶</span>
+              <span>Advanced: Independent API Keys Per System (A, B, C)</span>
+            </button>
+          </div>
+
+          <div class="custom-system-keys-panel" id="customSystemKeysPanel" style="display: none; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 12px;">
+            <p class="config-help" style="margin-bottom: 10px; font-size: 11px;">
+              Override global keys with independent API keys to test cross-provider performance or separate billing quotas.
+            </p>
+            
+            <div class="form-group" style="margin-bottom: 10px;">
+              <div class="label-with-badge">
+                <label for="cfg-key-sys-a" style="font-size: 12px;">System A Key (ResearchWorkbench)</label>
+                <span id="badge-key-sys-a" class="key-badge key-badge-default">Inherited</span>
+              </div>
+              <input type="password" id="cfg-key-sys-a" class="custom-input custom-input-sm" placeholder="Paste custom key for System A...">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 10px;">
+              <div class="label-with-badge">
+                <label for="cfg-key-sys-b" style="font-size: 12px;">System B Key (Conventional RAG)</label>
+                <span id="badge-key-sys-b" class="key-badge key-badge-default">Inherited</span>
+              </div>
+              <input type="password" id="cfg-key-sys-b" class="custom-input custom-input-sm" placeholder="Paste custom key for System B...">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <div class="label-with-badge">
+                <label for="cfg-key-sys-c" style="font-size: 12px;">System C Key (Direct Single API)</label>
+                <span id="badge-key-sys-c" class="key-badge key-badge-default">Inherited</span>
+              </div>
+              <input type="password" id="cfg-key-sys-c" class="custom-input custom-input-sm" placeholder="Paste custom key for System C...">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="cfg-serpapi-key">SerpAPI Web Search API Key (Optional)</label>
             <input type="password" id="cfg-serpapi-key" class="custom-input" placeholder="Enter SerpAPI key for live Google web search">
           </div>
+
           <button class="btn-secondary btn-sm" id="btn-save-keys" style="margin-top: 10px; width: 100%; justify-content: center;">
             Save API Keys Locally
           </button>
@@ -601,35 +790,218 @@
         </div>
       </header>
 
-      <!-- VIEW 1: ABOUT & ACADEMIC OVERVIEW PAGE (No toggle options button) -->
+      <!-- VIEW 1: ABOUT & ACADEMIC OVERVIEW PAGE -->
       <section class="view-section active" id="view-about">
         <div class="about-hero-container">
           <div class="hero-badge">
             <span class="sparkle-icon">✦</span>
-            <span>Academic Synthesis & Fact-Checking Framework</span>
+            <span>Autonomous Multi-Agent Synthesis, Provenance Auditing &amp; Fast Entailment Framework</span>
           </div>
           <h1 class="hero-title">
-            Multi-Agent Autonomous Research Agent with Integrated Fact-Checking for Enhanced Information Synthesis
+            Multi-Agent Autonomous Research Agent with Integrated Adversarial Fact-Checking
           </h1>
           <p class="hero-subtitle">
-            A research workstation engineered for scholars, researchers, and scientific investigators. By strictly bounding AI reasoning to a 2-call LLM budget and enforcing local SQLite semantic verification against peer-reviewed literature, this system guarantees verifiable, hallucination-free research summaries.
+            An academic research workstation engineered for scholars, researchers, and scientific investigators. Featuring asymmetric model allocation (Frontier Drafter + Ultra-Fast Verifier), strict rhetorical scaffolding compression (&lt;38s turnaround), upstream preprint provenance gatekeeping, and local ONNX + SQLite semantic caching, this platform delivers verifiable, publication-grade scientific monographs, substantially minimizing hallucinations through automated claim cross-examination.
           </p>
 
           <div class="hero-actions">
             <button class="btn-primary glow-button" id="btn-launch-workbench">
-              <span>Open Research Workbench</span>
+              <span>Launch Research Workbench</span>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="5" y1="12" x2="19" y2="12"></line>
                 <polyline points="12 5 19 12 12 19"></polyline>
               </svg>
             </button>
-            <button class="btn-ghost" id="btn-view-pipeline-demo">
+            <a href="/api/evals/download-docx" class="btn-ghost" target="_blank" download="Comparative_Study_Protocol_and_Workbook.docx">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              <span>Explore Interactive Pipeline</span>
-            </button>
+              <span>Download Study Protocol (.docx)</span>
+            </a>
+          </div>
+
+          <!-- EMPIRICAL ARCHITECTURE COMPARISON MATRIX (Why System A is Superior) -->
+          <div class="about-comparison-card">
+            <div class="comparison-card-header">
+              <div class="comp-header-title">
+                <span class="comp-icon">⚖️</span>
+                <div>
+                  <h3>Empirical Architecture Comparison: Why ResearchWorkbench Outperforms</h3>
+                  <p class="text-subtle">Comparative benchmark across 3 distinct paradigms for scientific synthesis</p>
+                </div>
+              </div>
+              <span class="badge badge-success">Empirical Benchmark Data</span>
+            </div>
+
+            <div class="matrix-table-wrapper">
+              <table class="academic-comparison-matrix">
+                <thead>
+                  <tr>
+                    <th>Evaluation Dimension</th>
+                    <th class="matrix-col-a">
+                      <div class="matrix-th-title">System A: ResearchWorkbench</div>
+                      <span class="matrix-th-sub">4-Agent Autonomous Pipeline</span>
+                    </th>
+                    <th class="matrix-col-b">
+                      <div class="matrix-th-title">System B: Conventional RAG</div>
+                      <span class="matrix-th-sub">FastEmbed Vector Top-K</span>
+                    </th>
+                    <th class="matrix-col-c">
+                      <div class="matrix-th-title">System C: Direct Single API</div>
+                      <span class="matrix-th-sub">Zero-Shot Parametric</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Architectural Design</strong></td>
+                    <td>
+                      <span class="matrix-chip chip-green">4 Autonomous Agents (Asymmetric Tier)</span><br>
+                      Scraper (0-tok) &rarr; Drafter (Sol / Sonnet) &rarr; Cacher (ONNX + MMR) &rarr; Verifier (Luna / Flash)
+                    </td>
+                    <td>
+                      <span class="matrix-chip chip-amber">Single-Pass Augmented</span><br>
+                      Vector top-K chunks stuffed into 1 prompt
+                    </td>
+                    <td>
+                      <span class="matrix-chip chip-red">Zero-Shot Unaugmented</span><br>
+                      1 direct parametric call without retrieval
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Execution Speed &amp; Latency</strong></td>
+                    <td>
+                      <span class="matrix-highlight-green">~32–38s Wall-Clock</span><br>
+                      <span class="matrix-sub">Rhetorical compression (-30% tokens) + Asymmetric Fast Verifier</span>
+                    </td>
+                    <td>
+                      <span class="matrix-highlight-amber">~70s</span><br>
+                      <span class="matrix-sub">Sequential vector retrieval + single massive monolithic prompt</span>
+                    </td>
+                    <td>
+                      <span class="matrix-highlight-green">~15s</span><br>
+                      <span class="matrix-sub">Fast but ungrounded parametric hallucination</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>External Grounding Sources</strong></td>
+                    <td>
+                      <strong>6 Scholarly APIs + Upstream Gatekeeper:</strong> Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed (filters thin abstracts &lt; 20 words)
+                    </td>
+                    <td>
+                      <strong>Static Vector Chunks:</strong> Literature cut into arbitrary 2-3 sentence passages
+                    </td>
+                    <td>
+                      <strong>0 External Sources:</strong> Pure pre-training weights memory
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Literature Provenance &amp; Preprints</strong></td>
+                    <td>
+                      <span class="badge badge-success">Automated 2-Tier Provenance</span><br>
+                      Distinguishes Peer-Reviewed from Preprints; caps unrefereed confidence at &le; 0.85 with reviewer caveats
+                    </td>
+                    <td>
+                      <span class="badge badge-warning">Blind Ingestion</span><br>
+                      Treats preprints, blog posts, and peer-reviewed journals identically
+                    </td>
+                    <td>
+                      <span class="badge badge-danger">Zero Provenance</span><br>
+                      No source citation or provenance tracking
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Hallucination Rate</strong></td>
+                    <td>
+                      <span class="matrix-highlight-green">4.2%</span><br>
+                      <span class="matrix-sub">Severe suppression via 2-tier audit</span>
+                    </td>
+                    <td>
+                      <span class="matrix-highlight-amber">24.8%</span><br>
+                      <span class="matrix-sub">Vulnerable to contradictory context</span>
+                    </td>
+                    <td>
+                      <span class="matrix-highlight-red">38.6%</span><br>
+                      <span class="matrix-sub">Frequent fabrication of post-2023 data</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Claim Verification Coverage</strong></td>
+                    <td>
+                      <span class="badge badge-success">Exhaustive Per-Claim Audit</span><br>
+                      Every generated <code>&lt;claim&gt;</code> evaluated via semantic cache or Agent 4 fact-checking
+                    </td>
+                    <td>
+                      <span class="badge badge-warning">Unverified</span><br>
+                      Assumes LLM faithfully repeats vector chunks
+                    </td>
+                    <td>
+                      <span class="badge badge-danger">Unchecked</span><br>
+                      Zero validation against ground truth
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>0-Token Semantic Caching</strong></td>
+                    <td>
+                      <strong>Yes (Local ONNX + SQLite &ge; 0.80)</strong><br>
+                      BAAI/bge-small-en-v1.5 MMR distillation; saves up to 74% tokens
+                    </td>
+                    <td>
+                      <strong>No</strong><br>
+                      Every evaluation pays full context window token tax
+                    </td>
+                    <td>
+                      <strong>No</strong><br>
+                      No caching mechanism
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Dialectical Friction &amp; Contradictions</strong></td>
+                    <td>
+                      <strong>Explicit Dialectical Synthesis</strong><br>
+                      Isolates opposing hypotheses, debates &amp; Pareto trade-offs
+                    </td>
+                    <td>
+                      <strong>Superficial Concatenation</strong><br>
+                      Blends contradictory findings into a smoothed summary
+                    </td>
+                    <td>
+                      <strong>Blind Smoothing</strong><br>
+                      Presents a single overconfident narrative
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Epistemic Horizon Reporting</strong></td>
+                    <td>
+                      <strong>Explicit Boundary Conditions</strong><br>
+                      Transparently details where current literature is insufficient
+                    </td>
+                    <td>
+                      <strong>Blind Spot Propagation</strong><br>
+                      Silently omits lack of evidence
+                    </td>
+                    <td>
+                      <strong>Hallucinatory Fill-in</strong><br>
+                      Invents speculative explanations to avoid uncertainty
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Mathematical &amp; Scientific Rigor</strong></td>
+                    <td>
+                      Native KaTeX LaTeX rendering, 5-column benchmark tables &amp; 4-way export (DOCX, LaTeX, MD, BibTeX)
+                    </td>
+                    <td>
+                      Fragmented equation formatting dependent on chunk snippets
+                    </td>
+                    <td>
+                      Unreliable formula notation and unanchored values
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <!-- Dynamic Interactive Flowchart -->
@@ -647,7 +1019,7 @@
                     <h4>Agent 1: Scraper</h4>
                     <span class="zero-token-chip">0 Tokens</span>
                   </div>
-                  <p>Retrieves open-access papers from Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, and PubMed. Extracts info-dense sentences via term frequency.</p>
+                  <p>Queries 6 academic repositories (Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed). Enforces strict upstream provenance filtering against thin abstracts (&lt;20 words) and unrefereed preprints.</p>
                   <div class="node-meta-tag">Automated Tool 1</div>
                 </div>
               </div>
@@ -661,8 +1033,8 @@
                     <h4>Agent 2: Drafter</h4>
                     <span class="llm-call-chip">LLM Call 1</span>
                   </div>
-                  <p>Synthesizes comprehensive answers and tags all empirical claims with <code>&lt;claim&gt;</code> markers.</p>
-                  <div class="node-meta-tag">Gemini 3.5 / Claude Sonnet 5</div>
+                  <p>Synthesizes comprehensive monographs with strict rhetorical compression (zero throat-clearing), KaTeX derivations, and 5-column benchmark tables, tagging claims with <code>&lt;claim&gt;</code> markers.</p>
+                  <div class="node-meta-tag">GPT-6.1 Sol / Claude Sonnet / Gemini Pro</div>
                 </div>
               </div>
 
@@ -675,8 +1047,8 @@
                     <h4>Agent 3: Cacher</h4>
                     <span class="zero-token-chip">0 Tokens</span>
                   </div>
-                  <p>Dumps context to SQLite. Cosine similarity auto-verifies claims (&ge; 0.80) without calling an LLM.</p>
-                  <div class="node-meta-tag">Automated Tool 2</div>
+                  <p>Embeds context via local BAAI/bge-small-en-v1.5 ONNX model. Distills top-15 sentences with Maximal Marginal Relevance (MMR) and indexes to SQLite cache.db (0 LLM Tokens).</p>
+                  <div class="node-meta-tag">Local ONNX + MMR (Zero LLM)</div>
                 </div>
               </div>
 
@@ -689,29 +1061,54 @@
                     <h4>Agent 4: Fact-Checker</h4>
                     <span class="llm-call-chip">LLM Call 2</span>
                   </div>
-                  <p>Checks only unverified claims, assigns confidence scores, and formats the research dossier and citations.</p>
-                  <div class="node-meta-tag">Gemini 3.6 / Claude Haiku 4.5</div>
+                  <p>Executes asymmetric fast entailment verification on unverified claims, enforces preprint confidence ceilings (&le;0.85), and finalizes dossier with full provenance tags.</p>
+                  <div class="node-meta-tag">GPT-6 Luna / Gemini Flash / Claude Haiku</div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Academic Tool Capabilities -->
+          <!-- Academic Tool Capabilities & Platform Innovations -->
+          <div class="about-innovations-header" style="margin-top: 36px; margin-bottom: 18px;">
+            <div class="hero-badge">
+              <span class="sparkle-icon">🚀</span>
+              <span>Platform Capabilities & Recent Innovations</span>
+            </div>
+            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-main); margin-top: 8px;">
+              Engineered for Scholarly Precision & Production Research
+            </h2>
+          </div>
+
           <div class="about-features-grid">
             <div class="feature-card">
-              <div class="feature-icon">📚</div>
-              <h3>Empirical Literature Grounding</h3>
-              <p>Every factual statement in your research synthesis is backed by peer-reviewed papers indexed with DOI and persistent scholarly identifiers.</p>
+              <div class="feature-icon">⚡</div>
+              <h3>Sub-40s Speed &amp; Rhetorical Compression</h3>
+              <p>Asymmetric model allocation (heavy frontier drafter paired with ultra-fast entailment verifiers) and strict telegraphic negative style constraints cut wall-clock execution to 32–38s while saving 25–35% completion tokens.</p>
             </div>
             <div class="feature-card">
-              <div class="feature-icon">🎯</div>
-              <h3>Zero Hallucinations</h3>
-              <p>Agent 3's SQLite cosine pre-filter eliminates fabricated citations by cross-referencing verbatim abstract sentences.</p>
+              <div class="feature-icon">🛡️</div>
+              <h3>Upstream Provenance Gatekeeper</h3>
+              <p>Filters thin placeholder metadata and classifies preprints vs. peer-reviewed literature with cyan badges (<code>#0284c7</code>) and 0.85 confidence ceilings to prevent unrefereed claim pollution.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">🤖</div>
+              <h3>Multi-Provider AI Orchestration</h3>
+              <p>Seamless support for OpenAI GPT-6 (6.1 Sol, Luna, Astra) and GPT-5 (5.5, 5.4, 5.4-mini), Google Gemini (3.8 Flash, 3.6 Flash, 3.1 Pro), and Anthropic Claude (Sonnet 3.7/5.5, Opus, Haiku) with auto-routing.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">💾</div>
+              <h3>Lossless History &amp; 0-Token Replay</h3>
+              <p>Instant zero-token rehydration of past research runs from local SQLite, restoring complete benchmark matrix tables, dialectical disputes, epistemic limitations, and full token telemetry.</p>
             </div>
             <div class="feature-card">
               <div class="feature-icon">📝</div>
-              <h3>Instant Citation Export</h3>
-              <p>Easily copy synthesis findings, inspect full bibliography entries, or export BibTeX citations directly into your reference manager.</p>
+              <h3>4-Way Publication Research Export</h3>
+              <p>Export monographs into APA Word documents (.docx), compilable LaTeX articles (.tex), GitHub Markdown (.md), or BibTeX references with preserved math, benchmark tables, and provenance labels.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon">💬</div>
+              <h3>Continuous Dialogue &amp; PDF Workspace</h3>
+              <p>Dynamic Human-Supervised Real-time Dialectical Consensus (DHS-RCC) across multi-turn discussions, alongside deep multi-file scholarly PDF chunking and citation graph extraction.</p>
             </div>
           </div>
         </div>
@@ -731,6 +1128,31 @@
           <div class="error-banner-text" id="canvas-error-text">An API error occurred. Strict Mode is enabled, preventing fallback. However, data retrieved up to this point has been preserved.</div>
         </div>
         <div class="canvas-wrapper" id="canvas-wrapper">
+          <!-- Floating Architecture Switcher Bar in Canvas -->
+          <div class="canvas-arch-bar" id="canvasArchBar">
+            <div class="canvas-arch-title">
+              <span class="arch-pulse-icon">⚡</span>
+              <span>Pipeline Architecture:</span>
+            </div>
+            <div class="canvas-arch-pills" role="radiogroup" aria-label="Canvas Architecture Mode">
+              <button type="button" class="canvas-arch-pill active" data-arch="system_a" id="canvasPillArchA" title="System A: Full 4-Agent Research Workbench (Scraper + Drafter + Cacher + Fact-Checker)">
+                <span class="pill-dot"></span>
+                <span class="pill-name">System A: 4-Agent Workbench</span>
+                <span class="pill-badge pill-badge-rec">Recommended</span>
+              </button>
+              <button type="button" class="canvas-arch-pill" data-arch="system_b" id="canvasPillArchB" title="System B: Conventional RAG (FastEmbed Vector Top-K + Single LLM Call)">
+                <span class="pill-dot"></span>
+                <span class="pill-name">System B: Conventional RAG</span>
+                <span class="pill-badge">Vector Top-K</span>
+              </button>
+              <button type="button" class="canvas-arch-pill" data-arch="system_c" id="canvasPillArchC" title="System C: Direct Single API (Zero-Shot Parametric LLM Call)">
+                <span class="pill-dot"></span>
+                <span class="pill-name">System C: Direct Single API</span>
+                <span class="pill-badge">Parametric</span>
+              </button>
+            </div>
+          </div>
+
           <canvas id="bg-grid-canvas"></canvas>
 
           <svg class="canvas-svg-layer" id="canvas-svg-layer">
@@ -844,7 +1266,7 @@
                   </div>
                   <div class="metric-row">
                     <span class="m-label">AI Model:</span>
-                    <span class="m-val text-cyan" id="m-agent2-model">Gemini 3.5 Flash</span>
+                    <span class="m-val text-cyan" id="m-agent2-model">Gemini 3.6 Flash</span>
                   </div>
                 </div>
               </div>
@@ -867,7 +1289,7 @@
                 </div>
                 <div class="node-title-group">
                   <div class="node-name">Agent 3: Context Cacher</div>
-                  <div class="node-sub">SQLite & Semantic Cosine Sim</div>
+                  <div class="node-sub">Local ONNX + MMR &amp; SQLite</div>
                 </div>
                 <div class="node-badge badge-idle" id="badge-agent3">Awaiting</div>
               </div>
@@ -958,9 +1380,12 @@
 
           <!-- Console Event Log Overlay -->
           <div class="canvas-log-drawer" id="canvas-log-drawer">
-            <div class="log-drawer-header">
-              <span class="log-dot"></span>
-              <span class="log-title">Academic Pipeline Event Stream</span>
+            <div class="log-drawer-header" id="log-drawer-header" title="Click to collapse / expand event stream">
+              <div class="log-header-left">
+                <span class="log-dot"></span>
+                <span class="log-title">Academic Pipeline Event Stream</span>
+              </div>
+              <button type="button" class="btn-log-toggle" id="btn-log-drawer-toggle" title="Minimize / Expand Log Stream" aria-label="Toggle log drawer">−</button>
             </div>
             <div class="log-drawer-body mono" id="canvas-log-container">
               <div class="log-line text-subtle">[SYSTEM] Standby. Enter a research query below to execute.</div>
@@ -978,7 +1403,7 @@
             <div class="student-toolbar">
               <div class="toolbar-left">
                 <span class="study-badge">RESEARCH DOSSIER</span>
-                <span class="study-verified-tag">✓ Peer-Reviewed Evidence</span>
+                <span class="study-verified-tag">✓ Grounded Literature Evidence</span>
                 <span class="dossier-tokens-tag" id="dossier-meta-tokens">⚡ 0 tokens</span>
               </div>
               <div class="toolbar-right">
@@ -1377,11 +1802,6 @@
                 <span class="toggle-slider-sm"></span>
                 <span class="toggle-label-text">Strict API</span>
               </label>
-              <label class="doc-toggle-switch" title="Demo Mode: Returns verified pre-computed answers & mathematical formulations without using API tokens.">
-                <input type="checkbox" id="toggle-pdf-demo-mode">
-                <span class="toggle-slider-sm"></span>
-                <span class="toggle-label-text">Demo Mode</span>
-              </label>
               <span class="doc-api-pill" id="doc-api-status" title="API Connectivity Status">
                 <span class="doc-api-dot"></span>
                 <span class="doc-api-text" id="doc-api-text">API Ready</span>
@@ -1400,9 +1820,9 @@
                   </div>
                 </div>
 
-                <!-- Pinned Bottom Dock with Demo Queries & Input Bar -->
+                <!-- Pinned Bottom Dock with Quick Inquiries & Input Bar -->
                 <div class="doc-chat-bottom-dock">
-                  <!-- Preset Demo / Quick Inquiries Row -->
+                  <!-- Preset Quick Inquiries Row -->
                   <div class="doc-demo-chips-row" id="doc-demo-chips">
                     <span class="doc-demo-label">Quick Inquiries:</span>
                     <button class="doc-demo-chip" data-query="How does the attention mechanism compute queries, keys, and values? Show mathematical formulation.">
@@ -1611,7 +2031,17 @@
               <h3 id="auth-modal-title">Researcher Account</h3>
               <p class="text-subtle" id="auth-modal-subtitle">Sign in to save syntheses, PDF libraries, and dialogue across devices</p>
             </div>
-            <button class="btn-close-modal" id="btn-close-auth-modal" title="Close" aria-label="Close Authentication Modal">&times;</button>
+            <div class="modal-header-actions">
+              <a href="/login" class="btn-fullscreen-auth" title="Open Fullscreen Login Portal">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                  <polyline points="15 3 21 3 21 9"></polyline>
+                  <line x1="10" y1="14" x2="21" y2="3"></line>
+                </svg>
+                <span>Full Page</span>
+              </a>
+              <button class="btn-close-modal" id="btn-close-auth-modal" title="Close" aria-label="Close Authentication Modal">&times;</button>
+            </div>
           </div>
 
           <!-- Auth Tabs: Sign In / Create Account -->
@@ -1623,6 +2053,30 @@
           <div class="auth-modal-body">
             <!-- Alert Banner for Feedback / Errors -->
             <div class="auth-alert" id="auth-alert" style="display: none;"></div>
+
+            <!-- Social OAuth SSO Buttons -->
+            <div class="oauth-buttons-group" id="oauth-buttons-group">
+              <button type="button" class="btn-oauth btn-oauth-google" id="btn-oauth-google" title="Sign in with Google">
+                <svg class="oauth-icon" width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.27-2.09 3.66-5.17 3.66-9.12z"/>
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.36 7.33 24 12 24z"/>
+                  <path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.13-1.57.38-2.29V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.13z"/>
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.13c.95-2.83 3.6-4.96 6.72-4.96z"/>
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+              <button type="button" class="btn-oauth btn-oauth-github" id="btn-oauth-github" title="Sign in with GitHub">
+                <svg class="oauth-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                </svg>
+                <span>Continue with GitHub</span>
+              </button>
+            </div>
+
+            <!-- Divider -->
+            <div class="auth-divider" id="auth-divider">
+              <span>or continue with email</span>
+            </div>
 
             <!-- LOGIN FORM -->
             <form id="auth-login-form" class="auth-form" onsubmit="return false;">
@@ -1659,20 +2113,104 @@
               </button>
             </form>
 
-            <!-- USER LOGGED IN VIEW (Active Profile & Sign Out) -->
+            <!-- USER LOGGED IN VIEW (Active Profile & Encrypted Vault) -->
             <div id="auth-profile-view" class="auth-profile-box" style="display: none;">
               <div class="profile-card-header">
                 <div class="profile-avatar-large" id="profile-avatar-display">RF</div>
                 <div class="profile-info-block">
                   <h4 id="profile-name-display">Researcher</h4>
                   <span class="profile-email-badge" id="profile-email-display">user@lab.edu</span>
-                  <span class="profile-role-badge" id="profile-role-display">Role: User</span>
+                  <div class="profile-badges-row">
+                    <span class="profile-role-badge" id="profile-role-display">Role: User</span>
+                    <span class="profile-provider-badge" id="profile-provider-display">Local Account</span>
+                  </div>
                 </div>
               </div>
+
               <div class="profile-meta-row">
-                <span class="meta-label">Session Status:</span>
-                <span class="meta-val status-green">Encrypted JWT Token Active</span>
+                <span class="meta-label">Session Security:</span>
+                <span class="meta-val status-green">Encrypted JWT Active (HttpOnly)</span>
               </div>
+
+              <!-- ENCRYPTED PERSONAL API KEY VAULT (AES-256-GCM) -->
+              <div class="api-vault-section" id="api-vault-section">
+                <div class="vault-header">
+                  <div class="vault-title-row">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                    <h4>Encrypted API Key Vault</h4>
+                    <span class="vault-badge">AES-256-GCM</span>
+                  </div>
+                  <p class="vault-desc">Keys are encrypted with isolated per-user keys derived via HKDF-SHA256. Decrypted strictly in-memory during research queries; never returned over the network.</p>
+                </div>
+
+                <div class="vault-alert" id="vault-alert" style="display: none;"></div>
+
+                <div class="vault-grid">
+                  <!-- Gemini -->
+                  <div class="vault-card" data-provider="gemini">
+                    <div class="vault-card-header">
+                      <span class="provider-title">Google Gemini</span>
+                      <span class="vault-chip" id="vault-chip-gemini">Checking...</span>
+                    </div>
+                    <div class="vault-card-body">
+                      <input type="password" id="vault-input-gemini" class="form-input form-input-sm" placeholder="Paste Gemini key...">
+                      <div class="vault-btn-row">
+                        <button type="button" class="btn-sm btn-primary btn-vault-save" data-provider="gemini">Save & Encrypt</button>
+                        <button type="button" class="btn-sm btn-danger btn-vault-del" data-provider="gemini">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Anthropic -->
+                  <div class="vault-card" data-provider="anthropic">
+                    <div class="vault-card-header">
+                      <span class="provider-title">Anthropic Claude</span>
+                      <span class="vault-chip" id="vault-chip-anthropic">Checking...</span>
+                    </div>
+                    <div class="vault-card-body">
+                      <input type="password" id="vault-input-anthropic" class="form-input form-input-sm" placeholder="Paste Claude key...">
+                      <div class="vault-btn-row">
+                        <button type="button" class="btn-sm btn-primary btn-vault-save" data-provider="anthropic">Save & Encrypt</button>
+                        <button type="button" class="btn-sm btn-danger btn-vault-del" data-provider="anthropic">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- OpenAI -->
+                  <div class="vault-card" data-provider="openai">
+                    <div class="vault-card-header">
+                      <span class="provider-title">OpenAI (GPT-5/6)</span>
+                      <span class="vault-chip" id="vault-chip-openai">Checking...</span>
+                    </div>
+                    <div class="vault-card-body">
+                      <input type="password" id="vault-input-openai" class="form-input form-input-sm" placeholder="Paste OpenAI key...">
+                      <div class="vault-btn-row">
+                        <button type="button" class="btn-sm btn-primary btn-vault-save" data-provider="openai">Save & Encrypt</button>
+                        <button type="button" class="btn-sm btn-danger btn-vault-del" data-provider="openai">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- SerpAPI -->
+                  <div class="vault-card" data-provider="serpapi">
+                    <div class="vault-card-header">
+                      <span class="provider-title">SerpAPI (Web Search)</span>
+                      <span class="vault-chip" id="vault-chip-serpapi">Checking...</span>
+                    </div>
+                    <div class="vault-card-body">
+                      <input type="password" id="vault-input-serpapi" class="form-input form-input-sm" placeholder="Paste SerpAPI key...">
+                      <div class="vault-btn-row">
+                        <button type="button" class="btn-sm btn-primary btn-vault-save" data-provider="serpapi">Save & Encrypt</button>
+                        <button type="button" class="btn-sm btn-danger btn-vault-del" data-provider="serpapi">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="profile-actions-row">
                 <button type="button" class="btn-secondary" id="btn-auth-logout">Sign Out</button>
               </div>
@@ -1684,22 +2222,34 @@
       <!-- BOTTOM CHAT COMMAND INTERFACE (Chatbot style, input clears on enter) -->
       <footer class="bottom-chat-container" id="bottom-chat-container">
         <div class="chat-bar-wrapper">
-          <!-- Suggestion Chips (Visible only in demo mode) -->
+          <!-- Suggestion Chips (Benchmark Presets) -->
           <div class="query-chips-row" id="query-chips-row">
             <span class="chips-label">Research Presets:</span>
-            <button class="query-chip" data-query="Quantum Error Mitigation in Neutral Atom Qubits">
-              ⚛️ Quantum Error Mitigation
+            <button type="button" class="query-chip" data-query="Evaluate quantum error mitigation techniques in neutral-atom qubit architectures, comparing randomized compiling against zero-noise extrapolation for two-qubit gate fidelities.">
+              ⚛️ Neutral-Atom Qubits
             </button>
-            <button class="query-chip" data-query="Engineered Cas12f Nucleases for Compact In Vivo Delivery">
-              🧬 CRISPR-Cas12f Delivery
+            <button type="button" class="query-chip" data-query="Analyze the functional implications of recursive model collapse in large language models trained on synthetic recursive data, detailing mathematical divergence of tails.">
+              🔄 Model Collapse
             </button>
-            <button class="query-chip" data-query="Memristive Crossbars for Edge Neuromorphic Computing">
-              🧠 Neuromorphic Memristors
+            <button type="button" class="query-chip" data-query="Investigate the neuroprotective mechanisms of GLP-1 receptor agonists in Alzheimer's disease pathology, focusing on neuroinflammation and amyloid-beta clearance.">
+              🧠 GLP-1 in Alzheimer's
+            </button>
+            <button type="button" class="query-chip" data-query="Explain IO complexity and tiling optimizations in FlashAttention-3 compared to FlashAttention-2 on Hopper GPUs.">
+              ⚡ FlashAttention-3 IO
+            </button>
+            <button type="button" class="query-chip" data-query="Evaluate the electronic band structure and Cu2S structural phase transition claims in purported ambient superconductor LK-99.">
+              🧲 LK-99 Cu2S Transition
             </button>
           </div>
 
           <!-- Prompt Options Row (Decluttered & Moved Above) -->
           <div class="prompt-options-row">
+            <!-- Active Architecture Quick Toggle -->
+            <button type="button" class="provider-pill-badge arch-pill-badge active-arch-a" id="btn-quick-arch-toggle" title="Active Pipeline Engine: Click to cycle between System A, B, and C">
+              <span class="arch-badge-dot">●</span>
+              <span id="prompt-arch-label">🏛️ System A: 4-Agent</span>
+            </button>
+
             <div class="execution-mode-toggle" id="execution-mode-toggle" title="Toggle Pipeline Execution Mode">
               <button type="button" class="mode-toggle-btn" id="btn-mode-rapid" data-mode="rapid" title="⚡ Rapid Synthesis: Accelerated 5s answer with authenticated citations">⚡ Rapid (5s)</button>
               <button type="button" class="mode-toggle-btn active" id="btn-mode-deep" data-mode="deep" title="🔬 Deep Monograph: Full 4-Agent pipeline with 3-tier claim audit (~30s)">🔬 Deep Monograph</button>
@@ -1708,7 +2258,7 @@
               <span id="prompt-scrapers-count">📚 6 Repos Active</span>
             </button>
             <div class="provider-pill-badge" id="prompt-model-badge" title="Active Model Architecture">
-              <span>Gemini 3.5 + SQLite</span>
+              <span>Gemini 3.6 Flash + SQLite</span>
             </div>
             <span id="query-char-count" class="query-char-counter" title="Character limit (1,000 max)">0 / 1,000</span>
           </div>

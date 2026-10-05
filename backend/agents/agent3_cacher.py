@@ -409,6 +409,7 @@ def run_agent3_context_cacher(
         min_atomic_sim = 1.0
         overall_best_sent = {}
         top_candidates = []
+        all_high_matches = []
         
         for atomic_text in atomic_claims:
             atomic_profile = text_to_vector_profile(atomic_text)
@@ -448,6 +449,8 @@ def run_agent3_context_cacher(
                     
                 effective_sim = min(0.98, sim + boost) if sim > 0.25 else sim
                 scored_matches.append((effective_sim, sent))
+                if effective_sim >= (similarity_threshold - 0.08):
+                    all_high_matches.append((effective_sim, sent))
                 
             scored_matches.sort(key=lambda x: x[0], reverse=True)
             if scored_matches:
@@ -464,14 +467,27 @@ def run_agent3_context_cacher(
         best_match_paper_id = overall_best_sent.get("paper_id")
         best_match_paper_title = overall_best_sent.get("paper_title")
 
+        # Multi-source corroboration check across distinct papers
+        distinct_sources = {}
+        for sim_val, sent_obj in all_high_matches:
+            pid = sent_obj.get("paper_id") or sent_obj.get("paper_idx")
+            if pid and pid not in distinct_sources:
+                distinct_sources[pid] = {
+                    "title": sent_obj.get("paper_title"),
+                    "sim": sim_val
+                }
+        is_multi_source = len(distinct_sources) >= 2
+
         # Point 24: Top-2 Candidate evidence snippets for targeted routing
         candidate_snippets = [
             {"text": m[1].get("text"), "paper_id": m[1].get("paper_id"), "paper_title": m[1].get("paper_title"), "score": m[0]}
             for m in top_candidates if m[1].get("text")
         ]
                 
-        # Determine paper metadata
+        # Determine paper metadata and provenance
         matched_paper = next((p for p in papers if p.get("id") == best_match_paper_id), None)
+        matched_provenance = matched_paper.get("provenance_tier", "peer_reviewed") if matched_paper else "peer_reviewed"
+        matched_prov_label = matched_paper.get("provenance_label", "Peer-Reviewed Literature") if matched_paper else "Peer-Reviewed Literature"
         
         # Determine logical category if no strong match
         claim_category = "empirical_measurement"
@@ -492,21 +508,49 @@ def run_agent3_context_cacher(
             "paper_url": matched_paper.get("url") if matched_paper else "#",
             "paper_authors": matched_paper.get("authors", []) if matched_paper else [],
             "paper_year": matched_paper.get("year") if matched_paper else None,
+            "provenance_tier": matched_provenance,
+            "provenance_label": matched_prov_label,
+            "multi_source_corroborated": is_multi_source,
+            "corroborating_sources_count": len(distinct_sources),
             "claim_category": claim_category,
             "candidate_snippets": candidate_snippets
         }
         
         comparison_logs.append(eval_result)
         
-        # Step 3: Check against calibrated similarity threshold
+        # Step 3: Check against calibrated similarity threshold with provenance tiering
         if best_sim >= similarity_threshold:
-            eval_result["status"] = "Auto-Verified"
-            eval_result["verification_tier"] = "auto_cache"
-            eval_result["confidence_score"] = round(0.88 + (best_sim * 0.10), 2)
-            eval_result["verified_by"] = "Agent 3 (SQLite Cache 0-Token Auto-Match)"
-            eval_result["rationale"] = f"Directly corroborated by n-gram overlap and metric alignment in SQLite cache from '{eval_result['paper_title']}'."
-            eval_result["reviewer_2_caveat"] = "Locally verified via high-confidence n-gram token overlap against source corpus."
-            verified_claims.append(eval_result)
+            corrob_note = f" (corroborated across {len(distinct_sources)} distinct literature sources)" if is_multi_source else ""
+            if matched_provenance == "preprint":
+                eval_result["status"] = "Preprint-Corroborated"
+                eval_result["verification_tier"] = "auto_cache_preprint"
+                base_conf = 0.75 + (best_sim * 0.10)
+                if is_multi_source:
+                    base_conf += 0.03
+                eval_result["confidence_score"] = round(min(0.85, base_conf), 2)
+                eval_result["verified_by"] = "Agent 3 (Preprint Semantic Match - Unrefereed)"
+                eval_result["rationale"] = f"Corroborated by semantic overlap in SQLite cache against preprint '{eval_result['paper_title']}'{corrob_note}."
+                eval_result["reviewer_2_caveat"] = "Preliminary Finding: Grounded in unrefereed preprint (arXiv/bioRxiv). Methodological bounds not peer-reviewed."
+                verified_claims.append(eval_result)
+            elif matched_provenance == "reference_web":
+                eval_result["status"] = "Web-Corroborated"
+                eval_result["verification_tier"] = "auto_cache_preprint"
+                eval_result["confidence_score"] = round(min(0.80, 0.70 + (best_sim * 0.08)), 2)
+                eval_result["verified_by"] = "Agent 3 (Web Reference Grounding)"
+                eval_result["rationale"] = f"Corroborated by semantic overlap in SQLite cache against web reference '{eval_result['paper_title']}'{corrob_note}."
+                eval_result["reviewer_2_caveat"] = "Reference Grounding: Grounded in tertiary web encyclopedia/search context. Subject to peer-review verification."
+                verified_claims.append(eval_result)
+            else:
+                eval_result["status"] = "Auto-Verified"
+                eval_result["verification_tier"] = "auto_cache"
+                base_conf = 0.88 + (best_sim * 0.10)
+                if is_multi_source:
+                    base_conf += 0.02
+                eval_result["confidence_score"] = round(min(0.99, base_conf), 2)
+                eval_result["verified_by"] = "Agent 3 (SQLite Cache 0-Token Auto-Match)"
+                eval_result["rationale"] = f"Directly corroborated{corrob_note} by n-gram overlap and metric alignment in SQLite cache from '{eval_result['paper_title']}'."
+                eval_result["reviewer_2_caveat"] = "Locally verified via high-confidence n-gram token overlap against source corpus."
+                verified_claims.append(eval_result)
         else:
             eval_result["status"] = "needs_agent4_verification"
             eval_result["verification_tier"] = "pending"

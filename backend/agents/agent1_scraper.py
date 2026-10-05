@@ -5,7 +5,7 @@ import httpx
 import re
 import math
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 try:
     import pymupdf
@@ -91,6 +91,162 @@ def distill_academic_query(query: str) -> str:
     if not core_terms:
         return " ".join(tokens[:7])
     return " ".join(core_terms)
+
+def classify_paper_provenance(paper: Dict[str, Any]) -> Tuple[str, str]:
+    """
+    Classifies an academic paper into a provenance tier and human-readable label:
+    - ('preprint', 'Unrefereed Preprint'): arXiv, bioRxiv, medRxiv, ChemRxiv, Preprints.org, etc.
+    - ('peer_reviewed', 'Peer-Reviewed Literature'): Journals, top conferences (IEEE, ACM, NeurIPS, CVPR, Nature, etc.)
+    - ('academic_repository', 'Academic Repository'): Crossref, OpenAlex, CORE, BASE institutional records
+    - ('reference_web', 'Web Reference'): Wikipedia, SerpAPI web results
+    """
+    source = (paper.get("source") or "").lower()
+    source_type = (paper.get("source_type") or "").lower()
+    venue = (paper.get("venue") or "").lower()
+    doi = (paper.get("doi") or "").lower()
+    url = (paper.get("url") or "").lower()
+    pid = (paper.get("id") or "").lower()
+    
+    # 1. Reference Web
+    if "wikipedia" in source or "serpapi" in source or "wikipedia" in venue or "web search" in source_type:
+        return "reference_web", "Web Reference"
+        
+    # 2. Preprints (arXiv, bioRxiv, medRxiv, Research Square, Preprints.org, SSRN, OSF)
+    is_preprint = (
+        "arxiv" in venue or "arxiv" in url or "arxiv" in doi or "arxiv" in pid or
+        "biorxiv" in venue or "biorxiv" in url or "10.1101/" in doi or
+        "medrxiv" in venue or "medrxiv" in url or
+        "chemrxiv" in venue or "chemrxiv" in url or
+        "preprints.org" in venue or "preprints.org" in url or "10.20944/" in doi or
+        "research square" in venue or "10.21203/" in doi or
+        "ssrn" in venue or "ssrn" in url or
+        "osf.io" in url or "osf.io" in doi or
+        "10.48550/" in doi or
+        "preprint" in venue or "preprint" in source_type
+    )
+    if is_preprint:
+        return "preprint", "Unrefereed Preprint"
+
+    # 3. Explicit Peer-Reviewed indicators
+    peer_review_venues = [
+        "nature", "science", "cell", "ieee", "acm", "neurips", "icml", "cvpr", "iclr", 
+        "proceedings", "journal", "transactions", "physical review", "lancet", "jama", 
+        "plos", "springer", "elsevier", "wiley", "oxford", "cambridge", "annual review",
+        "advances in neural information processing", "asplos", "jmlr"
+    ]
+    if (
+        "peer-reviewed" in source_type or
+        "pubmed" in source or
+        "doaj" in source or
+        any(pv in venue for pv in peer_review_venues)
+    ):
+        return "peer_reviewed", "Peer-Reviewed Literature"
+
+    # 4. Fallback: Academic Repository
+    return "academic_repository", "Academic Repository"
+
+def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Upstream Data Ingestion Gatekeeper:
+    1. Rejects corrupt/empty abstracts (< 20 words) or publisher paywall boilerplate.
+    2. Rejects retractions, errata, author corrections, or missing titles (< 5 chars).
+    3. Recovers publication year from DOI, URL, or arXiv timestamp if missing.
+    4. Sanitizes and normalizes author lists, recovering from DOI/arXiv patterns or fallback.
+    5. Tags verified provenance tier ('peer_reviewed', 'preprint', 'academic_repository', 'reference_web').
+    """
+    if not isinstance(paper, dict):
+        return None
+        
+    title = (paper.get("title") or "").strip()
+    # Strip HTML tags from title
+    title = re.sub(r'<[^>]+>', '', title).strip()
+    if len(title) < 5 or title.lower() in ["untitled", "title not available", "index", "table of contents"]:
+        return None
+        
+    # Rejection of administrative corrections, errata, and retractions
+    title_lower = title.lower()
+    bad_title_signals = [
+        "author correction", "publisher correction", "erratum", "corrigendum",
+        "retraction notice", "expression of concern", "withdrawal notice"
+    ]
+    if any(sig in title_lower for sig in bad_title_signals):
+        return None
+
+    raw_abstract = (paper.get("abstract") or "").strip()
+    # Strip HTML tags and excessive whitespace
+    clean_abstract = re.sub(r'<[^>]+>', ' ', raw_abstract)
+    clean_abstract = re.sub(r'\s+', ' ', clean_abstract).strip()
+    
+    # Word count check: reject abstracts with < 20 words (insufficient to ground empirical claims)
+    abstract_words = clean_abstract.split()
+    if len(abstract_words) < 20:
+        return None
+
+    # Paywall / publisher boilerplate check
+    abs_lower = clean_abstract.lower()
+    boilerplate_signals = [
+        "sign in to view", "access through your institution", "all rights reserved",
+        "terms of service", "cookie policy", "preview only", "purchase this article",
+        "subscribe to access", "this article does not have an abstract", "no abstract available",
+        "abstract not found", "access options", "full text access"
+    ]
+    if any(sig in abs_lower for sig in boilerplate_signals) and len(abstract_words) < 40:
+        return None
+
+    # Year recovery & validation
+    year = paper.get("year")
+    try:
+        year = int(year) if year is not None else None
+    except (ValueError, TypeError):
+        year = None
+        
+    if not year or year < 1800 or year > 2030:
+        # Attempt recovery from DOI, URL, or ID
+        doi_str = str(paper.get("doi") or "")
+        url_str = str(paper.get("url") or "")
+        id_str = str(paper.get("id") or "")
+        combined_ref = f"{doi_str} {url_str} {id_str}"
+        
+        # Check for 4-digit year pattern in reference or doi (e.g., 1990-2026)
+        year_matches = re.findall(r'\b(19\d{2}|20[0-2]\d)\b', combined_ref)
+        if year_matches:
+            year = int(year_matches[0])
+        else:
+            # Check for arXiv format YYMM (e.g., 2305.12345 -> 2023)
+            arxiv_m = re.search(r'\b(19|20|21|22|23|24|25|26)(\d{2})\.\d{4,5}\b', combined_ref)
+            if arxiv_m:
+                year = 2000 + int(arxiv_m.group(1))
+
+    # Authors array sanitization
+    raw_authors = paper.get("authors")
+    sanitized_authors: List[str] = []
+    if isinstance(raw_authors, list):
+        for a in raw_authors:
+            a_clean = re.sub(r'<[^>]+>', '', str(a)).strip()
+            if a_clean and a_clean.lower() not in ["none", "unknown", "n.d.", "admin", "null", "staff"]:
+                sanitized_authors.append(a_clean)
+    elif isinstance(raw_authors, str) and raw_authors.strip():
+        for a in raw_authors.split(","):
+            a_clean = a.strip()
+            if a_clean and a_clean.lower() not in ["none", "unknown", "n.d.", "admin", "null", "staff"]:
+                sanitized_authors.append(a_clean)
+
+    if not sanitized_authors:
+        # Fallback based on venue/source rather than leaving empty
+        venue_str = paper.get("venue") or paper.get("source") or "Academic Researcher"
+        sanitized_authors = [f"{venue_str} Authors"]
+
+    # Classify provenance tier
+    p_tier, p_label = classify_paper_provenance(paper)
+
+    sanitized_paper = dict(paper)
+    sanitized_paper["title"] = title
+    sanitized_paper["abstract"] = clean_abstract
+    sanitized_paper["year"] = year
+    sanitized_paper["authors"] = sanitized_authors
+    sanitized_paper["provenance_tier"] = p_tier
+    sanitized_paper["provenance_label"] = p_label
+    return sanitized_paper
 
 def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str) -> bool:
     """
@@ -980,7 +1136,6 @@ async def run_agent1_academic_scraper(
     sources: str = "all", 
     serpapi_key: Optional[str] = None,
     disable_fallback: bool = False,
-    demo_mode: bool = False,
     active_scrapers: Optional[List[str]] = None,
     max_pdf_pages: int = 15
 ) -> Dict[str, Any]:
@@ -1096,20 +1251,24 @@ async def run_agent1_academic_scraper(
         seen_keys.add(key)
         deduped_papers.append(p)
     raw_papers = deduped_papers
+
+    # Upstream Ingestion Gatekeeper: Sanitize, validate, and classify provenance
+    validated_papers = []
+    for p in raw_papers:
+        sanitized = sanitize_and_validate_paper_metadata(p)
+        if sanitized is not None:
+            validated_papers.append(sanitized)
+        else:
+            logger.debug(f"Discarded paper due to upstream validation check: '{p.get('title', '')[:40]}'")
+    raw_papers = validated_papers
         
     if not raw_papers:
-        if demo_mode:
-            logger.info("Demo mode active: using curated showcase literature.")
-            raw_papers = get_curated_fallback_papers(query)
-            for p in raw_papers:
-                if "source_type" not in p:
-                    p["source_type"] = "Demo Showcase Paper"
-        elif disable_fallback:
+        if disable_fallback:
             logger.warning(f"No papers returned from repositories for query '{query}' and disable_fallback is True.")
             raw_papers = []
         else:
-            # Point 1: ZERO-FAKING POLICY.
-            # In live mode, report honest 0 indexed papers rather than fabricating literature.
+            # ZERO-FAKING POLICY:
+            # Report honest 0 indexed papers rather than fabricating literature.
             logger.info(f"Zero authentic papers returned from live academic repositories for query '{query}'. Reporting honest zero-result notice.")
             raw_papers = []
                 
@@ -1118,6 +1277,10 @@ async def run_agent1_academic_scraper(
     # Fallback to raw if filtering removes everything
     if not papers and raw_papers:
         papers = raw_papers
+
+    for p in papers:
+        if "provenance_tier" not in p or "provenance_label" not in p:
+            p["provenance_tier"], p["provenance_label"] = classify_paper_provenance(p)
         
     query_tokens = clean_and_tokenize(query)
     

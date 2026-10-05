@@ -5,17 +5,79 @@ import hashlib
 import hmac
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 import jwt
 from fastapi import Request, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field, field_validator
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 
 from backend.logger import logger
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
+
+# ==============================================================================
+# Authenticated AES-256-GCM Key Vault Encryption (Per-User Isolation)
+# ==============================================================================
+
+def _derive_user_encryption_key(user_id: str) -> bytes:
+    """
+    Derives a cryptographically strong 256-bit AES key unique to this user.
+    Uses HKDF-SHA256 with the master server secret and user_id as salt.
+    """
+    master = get_jwt_secret().encode("utf-8")
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=user_id.encode("utf-8"),
+        info=b"researchworkbench-user-api-key-vault-v1"
+    )
+    return hkdf.derive(master)
+
+def encrypt_api_key_for_user(api_key: str, user_id: str) -> Tuple[str, str]:
+    """
+    Encrypts an API key using AES-256-GCM with a fresh 96-bit cryptographic nonce.
+    Returns: (encrypted_hex_blob, masked_hint)
+    """
+    clean_key = api_key.strip()
+    if not clean_key:
+        raise ValueError("API key cannot be empty.")
+    
+    key = _derive_user_encryption_key(user_id)
+    aesgcm = AESGCM(key)
+    nonce = secrets.token_bytes(12)  # Standard 96-bit nonce
+    ciphertext = aesgcm.encrypt(nonce, clean_key.encode("utf-8"), None)
+    
+    # Pack nonce (12 bytes) + ciphertext/tag into a single hex string
+    encrypted_blob = (nonce + ciphertext).hex()
+    
+    # Generate a safe masked hint (e.g. "...x7Y9") without revealing the key
+    hint = f"...{clean_key[-4:]}" if len(clean_key) >= 6 else "••••••••"
+    return encrypted_blob, hint
+
+def decrypt_api_key_for_user(encrypted_blob: str, user_id: str) -> Optional[str]:
+    """
+    Decrypts an AES-256-GCM encrypted API key in-memory for authorized pipeline execution.
+    Tampered ciphertexts or wrong user keys will raise InvalidTag and return None.
+    """
+    if not encrypted_blob:
+        return None
+    try:
+        raw = bytes.fromhex(encrypted_blob)
+        if len(raw) < 28:  # 12 nonce + 16 auth tag minimum
+            return None
+        nonce, ciphertext = raw[:12], raw[12:]
+        key = _derive_user_encryption_key(user_id)
+        aesgcm = AESGCM(key)
+        decrypted = aesgcm.decrypt(nonce, ciphertext, None)
+        return decrypted.decode("utf-8")
+    except Exception as e:
+        logger.error(f"Decryption failed for user {user_id}: {e}")
+        return None
 
 def get_jwt_secret() -> str:
     """Retrieves the JWT signing secret from env or a persistent secret file."""
@@ -119,6 +181,8 @@ class UserResponse(BaseModel):
     username: str
     email: str
     role: str = "user"
+    oauth_provider: str = "local"
+    avatar_url: Optional[str] = None
     created_at: Optional[str] = None
     last_login: Optional[str] = None
 
@@ -126,6 +190,30 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+class SaveApiKeyRequest(BaseModel):
+    provider: str = Field(..., pattern="^(gemini|anthropic|openai|serpapi)$")
+    api_key: str = Field(..., min_length=4, max_length=512)
+
+    @field_validator("provider")
+    @classmethod
+    def normalize_provider(cls, v: str) -> str:
+        return v.strip().lower()
+
+class ApiKeyItem(BaseModel):
+    is_set: bool
+    configured: bool = False
+    hint: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class ApiKeysStatusResponse(BaseModel):
+    status: str = "success"
+    keys: Dict[str, ApiKeyItem]
+
+class OAuthProvidersResponse(BaseModel):
+    local: bool = True
+    google: bool
+    github: bool
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 

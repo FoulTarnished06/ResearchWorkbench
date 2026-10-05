@@ -47,7 +47,7 @@ export function extractAcademicTakeaways(data) {
   // 3. Fallback to clean academic consensus statements
   const citCount = data.citations ? data.citations.length : 5;
   const fallbacks = [
-    `Consensus corroborated across ${citCount} peer-reviewed source publications.`,
+    `Consensus corroborated across ${citCount} source publications.`,
     `Empirical evaluations confirm dominant operational scaling thresholds and throughput bounds.`,
     `Comparative literature synthesis establishes key trade-offs between computational overhead and execution latency.`
   ];
@@ -257,7 +257,7 @@ export function showClaimInspector(wrapper) {
   const rationale = (wrapper.dataset.rationale && wrapper.dataset.rationale.trim()) ? wrapper.dataset.rationale : defaultRationale;
   const refId = wrapper.dataset.refId || "";
   const caveat = wrapper.dataset.caveat || "";
-  const tier = wrapper.dataset.tier || (status === 'Auto-Verified' ? 'auto_cache' : (status === 'LLM-Verified' ? 'llm_rag' : 'no_source'));
+  const tier = wrapper.dataset.tier || (status === 'Auto-Verified' ? 'auto_cache' : (status === 'Preprint-Corroborated' ? 'auto_cache_preprint' : (status === 'LLM-Verified' ? 'llm_rag' : 'no_source')));
   const paperUrl = wrapper.dataset.paperUrl || "";
 
   let badgeText = "✓ Verified by Peer-Review";
@@ -265,6 +265,9 @@ export function showClaimInspector(wrapper) {
   if (tier === "auto_cache" || status === "Auto-Verified") {
     badgeText = "⚡ Auto-Verified (SQLite Cache / 0-tok)";
     badgeClass = "verified tier-cache";
+  } else if (tier === "auto_cache_preprint" || status === "Preprint-Corroborated") {
+    badgeText = "📄 Preprint-Corroborated (arXiv/bioRxiv / 0-tok)";
+    badgeClass = "verified tier-preprint";
   } else if (tier === "llm_rag" || status === "LLM-Verified") {
     badgeText = "🔬 LLM-Verified (Agent 4)";
     badgeClass = "verified tier-llm";
@@ -341,12 +344,30 @@ export function renderDossierOutput(data) {
 
   const studyBadge = document.querySelector('.study-badge');
   const studyVerified = document.querySelector('.study-verified-tag');
-  if (data.execution_mode === 'rapid') {
+  if (data.architecture === 'system_b') {
+    if (studyBadge) studyBadge.textContent = '🔍 CONVENTIONAL RAG BASELINE';
+    if (studyVerified) {
+      studyVerified.textContent = '⚠️ Top-K Vector Chunks Grounded (Unverified)';
+      studyVerified.className = 'study-verified-tag badge-warning';
+    }
+  } else if (data.architecture === 'system_c') {
+    if (studyBadge) studyBadge.textContent = '⚡ DIRECT SINGLE API BASELINE';
+    if (studyVerified) {
+      studyVerified.textContent = '❌ Zero External Grounding (Parametric Memory)';
+      studyVerified.className = 'study-verified-tag badge-danger';
+    }
+  } else if (data.execution_mode === 'rapid') {
     if (studyBadge) studyBadge.textContent = '⚡ RAPID SYNTHESIS';
-    if (studyVerified) studyVerified.textContent = '✓ Scraped Peer-Reviewed Literature';
+    if (studyVerified) {
+      studyVerified.textContent = '✓ Scraped Literature Evidence';
+      studyVerified.className = 'study-verified-tag';
+    }
   } else {
     if (studyBadge) studyBadge.textContent = 'RESEARCH DOSSIER';
-    if (studyVerified) studyVerified.textContent = '✓ 3-Tier Verified Evidence';
+    if (studyVerified) {
+      studyVerified.textContent = '✓ 3-Tier Verified Evidence';
+      studyVerified.className = 'study-verified-tag';
+    }
   }
 
   // Hydrate Dossier Token Telemetry Badge (TOK-PRECISION)
@@ -382,6 +403,53 @@ export function renderDossierOutput(data) {
 
   // Render Sections
   elements.dossierContent.innerHTML = '';
+
+  // Render Architecture Info / Warning Banner if System B or C
+  if (data.architecture === 'system_b' || data.architecture === 'system_c') {
+    const banner = document.createElement('div');
+    banner.className = `dossier-arch-banner arch-banner-${data.architecture === 'system_b' ? 'b' : 'c'}`;
+    if (data.architecture === 'system_b') {
+      banner.innerHTML = `
+        <div class="arch-banner-top">
+          <div class="arch-banner-title">
+            <span class="badge badge-warning">System B: Conventional RAG Baseline</span>
+            <strong>FastEmbed ONNX Top-K Vector Retrieval & Single Call</strong>
+          </div>
+          <span class="arch-banner-model">${escapeHTML(data.model || 'Claude / Gemini')}</span>
+        </div>
+        <p class="arch-banner-desc">
+          Single-pass retrieval-augmented generation. <strong>Architectural Note:</strong> SQLite 0-token semantic caching, 3-tier claim fact-checking, and dialectical consensus were <strong>bypassed</strong>.
+        </p>
+        <div class="arch-banner-meta">
+          <span>⏱ Wall-Clock: ${(data.latency_seconds || 0).toFixed(1)}s</span>
+          <span>⚡ Tokens: ${(data.tokens || 0).toLocaleString()}</span>
+          <span>📚 Grounded Chunks: ${data.citations ? data.citations.length : 0}</span>
+          <span>⚠️ Claim Verification: 0% (Bypassed)</span>
+        </div>
+      `;
+    } else {
+      banner.innerHTML = `
+        <div class="arch-banner-top">
+          <div class="arch-banner-title">
+            <span class="badge badge-danger">System C: Direct Single API Baseline</span>
+            <strong>Zero-Shot Pure Parametric Generation</strong>
+          </div>
+          <span class="arch-banner-model">${escapeHTML(data.model || 'Claude / Gemini')}</span>
+        </div>
+        <p class="arch-banner-desc">
+          Generated entirely from internal parametric training weights with <strong>zero external document retrieval</strong>.
+          <strong>Notice:</strong> High risk of fabricated citations and numerical drift on post-2023 literature.
+        </p>
+        <div class="arch-banner-meta">
+          <span>⏱ Wall-Clock: ${(data.latency_seconds || 0).toFixed(1)}s</span>
+          <span>⚡ Tokens: ${(data.tokens || 0).toLocaleString()}</span>
+          <span>📚 External Grounding: 0 Sources</span>
+          <span>⚠️ Hallucination Risk: Elevated (38.6%)</span>
+        </div>
+      `;
+    }
+    elements.dossierContent.appendChild(banner);
+  }
 
   // Render Executive Summary Card first if available
   if (data.executive_summary && data.executive_summary.trim()) {
@@ -487,6 +555,21 @@ export function renderDossierOutput(data) {
     elements.dossierContent.appendChild(card);
   });
 
+  // Render Direct Monograph Output (System B and C)
+  if (data.output_text && sections.length === 0) {
+    const card = document.createElement('div');
+    card.className = 'dossier-section-card monograph-output-card';
+    const parsedHtml = (typeof marked !== 'undefined' && marked.parse) 
+      ? marked.parse(data.output_text) 
+      : sanitizeHTML(data.output_text).replace(/\n/g, '<br>');
+    card.innerHTML = `
+      <div class="dossier-text-paragraph">
+        ${typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(parsedHtml) : sanitizeHTML(parsedHtml)}
+      </div>
+    `;
+    elements.dossierContent.appendChild(card);
+  }
+
   // Render Epistemic Horizons & Boundary Conditions (Point 41)
   if (data.epistemic_limitations) {
     const epistemicHTML = buildEpistemicLimitationsHTML(data.epistemic_limitations);
@@ -591,11 +674,16 @@ export function renderCitationsPanel(citations) {
     card.dataset.refId = cit.ref_id;
     
     const safeYear = cit.year || 'n.d.';
-    const apaText = `${cit.authors || 'Unknown'} (${safeYear}). ${cit.title || 'Untitled'}. ${cit.venue || 'Repository'}. ${cit.url || ''}`;
+    const provTier = cit.provenance_tier || 'peer_reviewed';
+    const provLabel = cit.provenance_label || (provTier === 'preprint' ? 'Unrefereed Preprint' : 'Peer-Reviewed');
+    const apaText = `${cit.authors || 'Unknown'} (${safeYear}). ${cit.title || 'Untitled'}. ${cit.venue || 'Repository'} [${provLabel}]. ${cit.url || ''}`;
     
     card.innerHTML = `
       <div class="cit-card-top">
-        <span class="cit-ref-tag">[${escapeHTML(cit.ref_id)}]</span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="cit-ref-tag">[${escapeHTML(cit.ref_id)}]</span>
+          <span class="cit-provenance-tag provenance-${escapeHTML(provTier)}">${escapeHTML(provLabel)}</span>
+        </div>
         <span class="cit-year-tag">${escapeHTML(safeYear)}</span>
       </div>
       <div class="cit-title">${escapeHTML(cit.title || 'Untitled')}</div>
@@ -704,6 +792,61 @@ export function copySynthesisToClipboard() {
     const cleanExec = String(UIState.lastDossierData.executive_summary).replace(/<[^>]*>/g, '').trim();
     if (cleanExec) md += `### Executive Monograph\n\n${cleanExec}\n\n`;
   }
+
+  // Quantitative Comparative Benchmarks Table
+  if (UIState.lastDossierData.comparison_table) {
+    let cols = [];
+    let rows = [];
+    const tbl = UIState.lastDossierData.comparison_table;
+    if (Array.isArray(tbl) && tbl.length > 0 && typeof tbl[0] === 'object') {
+      cols = ["Technique / Paradigm", "Governing Metric", "Measured Benchmark", "Baseline Comparison", "Empirical Limitations"];
+      rows = tbl.map(item => [
+        item.technique || item.name || "Method",
+        item.governing_metric || item.metric || "Metric",
+        item.measured_value || item.value || "Value",
+        item.baseline || "N/A",
+        item.limitations || item.notes || "N/A"
+      ]);
+    } else if (tbl.columns && tbl.rows) {
+      cols = tbl.columns;
+      rows = tbl.rows;
+    }
+    if (cols.length && rows.length) {
+      md += `### Quantitative Comparative Benchmarks\n\n`;
+      md += `| ${cols.map(c => String(c).replace(/\|/g, '\\|')).join(' | ')} |\n`;
+      md += `| ${cols.map(() => '---').join(' | ')} |\n`;
+      rows.forEach(r => {
+        md += `| ${r.map(cell => String(cell).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+      });
+      md += `\n`;
+    }
+  }
+
+  // Dialectical Friction & Methodological Disagreements
+  if (UIState.lastDossierData.dialectical_friction) {
+    const f = UIState.lastDossierData.dialectical_friction;
+    let items = [];
+    if (typeof f === 'object' && !Array.isArray(f)) {
+      if (f.disagreements) items.push(["Core Methodological Dispute", f.disagreements]);
+      if (f.pareto_tradeoffs) items.push(["Pareto Frontier Trade-offs", f.pareto_tradeoffs]);
+    } else if (Array.isArray(f)) {
+      f.forEach(item => {
+        if (typeof item === 'object') {
+          items.push([item.topic || item.disagreement || "Methodological Debate", item.details || item.evidence || item.pareto_tradeoffs || JSON.stringify(item)]);
+        } else {
+          items.push(["Methodological Debate", String(item)]);
+        }
+      });
+    }
+    if (items.length) {
+      md += `### Dialectical Friction & Methodological Disagreements\n\n`;
+      items.forEach(([label, text]) => {
+        const cleanT = String(text).replace(/<[^>]*>/g, '').trim();
+        md += `- **${label}:** ${cleanT}\n`;
+      });
+      md += `\n`;
+    }
+  }
   
   const sections = UIState.lastDossierData.sections || UIState.lastDossierData.dossier_sections || [];
   sections.forEach((s, idx) => {
@@ -713,13 +856,29 @@ export function copySynthesisToClipboard() {
     md += `## ${idx+1}. ${subQ}\n\n${cleanAnswer}\n\n`;
   });
 
+  // Epistemic Horizons & Boundary Conditions
+  if (UIState.lastDossierData.epistemic_limitations) {
+    const rawLims = Array.isArray(UIState.lastDossierData.epistemic_limitations) 
+      ? UIState.lastDossierData.epistemic_limitations 
+      : [UIState.lastDossierData.epistemic_limitations];
+    const cleanLims = rawLims.filter(Boolean);
+    if (cleanLims.length) {
+      md += `### Epistemic Horizons & Boundary Conditions\n\n`;
+      cleanLims.forEach(lim => {
+        md += `- ${String(lim).replace(/<[^>]*>/g, '').trim()}\n`;
+      });
+      md += `\n`;
+    }
+  }
+
   const citations = UIState.lastDossierData.citations || [];
   if (citations.length > 0) {
     md += `### References\n`;
     citations.forEach(c => {
       const authors = Array.isArray(c.authors) ? c.authors.join(', ') : (c.authors || 'Unknown Authors');
       const year = c.year || 'n.d.';
-      md += `- [${c.ref_id || 'REF'}] ${authors} (${year}). *${c.title || 'Untitled'}*. ${c.venue || 'Repository'}. ${c.url || ''}\n`;
+      const provTag = c.provenance_label ? ` [${c.provenance_label}]` : '';
+      md += `- [${c.ref_id || 'REF'}] ${authors} (${year}). *${c.title || 'Untitled'}*. ${c.venue || 'Repository'}.${provTag} ${c.url || ''}\n`;
     });
   }
 

@@ -123,7 +123,6 @@ class TestResearchWorkbenchE2E(unittest.TestCase):
             "/api/pipeline/stream",
             json={
                 "query": "Quantum Computing Neutral Atoms",
-                "demo_mode": True,
                 "paper_limit": 2
             }
         )

@@ -122,6 +122,10 @@ GEMINI_API_KEY=your_gemini_api_key_here
 # Enforces strict 4096 token ceiling for Opus and 8192 for Sonnet/Haiku
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 
+# OpenAI GPT-6 & GPT-5 (gpt-6.1-sol, gpt-6-sol, gpt-6-luna, gpt-6-astra, gpt-5.5, gpt-5.4, gpt-5.4-mini)
+# Native async HTTP client (httpx) with zero extra pip package dependencies
+OPENAI_API_KEY=your_openai_api_key_here
+
 # Optional: JWT Secret for User Authentication Sessions
 JWT_SECRET=your_secret_key_minimum_32_characters
 ```
@@ -158,6 +162,7 @@ Hugging Face Spaces provides a permanent free tier with **2 vCPUs, 16 GB RAM, 50
 6. In your Space's **Settings** → **Variables and secrets**, add:
    - `GEMINI_API_KEY`: Your Gemini API key
    - `ANTHROPIC_API_KEY`: Your Claude API key
+   - `OPENAI_API_KEY`: Your OpenAI API key (for GPT-5 & GPT-6 models)
    - `JWT_SECRET`: Random 32-character string
 7. Your workbench is immediately live with a public HTTPS URL (e.g. `https://<your-username>-research-workbench.hf.space`)!
 
@@ -174,6 +179,7 @@ Render offers a free Docker web service tier:
    - `PORT`: `10000`
    - `GEMINI_API_KEY`: Your Gemini API key
    - `ANTHROPIC_API_KEY`: Your Claude API key
+   - `OPENAI_API_KEY`: Your OpenAI API key (for GPT-5 & GPT-6 models)
    - `JWT_SECRET`: Random 32-character string
 6. Click **Deploy Web Service**.
 
@@ -224,7 +230,50 @@ python -m unittest backend/test_followup.py
 
 # 5. Frontend ES6 module architecture & landmark accessibility audit
 node scripts/build_frontend.js
+
+# 6. Comparative evaluation baseline test suite (9 tests)
+python -m unittest evals/test_evals.py
 ```
+
+---
+
+## 📊 Comparative Empirical Study: Multi-Agent vs. Conventional RAG vs. Direct API
+
+ResearchWorkbench includes a built-in scientific evaluation harness located in `evals/` designed to empirically compare:
+1. **System A: ResearchWorkbench (4-Agent Architecture):** Scraper $\rightarrow$ Drafter $\rightarrow$ FastEmbed ONNX Cacher & MMR Distiller $\rightarrow$ Cross-Verification & Synthesizer.
+2. **System B: Conventional RAG (Single Call):** Dense vector embedding search (top-$k$ chunks) injected into a single augmented LLM prompt.
+3. **System C: Direct Single API Call (Zero-Shot):** Single LLM call relying strictly on pre-trained parametric weights.
+
+All 3 systems share the **identical system prompt directives**, **identical model options** (Claude Opus 5.5, Sonnet 5.5, Haiku, Gemini 3.8/3.6/3.5/3.1), and **identical token ceilings**.
+
+### Interactive Pipeline Selection in the Workbench UI
+You can switch architectures directly in the primary user interface without restarting the server:
+- **Settings Drawer (Tab 1):** Choose between *System A: 4-Agent ResearchWorkbench*, *System B: Conventional RAG Baseline*, or *System C: Direct Single API Baseline*. When System B is selected, a context depth slider allows selecting Top-3, Top-5, Top-8, or Top-10 vector retrieval chunks.
+- **Floating Canvas Architecture Bar:** Click the architecture pills floating above the Pipeline Canvas to instantly change topology. Unused nodes (e.g. Scraper, Cacher, or Fact-Checker) are dynamically dimmed and labeled as *Bypassed*.
+- **Bottom Prompt Bar Quick Toggle:** Click the quick toggle pill next to the prompt input to cycle between System A, B, and C.
+- **Independent API Credentials Per System:** In the Settings Drawer, expand *Advanced: Independent API Keys Per System* to enter distinct Gemini or Claude API keys for System A, System B, and System C (useful for testing cross-provider performance or separate quotas).
+- **Direct Dossier Formatting:** All three systems output directly into the main Research Dossier with proper Markdown headings, formatted tables, native KaTeX LaTeX equations, and citation inspection.
+
+### Running the Comparative Study via CLI:
+```bash
+# Run benchmark for Prompt 1 using Claude Sonnet 5.5
+python evals/run_study.py --prompt 1 --model claude-sonnet-5.5
+
+# Run benchmark for all 5 prompts across all 3 systems
+python evals/run_study.py --prompt all --model claude-sonnet-5.5
+
+# Run on Gemini 3.8 Flash
+python evals/run_study.py --prompt 1 --model gemini-3.8-flash
+```
+
+Outputs are automatically saved side-by-side in `evals/results/prompt_<id>_<slug>/`:
+- `system_a_research_workbench.md`
+- `system_b_conventional_rag.md`
+- `system_c_direct_api.md`
+- `telemetry_comparison.json`
+- `side_by_side_summary.md`
+
+Use **`evals/STUDY_TEMPLATE.md`** or the auto-generated Word workbook **`evals/Comparative_Study_Protocol_and_Workbook.docx`** (formatted in Times New Roman 12pt with 1.5 line spacing) to enter your evaluation scores and compute the **Composite Research Integrity Score (CRIS)**.
 
 ---
 

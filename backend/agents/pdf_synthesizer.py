@@ -5,145 +5,10 @@ from typing import Dict, Any, List, Optional
 import httpx
 from backend.logger import get_logger
 from backend.post_processor import clean_monograph_text
-from backend.agents.agent2_drafter import safe_parse_json, call_gemini_api, call_anthropic_api
+from backend.agents.agent2_drafter import safe_parse_json, call_gemini_api, call_anthropic_api, call_openai_api, is_openai_provider
 from backend.agents.pdf_processor import extractive_summarize_chunks
 
 logger = get_logger("PDF_Synthesizer")
-
-# =========================================================
-# PRE-GENERATED HIGH-PRECISION DEMO OUTPUTS (Zero Tokens)
-# =========================================================
-
-DEMO_QA_RESPONSES = {
-    "attention": {
-        "answer_html": (
-            "<p><strong>Scaled Dot-Product Mathematical Formulation [p.3]:</strong> "
-            "The fundamental attention primitive is defined as: "
-            "$$\\text{Attention}(Q, K, V) = \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$ "
-            "where the input queries and keys have dimension $d_k = 64$ and values have dimension $d_v = 64$. "
-            "The scaling factor $\\frac{1}{\\sqrt{d_k}}$ is essential: for large dimensions, the dot products grow large in magnitude, "
-            "pushing the softmax function into regions with extremely small gradients. Dividing by $\\sqrt{d_k}$ stabilizes gradient flow during backpropagation.</p>"
-            "<p><strong>Multi-Head Subspace Projections & Parallel Heads [p.4-5]:</strong> "
-            "Multi-Head Attention projects queries, keys, and values linearly $h=8$ times with independently learned parameter matrices [Fig.1, p.3]: "
-            "$$\\text{MultiHead}(Q, K, V) = \\text{Concat}(\\text{head}_1, \\dots, \\text{head}_h)W^O$$ "
-            "where $\\text{head}_i = \\text{Attention}(QW_i^Q, KW_i^K, VW_i^V)$ with projections $W_i^Q, W_i^K \\in \\mathbb{R}^{d_{\\text{model}} \\times d_k}$ and $W^O \\in \\mathbb{R}^{h d_v \\times d_{\\text{model}}}$. "
-            "Because each head's dimensionality is reduced to $d_{\\text{model}}/h = 512/8 = 64$, total compute is strictly equivalent to full-dimensional single-head attention.</p>"
-        ),
-        "referenced_pages": [3, 4, 5],
-        "referenced_figures": ["1"],
-        "confidence_score": 0.98
-    },
-    "compare": {
-        "answer_html": (
-            "<p><strong>Sequential Operations & Parallelization Limits [p.6]:</strong> "
-            "Self-attention layers connect all positions within a sequence in a constant $O(1)$ sequential operations, "
-            "completely unblocking full GPU/TPU parallelization across token positions. In contrast, recurrent neural networks (RNNs) require "
-            "$O(n)$ sequential steps, enforcing an inherent sequential computational barrier that precludes training parallelization.</p>"
-            "<p><strong>Computational Complexity per Layer [p.6]:</strong> "
-            "Self-attention exhibits computational complexity of $O(n^2 \\cdot d)$ per layer, compared to $O(n \\cdot d^2)$ for recurrent layers. "
-            "For standard context lengths where $n < d$ (e.g. $n=512, d=512$), self-attention is faster and computationally lighter than recurrent layers.</p>"
-            "<p><strong>Maximum Information Path Length [p.6]:</strong> "
-            "The maximum path length between any two token positions is $O(1)$ for self-attention, compared to $O(n)$ in recurrent layers and $O(\\log_k(n))$ in dilated convolutions. "
-            "Shorter path lengths make it significantly easier for backpropagated gradients to learn long-range semantic dependencies without vanishing.</p>"
-        ),
-        "referenced_pages": [5, 6],
-        "referenced_figures": [],
-        "confidence_score": 0.97
-    },
-    "general": {
-        "answer_html": (
-            "<p><strong>Core Architectural Thesis [p.1-2]:</strong> "
-            "The Transformer relies entirely on multi-headed self-attention mechanisms to draw global dependencies between input and output sequences, "
-            "abandoning recurrent and convolutional inductive biases entirely. The encoder consists of $N=6$ identical layers, each containing a multi-head "
-            "self-attention sub-layer followed by a position-wise fully connected feed-forward network with residual connections and layer normalization.</p>"
-            "<p><strong>Empirical Benchmark Performance [p.7-8]:</strong> "
-            "On the WMT 2014 English-to-German task, the Big Transformer model establishes a new state-of-the-art BLEU score of 28.4, outperforming all previous models and ensembles by over 2.0 BLEU. "
-            "On English-to-French, it scores 41.8 BLEU after 3.5 days of training on 8 P100 GPUs, achieving superior quality at a fraction of prior training costs.</p>"
-        ),
-        "referenced_pages": [1, 2, 7, 8],
-        "referenced_figures": ["1"],
-        "confidence_score": 0.96
-    }
-}
-
-DEMO_SUMMARIZE_RESPONSE = {
-    "executive_summary": (
-        "<p><strong>Executive Problem Statement & Core Architectural Thesis [p.1]:</strong> "
-        "The paper introduces the <em>Transformer</em>, the first sequence transduction architecture based entirely on self-attention mechanisms, "
-        "eschewing sequential recurrent layers (LSTMs, GRUs) and convolutional backbones. By eliminating temporal recurrence, "
-        "the architecture enables unprecedented parallelization across input tokens, drastically accelerating training execution from weeks to 3.5 days on 8 NVIDIA P100 GPUs.</p>"
-        "<p><strong>Empirical Characterization & State-of-the-Art Benchmarks [p.7-8]:</strong> "
-        "On the WMT 2014 English-to-German translation benchmark, the Transformer (Big) achieves an unprecedented 28.4 BLEU score, surpassing existing published models and ensembles by over 2.0 BLEU. "
-        "On the WMT 2014 English-to-French task, the model sets a new single-model state-of-the-art score of 41.8 BLEU at one-fourth the training computational budget of preceding architectures.</p>"
-        "<p><strong>Systemic Bottlenecks & Operational Constraints [p.5-6]:</strong> "
-        "While eliminating sequential constraints ($O(1)$ sequential operations), the memory footprint scales quadratically ($O(n^2)$) with sequence length $n$. "
-        "Because attention is permutation-invariant, positional awareness is injected via fixed sinusoidal encodings $PE_{(pos, 2i)} = \\sin(pos/10000^{2i/d_{\\text{model}}})$, enabling zero-shot length extrapolation beyond training sequences.</p>"
-    ),
-    "sub_questions": [
-        "Theoretical & Algorithmic Foundations: Scaled Multi-Head Attention",
-        "Empirical Characterization: WMT Translation Benchmarks & BLEU Metrics",
-        "Systemic Trade-offs: Quadratic Memory Scaling & Positional Invariance"
-    ],
-    "sections": [
-        {
-            "sub_question": "Theoretical & Algorithmic Foundations: Scaled Multi-Head Attention",
-            "answer_html": (
-                "<p><strong>Scaled Dot-Product Mechanics:</strong> The core computational primitive is scaled dot-product attention: "
-                "$$\\text{Attention}(Q, K, V) = \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V$$ "
-                "Dividing by $\\sqrt{d_k}$ prevents the dot products from growing excessively large in high dimensions ($d_k=64$), avoiding vanishing gradients in the softmax activation [p.3-4].</p>"
-                "<p><strong>Multi-Head Subspace Projections:</strong> With $h=8$ parallel attention heads, the model jointly attends to disparate representation subspaces at different positions simultaneously without increasing total computational FLOPs [p.4-5].</p>"
-            ),
-            "claims": [{"id": "c1", "text": "Scaled dot-product attention divides by sqrt(d_k) to prevent softmax gradient saturation in high dimensions."}]
-        },
-        {
-            "sub_question": "Empirical Characterization: WMT Translation Benchmarks & BLEU Metrics",
-            "answer_html": (
-                "<p><strong>State-of-the-Art Translation Scores:</strong> The Big Transformer model achieves 28.4 BLEU on English-to-German and 41.8 BLEU on English-to-French, outperforming ByteNet, MoE, and ConvS2S ensembles [p.7-8].</p>"
-                "<p><strong>Training Wall-Clock Efficiency:</strong> The base model trained in 12 hours, while the big model completed in 3.5 days on 8 P100 GPUs, requiring orders of magnitude fewer operations than recurrent architectures [p.8].</p>"
-            ),
-            "claims": [{"id": "c2", "text": "Transformer Big achieved 28.4 BLEU on English-to-German after 3.5 days of training on 8 P100 GPUs."}]
-        },
-        {
-            "sub_question": "Systemic Trade-offs: Quadratic Memory Scaling & Positional Invariance",
-            "answer_html": (
-                "<p><strong>Quadratic Attention Overhead:</strong> Attention layer complexity scales as $O(n^2 \\cdot d)$, creating memory bottlenecks for ultra-long context windows $n > 4096$ [p.6].</p>"
-                "<p><strong>Sinusoidal Positional Encoding:</strong> Geometric progression frequencies from $2\\pi$ to $10000 \\cdot 2\\pi$ allow the network to learn relative positions through linear transformations [p.5-6].</p>"
-            ),
-            "claims": [{"id": "c3", "text": "Self-attention layer computational complexity scales quadratically as O(n^2 * d) with sequence length."}]
-        }
-    ],
-    "comparison_table": [
-        {
-            "technique": "Transformer (Big)",
-            "governing_metric": "WMT'14 En-De BLEU / Training Compute",
-            "measured_value": "28.4 BLEU / 3.5 days (8x P100)",
-            "baseline": "ByteNet (23.75 BLEU)",
-            "limitations": "Quadratic memory scaling O(n^2) with sequence length"
-        },
-        {
-            "technique": "Transformer (Base)",
-            "governing_metric": "WMT'14 En-Fr BLEU / Training Compute",
-            "measured_value": "38.1 BLEU / 12 hours (8x P100)",
-            "baseline": "GNMT + RL (39.92 BLEU / 180 P100-days)",
-            "limitations": "Constrained by fixed d_model = 512 subspace dimensionality"
-        },
-        {
-            "technique": "ConvS2S Ensemble",
-            "governing_metric": "WMT'14 En-De BLEU / Compute",
-            "measured_value": "26.36 BLEU / 9.6 days (8x P100)",
-            "baseline": "Linear Convolution Layers",
-            "limitations": "Dilated path length O(log_k(n)) vs O(1) attention"
-        }
-    ],
-    "dialectical_friction": {
-        "disagreements": "Controversy over whether pure self-attention without recurrent or convolutional inductive biases degrades generalization on hierarchical syntactic grammars.",
-        "pareto_tradeoffs": "Parallel Training Velocity vs Memory Footprint: O(1) sequential step count unlocks GPU tensor saturation, but incurs O(n^2) memory footprint for long contexts."
-    },
-    "epistemic_limitations": [
-        "Evaluation is restricted to machine translation benchmarks; transfer to autoregressive code generation or long-context reasoning is uncharacterized in the core manuscript.",
-        "Self-attention requires explicit positional injection (sinusoidal or learned); extrapolation beyond training sequence horizons remains vulnerable to attention dispersion."
-    ]
-}
 
 def _clean_chunk_prose(text: str) -> str:
     """Strips metadata, emails, headers, and copyright boilerplate from raw chunk text."""
@@ -170,24 +35,23 @@ async def run_pdf_summarize(
     provider: str = "auto",
     api_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
-    disable_fallback: bool = False,
-    demo_mode: bool = False
+    openai_key: Optional[str] = None,
+    disable_fallback: bool = False
 ) -> Dict[str, Any]:
     """
     Summarizes uploaded PDF documents into an authoritative executive monograph.
-    Consumes exactly 1 LLM call when live, or returns pre-generated synthesis in demo mode.
+    Consumes exactly 1 LLM call when live.
     """
-    if demo_mode:
-        return _format_pdf_output("summarize", DEMO_SUMMARIZE_RESPONSE, 0, "Showcase Demo Synthesizer", metadata, chunks)
-
     active_gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     active_anthropic_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
-    is_claude = ("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key))
+    active_openai_key = openai_key or os.environ.get("OPENAI_API_KEY")
+    is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
+    is_claude = not is_openai and (("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key)))
 
     # STRICT API CALL ENFORCEMENT: Fail-closed if keys are missing
-    if disable_fallback and not (active_gemini_key or active_anthropic_key):
+    if disable_fallback and not (active_gemini_key or active_anthropic_key or active_openai_key):
         raise RuntimeError(
-            "Strict API Mode is active: No Google Gemini or Anthropic Claude API key was provided. "
+            "Strict API Mode is active: No Google Gemini, Anthropic Claude, or OpenAI API key was provided. "
             "Please configure your API key in Workbench Settings (Settings Drawer) or disable Strict Mode."
         )
 
@@ -271,7 +135,19 @@ STRICT SCIENTIFIC GUIDELINES:
   ]
 }}"""
 
-    if is_claude and active_anthropic_key:
+    if is_openai and active_openai_key:
+        try:
+            pdf_sys = "You are an expert academic paper reviewer. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary."
+            raw_text, tokens = await call_openai_api(prompt, active_openai_key, provider, system_instruction=pdf_sys)
+            parsed = safe_parse_json(raw_text)
+            if parsed:
+                return _format_pdf_output("summarize", parsed, tokens, provider, metadata, chunks)
+        except Exception as e:
+            print(f"[PDF Synthesizer] OpenAI summarize failed: {e}")
+            if disable_fallback:
+                raise RuntimeError(f"Strict API Mode Error (OpenAI): {e}")
+
+    elif is_claude and active_anthropic_key:
         try:
             pdf_sys = "You are an expert academic paper reviewer. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary."
             raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, provider, system_instruction=pdf_sys)
@@ -313,44 +189,26 @@ async def run_pdf_qa(
     provider: str = "auto",
     api_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
-    disable_fallback: bool = False,
-    demo_mode: bool = False
+    openai_key: Optional[str] = None,
+    disable_fallback: bool = False
 ) -> Dict[str, Any]:
     """
     RAG-powered conversational Q&A over document chunks.
-    Consumes exactly 1 LLM call when live, or returns pre-generated answers in demo mode.
+    Consumes exactly 1 LLM call when live.
     """
     figures = figures or []
     chat_history = chat_history or []
 
-    # Check Demo Mode
-    if demo_mode:
-        q_lower = query.lower()
-        if any(k in q_lower for k in ("compare", "rnn", "recurrent", "cnn", "convolution", "complexity", "speed", "parallel", "versus", "vs")):
-            resp = DEMO_QA_RESPONSES["compare"]
-        elif any(k in q_lower for k in ("attention", "multi-head", "head", "formula", "math", "equation", "softmax", "queries", "keys", "values")):
-            resp = DEMO_QA_RESPONSES["attention"]
-        else:
-            resp = DEMO_QA_RESPONSES["general"]
-        return {
-            "action": "qa",
-            "query": query,
-            "tokens_used": 0,
-            "answer_html": resp["answer_html"],
-            "referenced_pages": resp["referenced_pages"],
-            "referenced_figures": resp["referenced_figures"],
-            "confidence_score": resp["confidence_score"],
-            "source_chunks": relevant_chunks[:4]
-        }
-
     active_gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     active_anthropic_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
-    is_claude = ("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key))
+    active_openai_key = openai_key or os.environ.get("OPENAI_API_KEY")
+    is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
+    is_claude = not is_openai and (("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key)))
 
     # STRICT API CALL ENFORCEMENT: Fail-closed if keys are missing
-    if disable_fallback and not (active_gemini_key or active_anthropic_key):
+    if disable_fallback and not (active_gemini_key or active_anthropic_key or active_openai_key):
         raise RuntimeError(
-            "Strict API Mode is active: No Google Gemini or Anthropic Claude API key was provided. "
+            "Strict API Mode is active: No Google Gemini, Anthropic Claude, or OpenAI API key was provided. "
             "Please configure your API key in Workbench Settings (Settings Drawer) or disable Strict Mode."
         )
 
@@ -405,7 +263,33 @@ INSTRUCTIONS:
   "confidence_score": 0.95
 }}"""
 
-    if is_claude and active_anthropic_key:
+    if is_openai and active_openai_key:
+        try:
+            pdf_sys = "You are an academic document Q&A assistant. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Ground all assertions with [p.X] page citations."
+            raw_text, tokens = await call_openai_api(prompt, active_openai_key, provider, system_instruction=pdf_sys)
+            parsed = safe_parse_json(raw_text)
+            if parsed:
+                p_tok = getattr(tokens, "prompt_tokens", 0) or round(int(tokens) * 0.6)
+                c_tok = getattr(tokens, "completion_tokens", 0) or (int(tokens) - p_tok)
+                return {
+                    "action": "qa",
+                    "query": query,
+                    "tokens_used": int(tokens),
+                    "prompt_tokens": p_tok,
+                    "completion_tokens": c_tok,
+                    "quick_answer": parsed.get("quick_answer", ""),
+                    "answer_html": parsed.get("answer_html", ""),
+                    "referenced_pages": parsed.get("referenced_pages", []),
+                    "referenced_figures": parsed.get("referenced_figures", []),
+                    "confidence_score": parsed.get("confidence_score", 0.92),
+                    "source_chunks": clean_chunks[:4]
+                }
+        except Exception as e:
+            logger.error(f"[PDF Q&A] OpenAI call failed: {e}")
+            if disable_fallback:
+                raise RuntimeError(f"Strict API Mode Error (OpenAI): {e}")
+
+    elif is_claude and active_anthropic_key:
         try:
             pdf_sys = "You are an academic document Q&A assistant. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Ground all assertions with [p.X] page citations."
             raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, provider, system_instruction=pdf_sys)
@@ -493,24 +377,23 @@ async def run_pdf_deep_analysis(
     provider: str = "auto",
     api_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
-    disable_fallback: bool = False,
-    demo_mode: bool = False
+    openai_key: Optional[str] = None,
+    disable_fallback: bool = False
 ) -> Dict[str, Any]:
     """
     Executes deep academic analysis (methodology critique, findings extraction, or peer review).
-    Consumes 1-2 LLM calls when live, or returns pre-generated synthesis in demo mode.
+    Consumes 1-2 LLM calls when live.
     """
-    if demo_mode:
-        return _format_pdf_output(analysis_type, DEMO_SUMMARIZE_RESPONSE, 0, "Showcase Demo Synthesizer", metadata, chunks)
-
     active_gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     active_anthropic_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
-    is_claude = ("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key))
+    active_openai_key = openai_key or os.environ.get("OPENAI_API_KEY")
+    is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
+    is_claude = not is_openai and (("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key)))
 
     # STRICT API CALL ENFORCEMENT: Fail-closed if keys are missing
-    if disable_fallback and not (active_gemini_key or active_anthropic_key):
+    if disable_fallback and not (active_gemini_key or active_anthropic_key or active_openai_key):
         raise RuntimeError(
-            "Strict API Mode is active: No Google Gemini or Anthropic Claude API key was provided. "
+            "Strict API Mode is active: No Google Gemini, Anthropic Claude, or OpenAI API key was provided. "
             "Please configure your API key in Workbench Settings (Settings Drawer) or disable Strict Mode."
         )
 
@@ -564,7 +447,19 @@ INSTRUCTIONS:
   ]
 }}"""
 
-    if is_claude and active_anthropic_key:
+    if is_openai and active_openai_key:
+        try:
+            pdf_sys = "You are a senior academic reviewer conducting an in-depth analysis of an uploaded research paper. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Cite page numbers accurately using [p.X] throughout."
+            raw_text, tokens = await call_openai_api(prompt, active_openai_key, provider, system_instruction=pdf_sys)
+            parsed = safe_parse_json(raw_text)
+            if parsed:
+                return _format_pdf_output(analysis_type, parsed, tokens, provider, metadata, clean_chunks)
+        except Exception as e:
+            logger.error(f"[PDF Deep Analysis] OpenAI call failed: {e}")
+            if disable_fallback:
+                raise RuntimeError(f"Strict API Mode Error (OpenAI): {e}")
+
+    elif is_claude and active_anthropic_key:
         try:
             pdf_sys = "You are a senior academic reviewer conducting an in-depth analysis of an uploaded research paper. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Cite page numbers accurately using [p.X] throughout."
             raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, provider, system_instruction=pdf_sys)

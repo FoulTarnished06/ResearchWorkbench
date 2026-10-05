@@ -20,7 +20,7 @@ from backend.database import (
 )
 from backend.agents.agent3_cacher import compute_cosine_similarity
 from backend.agents.agent2_drafter import (
-    call_gemini_api, call_anthropic_api, safe_parse_json
+    call_gemini_api, call_anthropic_api, call_openai_api, safe_parse_json, is_openai_provider
 )
 from backend.post_processor import clean_monograph_text
 
@@ -104,6 +104,7 @@ async def run_followup_synthesis(
     provider: str = "auto",
     gemini_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
+    openai_key: Optional[str] = None,
     disable_fallback: bool = False
 ) -> Dict[str, Any]:
     """
@@ -170,8 +171,11 @@ Return strictly a raw JSON object:
     # Model resolution
     g_key = gemini_key or os.environ.get("GEMINI_API_KEY")
     a_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
-    is_claude = ("claude" in provider.lower()) or (not g_key and bool(a_key))
-    active_key = a_key if is_claude else g_key
+    o_key = openai_key or os.environ.get("OPENAI_API_KEY")
+    prov_lower = provider.lower()
+    is_openai = is_openai_provider(provider) or (bool(o_key) and not g_key and not a_key)
+    is_claude = not is_openai and (("claude" in prov_lower) or (not g_key and bool(a_key)))
+    active_key = o_key if is_openai else (a_key if is_claude else g_key)
     
     tokens_consumed = 0
     quick_summary = ""
@@ -181,7 +185,13 @@ Return strictly a raw JSON object:
 
     if active_key:
         try:
-            if is_claude:
+            if is_openai:
+                pref = provider if provider != "auto" else "gpt-6.1-sol"
+                provider_label = f"{pref} (Targeted)"
+                raw_text, used_tokens = await call_openai_api(
+                    prompt, active_key, model_pref=pref, system_instruction=system_instruction
+                )
+            elif is_claude:
                 if "opus" in provider.lower():
                     pref = "claude-opus-4.5"
                     provider_label = "Claude Opus 4.5 (Targeted)"

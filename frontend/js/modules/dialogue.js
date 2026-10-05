@@ -100,9 +100,19 @@ export function renderHistoryList(runs) {
       : `⚡ ${tokensCount.toLocaleString()} tokens`;
     const elapsed = run.elapsed_seconds ? `${run.elapsed_seconds.toFixed(1)}s` : '--';
 
+    let archBadge = '<span class="matrix-chip chip-green" style="font-size: 10.5px; padding: 2px 7px; margin-right: 6px;">System A: Workbench</span>';
+    if (run.architecture === 'system_b') {
+      archBadge = '<span class="matrix-chip chip-amber" style="font-size: 10.5px; padding: 2px 7px; margin-right: 6px;">System B: Conventional RAG</span>';
+    } else if (run.architecture === 'system_c') {
+      archBadge = '<span class="matrix-chip chip-red" style="font-size: 10.5px; padding: 2px 7px; margin-right: 6px;">System C: Direct API</span>';
+    }
+
     card.innerHTML = `
       <div class="history-card-header">
-        <div class="history-card-title" title="Click to view and replay monograph">${escapeHTML(run.query || 'Research Monograph')}</div>
+        <div>
+          <div class="history-card-title" title="Click to view and replay monograph">${escapeHTML(run.query || 'Research Monograph')}</div>
+          <div style="margin-top: 4px;">${archBadge}</div>
+        </div>
         <div class="history-card-actions">
           <button class="btn-history-replay" data-run-id="${run.run_id}" title="Replay output (0 API tokens)">
             <span>Open Dossier</span>
@@ -158,13 +168,21 @@ export async function replayResearchRun(runId) {
     const dossierData = {
       run_id: runId,
       query: run.query,
+      architecture: run.architecture || run.results?.architecture || 'system_a',
+      model: run.model || run.results?.model || '',
+      output_text: run.output_text || run.results?.output_text || '',
       quick_answer: run.quick_answer || "",
       executive_summary: run.executive_summary || "",
       takeaways: run.takeaways || [],
       sections: formattedSections,
       citations: run.citations || [],
       evaluated_claims: run.evaluated_claims || [],
+      comparison_table: run.comparison_table || run.results?.comparison_table || [],
+      dialectical_friction: run.dialectical_friction || run.results?.dialectical_friction || {},
+      epistemic_limitations: run.epistemic_limitations || run.results?.epistemic_limitations || [],
+      complexity: run.complexity || run.results?.complexity || {},
       elapsed: run.elapsed_seconds || 0,
+      latency_seconds: run.elapsed_seconds || 0,
       tokens: run.total_tokens || 0,
       prompt_tokens: run.prompt_tokens ?? (run.total_tokens ? Math.round(run.total_tokens * 0.62) : 0),
       completion_tokens: run.completion_tokens ?? (run.total_tokens ? Math.max(0, run.total_tokens - Math.round(run.total_tokens * 0.62)) : 0)
@@ -318,6 +336,7 @@ export async function submitFollowupInquiry(targetType, targetId, targetTopic, q
     const parentRunId = UIState.activeRunId || UIState.lastDossierData?.run_id || ('run_' + Math.random().toString(36).substring(2, 9));
     
     // Client-side credentials from sessionStorage (strictly honoring our security audit)
+    const openaiKey = sessionStorage.getItem('workbench_openai_key') || null;
     const geminiKey = sessionStorage.getItem('workbench_gemini_key') || null;
     const anthropicKey = sessionStorage.getItem('workbench_anthropic_key') || null;
     const provider = elements.cfgAgent4Model?.value || elements.cfgAgent2Model?.value || sessionStorage.getItem('workbench_selected_provider') || 'auto';
@@ -329,18 +348,23 @@ export async function submitFollowupInquiry(targetType, targetId, targetTopic, q
       target_topic: targetTopic,
       query: question,
       provider: provider,
+      openai_key: openaiKey,
       gemini_key: geminiKey,
       anthropic_key: anthropicKey,
       disable_fallback: disableFallback
     };
 
+    const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
     const res = await fetch('/api/pipeline/followup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(openaiKey ? { 'x-openai-key': openaiKey } : {}),
         ...(geminiKey ? { 'x-gemini-key': geminiKey } : {}),
         ...(anthropicKey ? { 'x-anthropic-key': anthropicKey } : {})
       },
+      credentials: 'same-origin',
       body: JSON.stringify(payload)
     });
 
@@ -625,7 +649,9 @@ export async function exportDossier(format) {
     citations: UIState.lastDossierData.citations || [],
     comparison_table: UIState.lastDossierData.comparison_table || [],
     dialectical_friction: UIState.lastDossierData.dialectical_friction || {},
-    epistemic_limitations: UIState.lastDossierData.epistemic_limitations || []
+    epistemic_limitations: UIState.lastDossierData.epistemic_limitations || [],
+    output_text: UIState.lastDossierData.output_text || "",
+    architecture: UIState.lastDossierData.architecture || "system_a"
   };
 
   const safeFilename = (UIState.lastDossierData.query || 'Research_Synthesis')
@@ -937,6 +963,7 @@ export async function handleDialogueSubmit() {
     const parentRunId = UIState.activeRunId || UIState.lastDossierData?.run_id || ('run_' + Math.random().toString(36).substring(2, 9));
     UIState.activeRunId = parentRunId;
 
+    const openaiKey = sessionStorage.getItem('workbench_openai_key') || null;
     const geminiKey = sessionStorage.getItem('workbench_gemini_key') || null;
     const anthropicKey = sessionStorage.getItem('workbench_anthropic_key') || null;
     const provider = elements.cfgAgent2Model?.value || sessionStorage.getItem('workbench_selected_provider') || 'auto';
@@ -946,18 +973,23 @@ export async function handleDialogueSubmit() {
       run_id: parentRunId,
       message: question,
       provider: provider,
+      openai_key: openaiKey,
       gemini_key: geminiKey,
       anthropic_key: anthropicKey,
       disable_fallback: disableFallback
     };
 
+    const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
     const res = await fetch('/api/dialogue/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(openaiKey ? { 'x-openai-key': openaiKey } : {}),
         ...(geminiKey ? { 'x-gemini-key': geminiKey } : {}),
         ...(anthropicKey ? { 'x-anthropic-key': anthropicKey } : {})
       },
+      credentials: 'same-origin',
       body: JSON.stringify(payload)
     });
 

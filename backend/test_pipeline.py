@@ -12,7 +12,7 @@ async def test():
     query = "Quantum Error Mitigation in Neutral Atom Qubits"
     
     # Run 1: Cold run
-    result = await run_query_pipeline(query, {"paper_limit": 3, "demo_mode": True})
+    result = await run_query_pipeline(query, {"paper_limit": 3})
     print("\n--- COLD PIPELINE EXECUTION SUCCESS ---")
     print(f"Run ID: {result['run_id']}")
     print(f"Elapsed: {result['elapsed_seconds']}s")

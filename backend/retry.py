@@ -41,18 +41,21 @@ async def retry_async(
                 match = _re.search(r'(?:status[_ ]?code|http|error|code)[:\s(]*\b(4\d{2})\b', err_msg, _re.IGNORECASE)
                 if match and int(match.group(1)) in (400, 401, 403, 404):
                     is_permanent = True
+                elif "insufficient_quota" in err_msg.lower():
+                    is_permanent = True
 
             if is_permanent:
                 logger.error(f"Permanent HTTP error detected ({e}). Aborting retry.")
                 raise
 
+            err_display = f"{type(e).__name__}: {e}" if str(e).strip() else type(e).__name__
             if attempt < max_retries:
                 delay = base_delay * (2 ** attempt) + random.uniform(0.1, 0.5)
                 logger.warning(
-                    f"Attempt {attempt + 1}/{max_retries} failed ({e}). "
+                    f"Attempt {attempt + 1}/{max_retries} failed ({err_display}). "
                     f"Retrying in {delay:.2f}s with exponential backoff..."
                 )
                 await asyncio.sleep(delay)
             else:
-                logger.error(f"All {max_retries} retries exhausted. Operation failed: {e}")
+                logger.error(f"All {max_retries} retries exhausted. Operation failed: {err_display}")
                 raise last_error

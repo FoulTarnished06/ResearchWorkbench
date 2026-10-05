@@ -49,3 +49,7 @@ Desktop.ini
 backend/.jwt_secret
 .jwt_secret
 
+# Archived non-runtime artifacts (evaluation monographs, study outputs, legacy notes)
+archive/
+cache.db
+

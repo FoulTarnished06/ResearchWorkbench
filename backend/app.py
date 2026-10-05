@@ -5,12 +5,14 @@ import re
 import shutil
 import asyncio
 import aiofiles
+import secrets
+import httpx
 from typing import Optional, Dict, Any, List
 
 from fastapi import FastAPI, Request, Response, Query, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -38,15 +40,18 @@ from backend.database import (
     delete_pdf_session, save_pdf_file, update_pdf_file_status, save_pdf_chunks,
     save_pdf_figures, get_pdf_figures_by_session, save_pdf_references,
     get_citation_graph_data, get_pdf_chunks_by_session,
-    get_run_history, get_run_by_id, delete_run,
+    get_run_history, get_run_by_id, delete_run, log_pipeline_run,
     get_all_prompt_history, get_followups_for_run, delete_followup,
     save_dialogue_message, get_dialogue_history, clear_dialogue_history,
-    create_user, get_user_by_username, get_user_by_email, get_user_by_id, update_user_last_login
+    create_user, get_user_by_username, get_user_by_email, get_user_by_id, update_user_last_login,
+    create_or_update_oauth_user, save_user_api_key, get_user_api_key_hints, get_user_encrypted_key, delete_user_api_key
 )
 from backend.auth import (
     hash_password, verify_password, create_access_token, decode_access_token,
     get_current_user_optional, get_current_user_required,
-    UserRegisterRequest, UserLoginRequest, UserResponse, TokenResponse
+    encrypt_api_key_for_user, decrypt_api_key_for_user,
+    UserRegisterRequest, UserLoginRequest, UserResponse, TokenResponse,
+    SaveApiKeyRequest, ApiKeysStatusResponse, OAuthProvidersResponse
 )
 from backend.export import (
     export_to_docx, export_to_latex, export_to_markdown,
@@ -107,6 +112,7 @@ class QueryRequest(BaseModel):
     execution_mode: Optional[str] = "deep"
     gemini_key: Optional[str] = None
     anthropic_key: Optional[str] = None
+    openai_key: Optional[str] = None
     serpapi_key: Optional[str] = None
     scraper_sources: Optional[str] = "all"
     active_scrapers: Optional[List[str]] = None
@@ -114,7 +120,6 @@ class QueryRequest(BaseModel):
     disable_fallback: Optional[bool] = False
     disable_fallback_agent2: Optional[bool] = False
     disable_fallback_agent4: Optional[bool] = False
-    demo_mode: Optional[bool] = False
     bypass_cache: Optional[bool] = False
 
 class PDFQueryRequest(BaseModel):
@@ -126,8 +131,8 @@ class PDFQueryRequest(BaseModel):
     analysis_type: Optional[str] = "comprehensive"
     gemini_key: Optional[str] = None
     anthropic_key: Optional[str] = None
+    openai_key: Optional[str] = None
     disable_fallback: Optional[bool] = False
-    demo_mode: Optional[bool] = False
 
 class FollowupRequest(BaseModel):
     parent_run_id: str
@@ -137,6 +142,7 @@ class FollowupRequest(BaseModel):
     provider: Optional[str] = "auto"
     gemini_key: Optional[str] = None
     anthropic_key: Optional[str] = None
+    openai_key: Optional[str] = None
     disable_fallback: Optional[bool] = False
 
 class DialogueChatRequest(BaseModel):
@@ -145,6 +151,7 @@ class DialogueChatRequest(BaseModel):
     provider: Optional[str] = "auto"
     gemini_key: Optional[str] = None
     anthropic_key: Optional[str] = None
+    openai_key: Optional[str] = None
     disable_fallback: Optional[bool] = False
 
 class ExportRequest(BaseModel):
@@ -241,6 +248,8 @@ async def register_user_endpoint(request: Request, response: Response, req: User
         username=user["username"],
         email=user["email"],
         role=user.get("role", "user"),
+        oauth_provider=user.get("oauth_provider", "local"),
+        avatar_url=user.get("avatar_url"),
         created_at=str(user.get("created_at") or ""),
         last_login=str(user.get("last_login") or "")
     )
@@ -255,8 +264,14 @@ async def login_user_endpoint(request: Request, response: Response, req: UserLog
     if not user:
         user = get_user_by_email(username_or_email)
         
-    if not user or not verify_password(req.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Account not registered. No account exists with this username or email. Please register to create an account."
+        )
+    
+    if not user.get("password_hash") or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Incorrect password. Please verify your credentials and try again.")
     
     update_user_last_login(user["id"])
     token = create_access_token({"sub": user["id"], "username": user["username"], "role": user["role"]})
@@ -273,19 +288,32 @@ async def login_user_endpoint(request: Request, response: Response, req: UserLog
         username=user["username"],
         email=user["email"],
         role=user.get("role", "user"),
+        oauth_provider=user.get("oauth_provider", "local"),
+        avatar_url=user.get("avatar_url"),
         created_at=str(user.get("created_at") or ""),
         last_login=str(user.get("last_login") or "")
     )
     return TokenResponse(access_token=token, token_type="bearer", user=user_resp)
 
 @app.get("/api/auth/me", response_model=UserResponse)
-async def get_current_user_profile(current_user: Dict[str, Any] = Depends(get_current_user_required)):
-    """Returns the profile of the currently authenticated user."""
+async def get_current_user_profile(response: Response, current_user: Dict[str, Any] = Depends(get_current_user_required)):
+    """Returns the profile of the currently authenticated user and refreshes access cookie."""
+    token = create_access_token({"sub": current_user["id"], "username": current_user["username"], "role": current_user.get("role", "user")})
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        max_age=7 * 24 * 3600,
+        samesite="lax",
+        secure=False
+    )
     return UserResponse(
         id=current_user["id"],
         username=current_user["username"],
         email=current_user["email"],
         role=current_user.get("role", "user"),
+        oauth_provider=current_user.get("oauth_provider", "local"),
+        avatar_url=current_user.get("avatar_url"),
         created_at=str(current_user.get("created_at") or ""),
         last_login=str(current_user.get("last_login") or "")
     )
@@ -298,6 +326,314 @@ async def logout_user_endpoint(response: Response):
     return {"status": "ok", "message": "Successfully signed out."}
 
 # =========================================================
+# OAUTH 2.0 / SOCIAL LOGIN ENDPOINTS (GOOGLE & GITHUB)
+# =========================================================
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "").strip()
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "").strip()
+
+def get_oauth_redirect_uri(request: Request, provider: str) -> str:
+    app_base = os.getenv("APP_BASE_URL", "").strip().rstrip("/")
+    if app_base:
+        return f"{app_base}/api/auth/{provider}/callback"
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/api/auth/{provider}/callback"
+
+@app.get("/api/auth/providers", response_model=OAuthProvidersResponse)
+def get_auth_providers_endpoint():
+    """Returns the availability status of third-party OAuth providers."""
+    return OAuthProvidersResponse(
+        local=True,
+        google=bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET),
+        github=bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
+    )
+
+@app.get("/api/auth/google/login")
+def google_login_redirect(request: Request):
+    """Redirects the client to Google's OAuth 2.0 authorization page."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=400,
+            detail="Google OAuth is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your .env file."
+        )
+    redirect_uri = get_oauth_redirect_uri(request, "google")
+    state = secrets.token_urlsafe(32)
+    scope = "openid email profile"
+    url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={GOOGLE_CLIENT_ID}&response_type=code&scope={scope}&"
+        f"redirect_uri={redirect_uri}&access_type=offline&prompt=select_account&state={state}"
+    )
+    resp = RedirectResponse(url)
+    resp.set_cookie("oauth_state", state, httponly=True, max_age=600, samesite="lax")
+    return resp
+
+@app.get("/api/auth/google/callback")
+async def google_oauth_callback(request: Request, code: Optional[str] = None, error: Optional[str] = None):
+    """Exchanges Google OAuth code for tokens and issues a secure JWT."""
+    if error or not code:
+        return RedirectResponse(f"/?auth_error={error or 'cancelled'}")
+    
+    redirect_uri = get_oauth_redirect_uri(request, "google")
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        token_res = await client.post("https://oauth2.googleapis.com/token", data={
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri
+        })
+        token_json = token_res.json()
+        access_token = token_json.get("access_token")
+        if not access_token:
+            err_msg = token_json.get("error_description") or "Failed to exchange Google OAuth code"
+            return RedirectResponse(f"/?auth_error={err_msg}")
+        
+        info_res = await client.get("https://www.googleapis.com/oauth2/v2/userinfo", headers={
+            "Authorization": f"Bearer {access_token}"
+        })
+        info = info_res.json()
+
+    email = info.get("email")
+    if not email:
+        return RedirectResponse("/?auth_error=google_missing_email")
+
+    user = create_or_update_oauth_user(
+        provider="google",
+        oauth_id=str(info.get("id")),
+        email=email,
+        username=info.get("name") or email.split("@")[0],
+        avatar_url=info.get("picture", "")
+    )
+
+    token = create_access_token({"sub": user["id"], "username": user["username"], "role": user.get("role", "user")})
+    resp = RedirectResponse(f"/?auth_token={token}&auth_provider=google")
+    resp.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        max_age=7 * 24 * 3600,
+        samesite="lax",
+        secure=False
+    )
+    return resp
+
+@app.get("/api/auth/github/login")
+def github_login_redirect(request: Request):
+    """Redirects the client to GitHub's OAuth authorization page."""
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub OAuth is not configured. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in your .env file."
+        )
+    redirect_uri = get_oauth_redirect_uri(request, "github")
+    state = secrets.token_urlsafe(32)
+    scope = "read:user user:email"
+    url = (
+        f"https://github.com/login/oauth/authorize?"
+        f"client_id={GITHUB_CLIENT_ID}&redirect_uri={redirect_uri}&scope={scope}&state={state}"
+    )
+    resp = RedirectResponse(url)
+    resp.set_cookie("oauth_state", state, httponly=True, max_age=600, samesite="lax")
+    return resp
+
+@app.get("/api/auth/github/callback")
+async def github_oauth_callback(request: Request, code: Optional[str] = None, error: Optional[str] = None):
+    """Exchanges GitHub OAuth code for tokens and issues a secure JWT."""
+    if error or not code:
+        return RedirectResponse(f"/?auth_error={error or 'cancelled'}")
+    
+    redirect_uri = get_oauth_redirect_uri(request, "github")
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        token_res = await client.post("https://github.com/login/oauth/access_token", headers={"Accept": "application/json"}, data={
+            "client_id": GITHUB_CLIENT_ID,
+            "client_secret": GITHUB_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": redirect_uri
+        })
+        token_json = token_res.json()
+        access_token = token_json.get("access_token")
+        if not access_token:
+            err_msg = token_json.get("error_description") or "Failed to exchange GitHub OAuth code"
+            return RedirectResponse(f"/?auth_error={err_msg}")
+
+        user_res = await client.get("https://api.github.com/user", headers={
+            "Authorization": f"Bearer {access_token}"
+        })
+        gh_user = user_res.json()
+
+        email = gh_user.get("email")
+        if not email:
+            emails_res = await client.get("https://api.github.com/user/emails", headers={
+                "Authorization": f"Bearer {access_token}"
+            })
+            emails = emails_res.json()
+            if isinstance(emails, list):
+                primary = next((e["email"] for e in emails if e.get("primary") and e.get("verified")), None)
+                email = primary or (emails[0]["email"] if emails else None)
+        
+        if not email:
+            email = f"{gh_user.get('login', 'github_user')}@users.noreply.github.com"
+
+    user = create_or_update_oauth_user(
+        provider="github",
+        oauth_id=str(gh_user.get("id")),
+        email=email,
+        username=gh_user.get("login") or gh_user.get("name") or "github_user",
+        avatar_url=gh_user.get("avatar_url", "")
+    )
+
+    token = create_access_token({"sub": user["id"], "username": user["username"], "role": user.get("role", "user")})
+    resp = RedirectResponse(f"/?auth_token={token}&auth_provider=github")
+    resp.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        max_age=7 * 24 * 3600,
+        samesite="lax",
+        secure=False
+    )
+    return resp
+
+# =========================================================
+# ENCRYPTED PER-USER API KEY VAULT (AES-256-GCM)
+# =========================================================
+
+@app.get("/api/auth/api-keys", response_model=ApiKeysStatusResponse)
+async def get_user_api_keys_endpoint(current_user: Dict[str, Any] = Depends(get_current_user_required)):
+    """
+    Returns masked previews and configured indicators for the user's encrypted API keys.
+    Plaintext decrypted keys are NEVER returned over the API!
+    """
+    hints = get_user_api_key_hints(current_user["id"])
+    return ApiKeysStatusResponse(status="success", keys=hints)
+
+@app.post("/api/auth/api-keys")
+async def save_user_api_key_endpoint(req: SaveApiKeyRequest, current_user: Dict[str, Any] = Depends(get_current_user_required)):
+    """
+    Securely encrypts an API key using authenticated AES-256-GCM and stores it in the database for the user.
+    """
+    try:
+        encrypted_blob, hint = encrypt_api_key_for_user(req.api_key, current_user["id"])
+        save_user_api_key(current_user["id"], req.provider, encrypted_blob, hint)
+        return {
+            "status": "success",
+            "provider": req.provider,
+            "hint": hint,
+            "message": f"Successfully encrypted and stored {req.provider.capitalize()} API key."
+        }
+    except Exception as e:
+        logger.error(f"Failed to encrypt user API key: {e}")
+        raise HTTPException(status_code=500, detail="Failed to securely encrypt API key.")
+
+@app.delete("/api/auth/api-keys/{provider}")
+async def delete_user_api_key_endpoint(provider: str, current_user: Dict[str, Any] = Depends(get_current_user_required)):
+    """Deletes the stored encrypted API key for the specified provider."""
+    clean_prov = provider.lower().strip()
+    if clean_prov not in ["gemini", "anthropic", "openai", "serpapi"]:
+        raise HTTPException(status_code=400, detail="Invalid provider.")
+    deleted = delete_user_api_key(current_user["id"], clean_prov)
+    return {"status": "success", "provider": clean_prov, "deleted": deleted}
+
+def get_user_decrypted_keys(user_id: Optional[str]) -> Dict[str, str]:
+    """Retrieves all decrypted API keys stored in Neon PostgreSQL vault for the user."""
+    if not user_id:
+        return {}
+    decrypted: Dict[str, str] = {}
+    for prov in ["gemini", "anthropic", "openai", "serpapi"]:
+        try:
+            enc = get_user_encrypted_key(user_id, prov)
+            if enc:
+                plain = decrypt_api_key_for_user(enc, user_id)
+                if plain:
+                    decrypted[prov] = plain
+        except Exception as e:
+            logger.warning(f"Failed to decrypt vault key for {prov} (user {user_id}): {e}")
+    return decrypted
+
+def resolve_api_key_for_model(model: str, user_id: Optional[str] = None, explicit_key: Optional[str] = None) -> Optional[str]:
+    """
+    Intelligently resolves the required API key for a requested model across:
+    1. Explicit key parameter or header
+    2. User's encrypted PostgreSQL vault (via user_id)
+    3. Server-level environment variables
+    """
+    if explicit_key and explicit_key.strip():
+        return explicit_key.strip()
+
+    m = (model or "").lower().strip()
+    is_openai = any(k in m for k in ("gpt", "sol", "luna", "astra", "o1", "o3", "openai", "text-embedding"))
+    is_claude = any(k in m for k in ("claude", "sonnet", "opus", "haiku", "anthropic"))
+    is_gemini = "gemini" in m
+
+    vault_keys = get_user_decrypted_keys(user_id) if user_id else {}
+
+    if is_openai:
+        if vault_keys.get("openai"):
+            return vault_keys["openai"]
+        return os.environ.get("OPENAI_API_KEY")
+    elif is_claude:
+        if vault_keys.get("anthropic"):
+            return vault_keys["anthropic"]
+        return os.environ.get("ANTHROPIC_API_KEY")
+    elif is_gemini:
+        if vault_keys.get("gemini"):
+            return vault_keys["gemini"]
+        return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
+    # If model preference does not explicitly name a known provider, check active vault keys
+    for prov in ["openai", "gemini", "anthropic"]:
+        if vault_keys.get(prov):
+            return vault_keys[prov]
+
+    return os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+
+def inject_user_api_keys(cfg: Dict[str, Any], user_id: Optional[str]) -> Dict[str, Any]:
+    """
+    Securely decrypts and injects the authenticated user's stored API keys into the execution config
+    for any providers where a key was not explicitly provided in the request body/headers.
+    Also aligns provider settings if user only has keys configured for a specific provider.
+    """
+    if not user_id:
+        return cfg
+    
+    vault_keys = get_user_decrypted_keys(user_id)
+    for prov in ["gemini", "anthropic", "openai", "serpapi"]:
+        key_field = f"{prov}_key"
+        if not cfg.get(key_field) and vault_keys.get(prov):
+            cfg[key_field] = vault_keys[prov]
+
+    # Intelligent Provider Alignment:
+    # If user has an OpenAI key, but no Gemini/Anthropic keys, and default Gemini was selected:
+    has_gemini = bool(cfg.get("gemini_key") or os.environ.get("GEMINI_API_KEY"))
+    has_anthropic = bool(cfg.get("anthropic_key") or os.environ.get("ANTHROPIC_API_KEY"))
+    has_openai = bool(cfg.get("openai_key") or os.environ.get("OPENAI_API_KEY"))
+
+    p2 = str(cfg.get("provider_agent2", "")).lower()
+    p4 = str(cfg.get("provider_agent4", "")).lower()
+
+    if has_openai and not has_gemini and not has_anthropic:
+        if not p2 or p2 == "auto" or p2.startswith("gemini") or "claude" in p2:
+            cfg["provider_agent2"] = "gpt-6.1-sol"
+        if not p4 or p4 == "auto" or p4.startswith("gemini") or "claude" in p4:
+            cfg["provider_agent4"] = "gpt-6-luna"
+    elif has_anthropic and not has_gemini and not has_openai:
+        if not p2 or p2 == "auto" or p2.startswith("gemini") or "gpt" in p2:
+            cfg["provider_agent2"] = "claude-sonnet-5.5"
+        if not p4 or p4 == "auto" or p4.startswith("gemini") or "gpt" in p4:
+            cfg["provider_agent4"] = "claude-haiku-4.5"
+    elif has_gemini and not has_openai and not has_anthropic:
+        if not p2 or p2 == "auto" or "gpt" in p2 or "claude" in p2:
+            cfg["provider_agent2"] = "gemini-3.6-flash"
+        if not p4 or p4 == "auto" or "gpt" in p4 or "claude" in p4:
+            cfg["provider_agent4"] = "gemini-3.6-flash"
+
+    return cfg
+
+
+# =========================================================
 # RESEARCH PIPELINE EXECUTION (CORE AGENTS 1-4)
 # =========================================================
 
@@ -307,8 +643,17 @@ async def run_pipeline_sync(request: Request, req: QueryRequest, current_user: O
     """Executes full research pipeline synchronously."""
     # BUG-04: Upgrade .dict() to .model_dump()
     cfg = req.model_dump()
+    if not cfg.get("openai_key") and request.headers.get("x-openai-key"):
+        cfg["openai_key"] = request.headers.get("x-openai-key")
+    if not cfg.get("gemini_key") and request.headers.get("x-gemini-key"):
+        cfg["gemini_key"] = request.headers.get("x-gemini-key")
+    if not cfg.get("anthropic_key") and request.headers.get("x-anthropic-key"):
+        cfg["anthropic_key"] = request.headers.get("x-anthropic-key")
+    if not cfg.get("serpapi_key") and request.headers.get("x-serpapi-key"):
+        cfg["serpapi_key"] = request.headers.get("x-serpapi-key")
     if current_user:
         cfg["user_id"] = current_user["id"]
+        cfg = inject_user_api_keys(cfg, current_user["id"])
     result = await run_query_pipeline(req.query, cfg)
     return result
 
@@ -320,8 +665,17 @@ async def stream_query_endpoint_post(request: Request, req: QueryRequest, curren
     Transmits API keys in the POST body or headers, avoiding query parameter leakage.
     """
     cfg = req.model_dump()
+    if not cfg.get("openai_key") and request.headers.get("x-openai-key"):
+        cfg["openai_key"] = request.headers.get("x-openai-key")
+    if not cfg.get("gemini_key") and request.headers.get("x-gemini-key"):
+        cfg["gemini_key"] = request.headers.get("x-gemini-key")
+    if not cfg.get("anthropic_key") and request.headers.get("x-anthropic-key"):
+        cfg["anthropic_key"] = request.headers.get("x-anthropic-key")
+    if not cfg.get("serpapi_key") and request.headers.get("x-serpapi-key"):
+        cfg["serpapi_key"] = request.headers.get("x-serpapi-key")
     if current_user:
         cfg["user_id"] = current_user["id"]
+        cfg = inject_user_api_keys(cfg, current_user["id"])
     return StreamingResponse(
         stream_query_pipeline(req.query, cfg),
         media_type="text/event-stream",
@@ -340,13 +694,13 @@ async def stream_query_endpoint_get(
     provider_agent4: str = "auto",
     disable_fallback_agent2: bool = False,
     disable_fallback_agent4: bool = False,
-    demo_mode: bool = False,
     scraper_sources: str = "all",
     similarity_threshold: float = 0.55,
     paper_limit: int = 5,
     execution_mode: str = "deep",
     gemini_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
+    openai_key: Optional[str] = None,
     serpapi_key: Optional[str] = None,
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
 ):
@@ -356,7 +710,7 @@ async def stream_query_endpoint_get(
     if not query:
         raise HTTPException(status_code=400, detail="Parameter 'query' is required.")
 
-    if gemini_key or anthropic_key or serpapi_key:
+    if gemini_key or anthropic_key or openai_key or serpapi_key:
         raise HTTPException(
             status_code=400,
             detail="Passing API keys in GET query parameters is prohibited for security. Please use POST /api/pipeline/stream."
@@ -367,16 +721,18 @@ async def stream_query_endpoint_get(
         "provider_agent4": provider_agent4,
         "disable_fallback_agent2": disable_fallback_agent2,
         "disable_fallback_agent4": disable_fallback_agent4,
-        "demo_mode": demo_mode,
         "scraper_sources": scraper_sources,
         "similarity_threshold": similarity_threshold,
         "paper_limit": paper_limit,
         "execution_mode": execution_mode,
         "gemini_key": gemini_key or os.environ.get("GEMINI_API_KEY", ""),
         "anthropic_key": anthropic_key or os.environ.get("ANTHROPIC_API_KEY", ""),
+        "openai_key": openai_key or os.environ.get("OPENAI_API_KEY", ""),
         "serpapi_key": serpapi_key or os.environ.get("SERPAPI_API_KEY", ""),
         "user_id": current_user["id"] if current_user else None
     }
+    if current_user:
+        config = inject_user_api_keys(config, current_user["id"])
     return StreamingResponse(
         stream_query_pipeline(query, config),
         media_type="text/event-stream",
@@ -402,13 +758,14 @@ def get_history(limit: int = 50, current_user: Optional[Dict[str, Any]] = Depend
     return {"status": "success", "count": len(runs), "runs": runs}
 
 @app.get("/api/history/prompts")
-def get_prompt_history_endpoint(limit: int = 50):
+def get_prompt_history_endpoint(limit: int = 50, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
     """
     Returns the comprehensive hierarchical prompt & follow-up tree:
     Every parent query along with all nested follow-up questions,
     timestamps, and total thread token metrics.
     """
-    prompts = get_all_prompt_history(limit=limit)
+    user_id = current_user["id"] if current_user else None
+    prompts = get_all_prompt_history(limit=limit, user_id=user_id)
     return {"status": "success", "count": len(prompts), "prompts": prompts}
 
 @app.get("/api/history/run/{run_id}/followups")
@@ -453,13 +810,24 @@ def delete_history_item(run_id: str):
 
 @app.post("/api/pipeline/followup")
 @limiter.limit("30/minute")
-async def pipeline_followup_endpoint(request: Request, req: FollowupRequest):
+async def pipeline_followup_endpoint(request: Request, req: FollowupRequest, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
     """
     FOL-02 / FOL-03: Executes an ultra-low-token targeted follow-up synthesis.
     Extracts atomic context from local SQLite (IDCC), bypassing external web re-scraping.
     Consumes ~400-650 tokens total (an 80%+ reduction vs standard multi-turn chat).
     """
     clean_parent_id = os.path.basename(req.parent_run_id.strip("/\\"))
+    gemini_k = req.gemini_key or request.headers.get("x-gemini-key")
+    anthropic_k = req.anthropic_key or request.headers.get("x-anthropic-key")
+    openai_k = req.openai_key or request.headers.get("x-openai-key")
+    
+    if current_user:
+        dummy = {"gemini_key": gemini_k, "anthropic_key": anthropic_k, "openai_key": openai_k}
+        dummy = inject_user_api_keys(dummy, current_user["id"])
+        gemini_k = dummy.get("gemini_key")
+        anthropic_k = dummy.get("anthropic_key")
+        openai_k = dummy.get("openai_key")
+
     try:
         result = await run_followup_synthesis(
             parent_run_id=clean_parent_id,
@@ -467,8 +835,9 @@ async def pipeline_followup_endpoint(request: Request, req: FollowupRequest):
             claim_id=req.claim_id,
             target_topic=req.target_topic,
             provider=req.provider or "auto",
-            gemini_key=req.gemini_key,
-            anthropic_key=req.anthropic_key,
+            gemini_key=gemini_k,
+            anthropic_key=anthropic_k,
+            openai_key=openai_k,
             disable_fallback=req.disable_fallback or False
         )
         return result
@@ -484,19 +853,31 @@ async def pipeline_followup_endpoint(request: Request, req: FollowupRequest):
 
 @app.post("/api/dialogue/chat")
 @limiter.limit("30/minute")
-async def dialogue_chat_endpoint(request: Request, req: DialogueChatRequest):
+async def dialogue_chat_endpoint(request: Request, req: DialogueChatRequest, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
     """
     CHAT-03: Executes a continuous multi-turn research dialogue turn via DHS-RCC.
     Strictly bounds prompt input to <= 750 tokens, yielding 80-88% savings vs web chat.
     """
     clean_run_id = os.path.basename(req.run_id.strip("/\\"))
+    gemini_k = req.gemini_key or request.headers.get("x-gemini-key")
+    anthropic_k = req.anthropic_key or request.headers.get("x-anthropic-key")
+    openai_k = req.openai_key or request.headers.get("x-openai-key")
+
+    if current_user:
+        dummy = {"gemini_key": gemini_k, "anthropic_key": anthropic_k, "openai_key": openai_k}
+        dummy = inject_user_api_keys(dummy, current_user["id"])
+        gemini_k = dummy.get("gemini_key")
+        anthropic_k = dummy.get("anthropic_key")
+        openai_k = dummy.get("openai_key")
+
     try:
         result = await run_dialogue_turn(
             run_id=clean_run_id,
             user_message=req.message,
             provider=req.provider or "auto",
-            gemini_key=req.gemini_key,
-            anthropic_key=req.anthropic_key,
+            gemini_key=gemini_k,
+            anthropic_key=anthropic_k,
+            openai_key=openai_k,
             disable_fallback=req.disable_fallback or False
         )
         return result
@@ -622,12 +1003,12 @@ def suggest_queries(q: str = "", limit: int = 5):
         safe_prefix = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         if safe_prefix:
             cursor.execute(
-                "SELECT DISTINCT query FROM pipeline_runs WHERE LOWER(query) LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?",
+                "SELECT query FROM pipeline_runs WHERE LOWER(query) LIKE ? ESCAPE '\\' GROUP BY query ORDER BY MAX(created_at) DESC LIMIT ?",
                 (f"%{safe_prefix}%", limit)
             )
         else:
             cursor.execute(
-                "SELECT DISTINCT query FROM pipeline_runs ORDER BY created_at DESC LIMIT ?",
+                "SELECT query FROM pipeline_runs GROUP BY query ORDER BY MAX(created_at) DESC LIMIT ?",
                 (limit,)
             )
         rows = cursor.fetchall()
@@ -662,8 +1043,9 @@ def list_cached_papers(limit: int = 50):
     return {"count": len(papers), "papers": papers}
 
 @app.get("/api/cache/runs")
-def list_past_runs(limit: int = 10):
-    runs = get_run_history(limit=limit)
+def list_past_runs(limit: int = 10, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
+    user_id = current_user["id"] if current_user else None
+    runs = get_run_history(limit=limit, user_id=user_id)
     return {"runs": runs}
 
 @app.get("/api/cache/stats")
@@ -857,8 +1239,17 @@ def remove_pdf_session(session_id: str):
 
 @app.post("/api/pdf/qa")
 @limiter.limit("30/minute")
-async def pdf_qa_endpoint(request: Request, req: PDFQueryRequest):
+async def pdf_qa_endpoint(request: Request, req: PDFQueryRequest, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
     cfg = req.model_dump()
+    if not cfg.get("openai_key") and request.headers.get("x-openai-key"):
+        cfg["openai_key"] = request.headers.get("x-openai-key")
+    if not cfg.get("gemini_key") and request.headers.get("x-gemini-key"):
+        cfg["gemini_key"] = request.headers.get("x-gemini-key")
+    if not cfg.get("anthropic_key") and request.headers.get("x-anthropic-key"):
+        cfg["anthropic_key"] = request.headers.get("x-anthropic-key")
+    if current_user:
+        cfg["user_id"] = current_user["id"]
+        cfg = inject_user_api_keys(cfg, current_user["id"])
     result = await run_pdf_pipeline(
         session_id=req.session_id,
         action="qa",
@@ -869,9 +1260,18 @@ async def pdf_qa_endpoint(request: Request, req: PDFQueryRequest):
 
 @app.post("/api/pdf/stream")
 @limiter.limit("30/minute")
-async def stream_pdf_endpoint_post(request: Request, req: PDFQueryRequest):
+async def stream_pdf_endpoint_post(request: Request, req: PDFQueryRequest, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
     """SEC-01: Secure POST streaming for PDF analysis."""
     cfg = req.model_dump()
+    if not cfg.get("openai_key") and request.headers.get("x-openai-key"):
+        cfg["openai_key"] = request.headers.get("x-openai-key")
+    if not cfg.get("gemini_key") and request.headers.get("x-gemini-key"):
+        cfg["gemini_key"] = request.headers.get("x-gemini-key")
+    if not cfg.get("anthropic_key") and request.headers.get("x-anthropic-key"):
+        cfg["anthropic_key"] = request.headers.get("x-anthropic-key")
+    if current_user:
+        cfg["user_id"] = current_user["id"]
+        cfg = inject_user_api_keys(cfg, current_user["id"])
     return StreamingResponse(
         stream_pdf_pipeline(req.session_id, req.action, req.query or "", cfg),
         media_type="text/event-stream",
@@ -889,12 +1289,12 @@ async def stream_pdf_endpoint_get(
     query: str = "",
     provider: str = "auto",
     disable_fallback: bool = False,
-    demo_mode: bool = False,
     analysis_type: str = "methodology",
     gemini_key: Optional[str] = None,
-    anthropic_key: Optional[str] = None
+    anthropic_key: Optional[str] = None,
+    openai_key: Optional[str] = None
 ):
-    if gemini_key or anthropic_key:
+    if gemini_key or anthropic_key or openai_key:
         raise HTTPException(
             status_code=400,
             detail="Passing API keys in GET query parameters is prohibited for security. Please use POST /api/pdf/stream."
@@ -903,10 +1303,10 @@ async def stream_pdf_endpoint_get(
     config = {
         "provider": provider,
         "disable_fallback": disable_fallback,
-        "demo_mode": demo_mode,
         "analysis_type": analysis_type,
         "gemini_key": gemini_key or os.environ.get("GEMINI_API_KEY", ""),
-        "anthropic_key": anthropic_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        "anthropic_key": anthropic_key or os.environ.get("ANTHROPIC_API_KEY", ""),
+        "openai_key": openai_key or os.environ.get("OPENAI_API_KEY", "")
     }
     return StreamingResponse(
         stream_pdf_pipeline(session_id, action, query, config),
@@ -944,7 +1344,322 @@ def get_extracted_figure(session_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Figure not found.")
     return FileResponse(fig_path)
 
+# -------------------------------------------------------------
+# Comparative Scientific Study Harness Endpoints (3-System Benchmark)
+# -------------------------------------------------------------
+try:
+    from evals.prompts import BENCHMARK_PROMPTS
+    from evals.direct_api_system import DirectAPISystem
+    from evals.conventional_rag_system import ConventionalRAGSystem
+    from evals.workbench_system import WorkbenchSystem
+    from evals.run_study import analyze_text_quality, calculate_estimated_cost
+except Exception as e:
+    logger.warning(f"Could not import evals modules: {e}")
+
+EVALS_DOCX_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "evals", "Comparative_Study_Protocol_and_Workbook.docx")
+
+class EvalSingleSystemRequest(BaseModel):
+    system_type: str  # 'a', 'b', or 'c'
+    query: str
+    model: str = "claude-sonnet-5.5"
+    api_key: Optional[str] = None
+    top_k: int = 5
+
+class EvalSystemConfig(BaseModel):
+    enabled: bool = True
+    model: str = "claude-sonnet-5.5"
+    api_key: Optional[str] = None
+    top_k: int = 5
+
+class EvalComparisonRequest(BaseModel):
+    query: str
+    system_a: EvalSystemConfig
+    system_b: EvalSystemConfig
+    system_c: EvalSystemConfig
+
+async def _run_eval_single_system(sys_type: str, query: str, model: str, api_key: Optional[str], top_k: int = 5, user_id: Optional[str] = None) -> Dict[str, Any]:
+    sys_type = sys_type.lower()
+    resolved_key = resolve_api_key_for_model(model, user_id=user_id, explicit_key=api_key)
+    if sys_type == "a":
+        wb = WorkbenchSystem(model_pref=model)
+        res = await wb.execute(query, api_key=resolved_key)
+        analysis = analyze_text_quality(res.output_text)
+        cost = calculate_estimated_cost(model, res.input_tokens, res.output_tokens)
+        return {
+            **res.to_dict(),
+            "cost_usd": cost,
+            "text_analysis": analysis
+        }
+    elif sys_type == "b":
+        rag = ConventionalRAGSystem(model_pref=model, top_k=top_k)
+        res = await rag.execute(query, api_key=resolved_key)
+        analysis = analyze_text_quality(res.output_text)
+        cost = calculate_estimated_cost(model, res.input_tokens, res.output_tokens)
+        
+        run_id = f"run_b_{uuid.uuid4().hex[:8]}"
+        citations = [
+            {
+                "ref_id": str(idx + 1),
+                "title": chunk.title or f"Retrieved Chunk {idx + 1}",
+                "authors": chunk.source_venue or "Academic Literature Vector Index",
+                "year": "2024",
+                "venue": chunk.source_venue or "FastEmbed ONNX Vector Index",
+                "url": chunk.url or "#",
+                "evidence": (chunk.text[:240] + "...") if chunk.text else "Direct passage match retrieved via cosine similarity.",
+                "supporting_snippets": [chunk.text] if chunk.text else []
+            }
+            for idx, chunk in enumerate(res.retrieved_chunks)
+        ]
+        rag_dossier = {
+            "run_id": run_id,
+            "query": query,
+            "architecture": "system_b",
+            "model": res.model,
+            "output_text": res.output_text,
+            "latency_seconds": round(res.latency_seconds, 2),
+            "elapsed_seconds": round(res.latency_seconds, 2),
+            "tokens": res.total_tokens,
+            "prompt_tokens": res.input_tokens,
+            "completion_tokens": res.output_tokens,
+            "cost_usd": cost,
+            "citations": citations,
+            "quick_answer": "Generated via System B: Conventional RAG Baseline (FastEmbed ONNX Vector Retrieval + Single LLM Call). Multi-agent verification and claim caching bypassed.",
+            "takeaways": [
+                f"Top-{res.retrieved_sources_count or len(citations) or top_k} dense vector passages retrieved via ONNX embeddings.",
+                "Single augmented generation pass synthesizes retrieved context into monograph.",
+                "Unverified: No multi-agent claim verification or 0-token caching applied."
+            ],
+            "evaluated_claims": [],
+            "dossier_sections": []
+        }
+        await asyncio.to_thread(
+            log_pipeline_run,
+            run_id,
+            query,
+            res.total_tokens,
+            res.latency_seconds,
+            rag_dossier,
+            res.input_tokens,
+            res.output_tokens,
+            user_id
+        )
+        return {
+            **res.to_dict(),
+            "run_id": run_id,
+            "cost_usd": cost,
+            "text_analysis": analysis,
+            "dossier": rag_dossier
+        }
+    elif sys_type == "c":
+        direct = DirectAPISystem(model_pref=model)
+        res = await direct.execute(query, api_key=resolved_key)
+        analysis = analyze_text_quality(res.output_text)
+        cost = calculate_estimated_cost(model, res.input_tokens, res.output_tokens)
+        
+        run_id = f"run_c_{uuid.uuid4().hex[:8]}"
+        direct_dossier = {
+            "run_id": run_id,
+            "query": query,
+            "architecture": "system_c",
+            "model": res.model,
+            "output_text": res.output_text,
+            "latency_seconds": round(res.latency_seconds, 2),
+            "elapsed_seconds": round(res.latency_seconds, 2),
+            "tokens": res.total_tokens,
+            "prompt_tokens": res.input_tokens,
+            "completion_tokens": res.output_tokens,
+            "cost_usd": cost,
+            "citations": [],
+            "quick_answer": "Generated via System C: Direct Single API Baseline (Zero-Shot Parametric Memory). External retrieval and verification bypassed.",
+            "takeaways": [
+                "Synthesized entirely from internal LLM parametric training weights.",
+                "Zero external scientific literature retrieved or corroborated.",
+                "Elevated hallucination risk: Citations and post-cutoff numerical bounds are unverified."
+            ],
+            "evaluated_claims": [],
+            "dossier_sections": []
+        }
+        await asyncio.to_thread(
+            log_pipeline_run,
+            run_id,
+            query,
+            res.total_tokens,
+            res.latency_seconds,
+            direct_dossier,
+            res.input_tokens,
+            res.output_tokens,
+            user_id
+        )
+        return {
+            **res.to_dict(),
+            "run_id": run_id,
+            "cost_usd": cost,
+            "text_analysis": analysis,
+            "dossier": direct_dossier
+        }
+    else:
+        raise ValueError(f"Invalid system type: '{sys_type}' (expected 'a', 'b', or 'c')")
+
+@app.get("/api/evals/prompts")
+async def get_eval_prompts():
+    return [
+        {
+            "id": p.id,
+            "slug": p.slug,
+            "title": p.title,
+            "domain": p.domain,
+            "query": p.query,
+            "ground_truth_anchors": p.ground_truth_anchors,
+            "failure_modes_tested": p.failure_modes_tested,
+            "evaluation_focus": p.evaluation_focus
+        }
+        for p in BENCHMARK_PROMPTS
+    ]
+
+@app.get("/api/evals/download-docx")
+async def download_eval_docx():
+    if not os.path.exists(EVALS_DOCX_PATH):
+        from evals.build_study_docx import build_docx_report
+        build_docx_report(EVALS_DOCX_PATH)
+    return FileResponse(
+        path=EVALS_DOCX_PATH,
+        filename="Comparative_Study_Protocol_and_Workbook.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+@app.post("/api/evals/run-system")
+async def run_eval_single(
+    req: EvalSingleSystemRequest, 
+    request: Request,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
+):
+    try:
+        active_key = req.api_key or request.headers.get("x-openai-key") or request.headers.get("x-anthropic-key") or request.headers.get("x-api-key")
+        user_id = (current_user.get("id") or current_user.get("user_id")) if current_user else None
+        result = await _run_eval_single_system(
+            sys_type=req.system_type,
+            query=req.query,
+            model=req.model,
+            api_key=active_key,
+            top_k=req.top_k,
+            user_id=user_id
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Evaluation error on System {req.system_type}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/evals/run-comparison")
+async def run_eval_comparison(
+    req: EvalComparisonRequest, 
+    request: Request,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
+):
+    query = req.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+
+    header_key = request.headers.get("x-openai-key") or request.headers.get("x-anthropic-key") or request.headers.get("x-api-key")
+    key_a = req.system_a.api_key or header_key
+    key_b = req.system_b.api_key or header_key
+    key_c = req.system_c.api_key or header_key
+    user_id = (current_user.get("id") or current_user.get("user_id")) if current_user else None
+
+    tasks = []
+    task_keys = []
+
+    if req.system_a.enabled:
+        tasks.append(_run_eval_single_system("a", query, req.system_a.model, key_a, user_id=user_id))
+        task_keys.append("system_a")
+
+    if req.system_b.enabled:
+        tasks.append(_run_eval_single_system("b", query, req.system_b.model, key_b, req.system_b.top_k, user_id=user_id))
+        task_keys.append("system_b")
+
+    if req.system_c.enabled:
+        tasks.append(_run_eval_single_system("c", query, req.system_c.model, key_c, user_id=user_id))
+        task_keys.append("system_c")
+
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    response_data: Dict[str, Any] = {
+        "query": query,
+        "results": {}
+    }
+
+    for key, res in zip(task_keys, raw_results):
+        if isinstance(res, Exception):
+            response_data["results"][key] = {
+                "error": str(res),
+                "system_name": key.upper()
+            }
+        else:
+            response_data["results"][key] = res
+
+    return response_data
+
 # Mount static frontend
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+
+@app.get("/favicon.ico", include_in_schema=False)
+def serve_favicon_ico():
+    ico_path = os.path.join(frontend_dir, "favicon.ico")
+    if os.path.exists(ico_path):
+        return FileResponse(ico_path, media_type="image/x-icon")
+    return Response(status_code=204)
+
+@app.get("/favicon.svg", include_in_schema=False)
+def serve_favicon_svg():
+    svg_path = os.path.join(frontend_dir, "favicon.svg")
+    if os.path.exists(svg_path):
+        return FileResponse(svg_path, media_type="image/svg+xml")
+    return Response(status_code=204)
+
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+def serve_apple_touch_icon():
+    png_path = os.path.join(frontend_dir, "apple-touch-icon.png")
+    if os.path.exists(png_path):
+        return FileResponse(png_path, media_type="image/png")
+    return Response(status_code=204)
+
+@app.get("/login", response_class=FileResponse)
+def serve_login_page():
+    """Serves the dedicated full-screen login and registration portal."""
+    login_path = os.path.join(frontend_dir, "login.html")
+    if os.path.exists(login_path):
+        return FileResponse(login_path)
+    return FileResponse(os.path.join(frontend_dir, "index.html"))
+
+@app.get("/")
+@app.get("/index.html")
+async def serve_root(request: Request):
+    """
+    Serves the Research Workbench if authenticated, otherwise redirects directly to /login.
+    Strictly mandates authentication and disables guest mode.
+    """
+    # 1. If auth_token or auth_error query param exists (e.g. OAuth callback redirect),
+    # allow serving index.html so frontend client script can ingest it.
+    if request.query_params.get("auth_token") or request.query_params.get("auth_error"):
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
+
+    # 2. Check for token in cookie or Authorization header
+    token = request.cookies.get("access_token") or request.cookies.get("workbench_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+
+    # 3. Verify token validity and existing user in database
+    user = None
+    if token:
+        payload = decode_access_token(token)
+        if payload and "sub" in payload:
+            user = get_user_by_id(payload["sub"])
+
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    return FileResponse(os.path.join(frontend_dir, "index.html"))
+
 if os.path.exists(frontend_dir):
     app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

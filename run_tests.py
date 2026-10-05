@@ -40,4 +40,13 @@ from backend.database import init_db
 init_db()
 print("[PASS] Database init and migration test")
 
+# 6. Provenance classification & upstream sanitization test
+from backend.agents.agent1_scraper import classify_paper_provenance, sanitize_and_validate_paper_metadata
+tier, _ = classify_paper_provenance({"venue": "arXiv:2401.12345"})
+assert tier == "preprint", f"Expected preprint, got {tier}"
+tier_p, _ = classify_paper_provenance({"venue": "Nature", "source_type": "Peer-Reviewed Paper"})
+assert tier_p == "peer_reviewed", f"Expected peer_reviewed, got {tier_p}"
+assert sanitize_and_validate_paper_metadata({"title": "Too short", "abstract": "Short"}) is None
+print("[PASS] Provenance classification & upstream gatekeeper test")
+
 print("\nALL BEHAVIORAL TESTS PASSED PERFECTLY!")
