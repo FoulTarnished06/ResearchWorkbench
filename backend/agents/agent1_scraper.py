@@ -529,8 +529,8 @@ async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pa
             if not pdf_url:
                 return None
                 
-            # INCREASED TIMEOUT: Academic servers are notoriously slow. 4.5s was causing silent drops.
-            pdf_resp = await client.get(pdf_url, timeout=15.0, follow_redirects=True)
+            # Bounded timeout for responsive scraping turnaround
+            pdf_resp = await client.get(pdf_url, timeout=6.0, follow_redirects=True)
             if pdf_resp.status_code == 200 and len(pdf_resp.content) > 1000 and pdf_resp.content[:4] == b"%PDF" and pymupdf is not None:
                 doc = pymupdf.open(stream=io.BytesIO(pdf_resp.content), filetype="pdf")
                 total_pages = len(doc)

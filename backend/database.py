@@ -178,7 +178,7 @@ class DatabaseEngine:
             self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
             
         if self.is_sqlite or self.fallback_to_sqlite:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = sqlite3.connect(self.db_path, timeout=5.0)
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("PRAGMA synchronous = NORMAL;")
             conn.row_factory = sqlite3.Row
@@ -192,7 +192,7 @@ class DatabaseEngine:
                 logger.warning(f"Failed to connect to cloud database via DATABASE_URL: {e}; falling back to SQLite")
                 self.fallback_to_sqlite = True
                 self.is_sqlite = True
-                conn = sqlite3.connect(self.db_path, timeout=30.0)
+                conn = sqlite3.connect(self.db_path, timeout=5.0)
                 conn.execute("PRAGMA foreign_keys = ON;")
                 conn.execute("PRAGMA synchronous = NORMAL;")
                 conn.row_factory = sqlite3.Row

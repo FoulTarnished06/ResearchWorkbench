@@ -1551,6 +1551,12 @@ function executePipeline(query) {
 
   startElapsedTimer();
   resetNodeStates();
+  const arch = UIState.activeArchitecture || 'system_a';
+  if (arch === 'system_c') {
+    activateNode(2);
+  } else {
+    activateNode(1);
+  }
   
   document.getElementById('canvas-error-banner')?.classList.add('hidden');
   document.getElementById('dossier-error-banner')?.classList.add('hidden');
@@ -1558,7 +1564,6 @@ function executePipeline(query) {
   logToCanvas(`\n[QUERY] "${query}"`);
 
   // Active Architecture routing (System A vs System B vs System C)
-  const arch = UIState.activeArchitecture || 'system_a';
   if (arch === 'system_b') {
     logToCanvas("[ARCH] Routing execution to System B: Conventional RAG Baseline.");
     logToCanvas("[BUDGET] Top-K Dense Vector Retrieval (FastEmbed) + 1 LLM Augmented Generation call.");

@@ -329,12 +329,22 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
 
     user_id = config.get("user_id")
 
+    active_scrapers = config.get("active_scrapers")
+    scraper_label = f"{len(active_scrapers)} selected" if active_scrapers else "6 public academic"
+
     # Initial start event
     yield sse_message("pipeline_start", {
         "run_id": run_id,
         "query": user_query,
         "timestamp": time.time(),
         "status": "Pipeline initiated. Strict 2-LLM budget locked."
+    })
+    # Immediately notify client that Agent 1 is active so UI never hangs in Ready state
+    yield sse_message("agent_active", {
+        "agent_id": 1,
+        "name": "Academic Scraper",
+        "action": f"Querying {scraper_label} repositories (Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed)...",
+        "status": "active"
     })
     await asyncio.sleep(0.01)
 
@@ -366,7 +376,6 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", False))
     disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", False))
     scraper_sources = config.get("scraper_sources", "all")
-    active_scrapers = config.get("active_scrapers")
     serpapi_key = config.get("serpapi_key")
     
     partial_data = {
@@ -376,13 +385,11 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         "agent3_cacher": None
     }
     
-    scraper_label = f"{len(active_scrapers)} selected" if active_scrapers else "6 public academic"
-    # AGENT 1: Academic Scraper
-    yield sse_message("agent_active", {
+    yield sse_message("agent_progress", {
         "agent_id": 1,
         "name": "Academic Scraper",
-        "action": f"Querying {scraper_label} repositories (Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed)...",
-        "status": "active"
+        "details": f"Dispatching parallel search to {scraper_label} repositories...",
+        "tokens_used": 0
     })
     await asyncio.sleep(0.01)
     
