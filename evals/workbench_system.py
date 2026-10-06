@@ -40,6 +40,8 @@ class WorkbenchResult:
     retrieved_sources_count: int
     dialectical_friction: Any = None
     comparison_table: Any = None
+    run_id: str = ""
+    dossier: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -47,6 +49,7 @@ class WorkbenchResult:
             "query": self.query,
             "model": self.model,
             "provider": self.provider,
+            "run_id": self.run_id,
             "output_text": self.output_text,
             "executive_summary": self.executive_summary,
             "quick_answer": self.quick_answer,
@@ -79,7 +82,7 @@ class WorkbenchSystem:
         else:
             self.provider = "gemini"
 
-    async def execute(self, query: str, api_key: Optional[str] = None) -> WorkbenchResult:
+    async def execute(self, query: str, api_key: Optional[str] = None, user_id: Optional[str] = None) -> WorkbenchResult:
         start_time = time.perf_counter()
 
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
@@ -138,7 +141,8 @@ class WorkbenchSystem:
             "disable_fallback_agent2": True,
             "disable_fallback_agent4": True,
             "paper_limit": 5,
-            "scraper_sources": "all"
+            "scraper_sources": "all",
+            "user_id": user_id
         }
 
         pipeline_res = await run_query_pipeline(query, config=config)
@@ -262,5 +266,7 @@ class WorkbenchSystem:
             latency_seconds=elapsed,
             retrieved_sources_count=len(citations),
             dialectical_friction=pipeline_res.get("dialectical_friction"),
-            comparison_table=pipeline_res.get("comparison_table")
+            comparison_table=pipeline_res.get("comparison_table"),
+            run_id=pipeline_res.get("run_id", ""),
+            dossier=pipeline_res
         )

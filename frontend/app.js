@@ -4488,7 +4488,11 @@ async function loadResearchHistory() {
   `;
 
   try {
-    const res = await fetch('/api/history?limit=50');
+    const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
+    const res = await fetch('/api/history?limit=50', {
+      headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+      credentials: 'same-origin'
+    });
     if (!res.ok) throw new Error('Failed to retrieve history');
     const data = await res.json();
     const runs = data.runs || [];
@@ -4609,7 +4613,11 @@ function renderHistoryList(runs) {
 async function replayResearchRun(runId) {
   try {
     showToast("Retrieving cached research monograph...");
-    const res = await fetch(`/api/history/${encodeURIComponent(runId)}`);
+    const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
+    const res = await fetch(`/api/history/${encodeURIComponent(runId)}`, {
+      headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+      credentials: 'same-origin'
+    });
     if (!res.ok) throw new Error('Run not found');
     const run = await res.json();
 
@@ -4661,7 +4669,12 @@ async function replayResearchRun(runId) {
 
 async function deleteHistoryRun(runId) {
   try {
-    const res = await fetch(`/api/history/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+    const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
+    const res = await fetch(`/api/history/${encodeURIComponent(runId)}`, {
+      method: 'DELETE',
+      headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+      credentials: 'same-origin'
+    });
     if (!res.ok) throw new Error('Delete failed');
     showToast("Run deleted from history");
     const isPromptsTab = document.getElementById('tab-history-prompts')?.classList.contains('active');
@@ -4915,7 +4928,11 @@ async function loadPromptHistory() {
   `;
 
   try {
-    const res = await fetch('/api/history/prompts?limit=50');
+    const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
+    const res = await fetch('/api/history/prompts?limit=50', {
+      headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+      credentials: 'same-origin'
+    });
     if (!res.ok) throw new Error('Failed to retrieve prompt history');
     const data = await res.json();
     const prompts = data.prompts || [];
@@ -5064,7 +5081,12 @@ function renderPromptHistoryList(prompts) {
         const folId = btn.getAttribute('data-fol-id');
         if (confirm("Delete this follow-up question?")) {
           try {
-            const dRes = await fetch(`/api/history/followup/${encodeURIComponent(folId)}`, { method: 'DELETE' });
+            const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
+            const dRes = await fetch(`/api/history/followup/${encodeURIComponent(folId)}`, {
+              method: 'DELETE',
+              headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+              credentials: 'same-origin'
+            });
             if (!dRes.ok) throw new Error("Failed to delete follow-up");
             showToast("Follow-up deleted");
             await loadPromptHistory();
@@ -5874,7 +5896,7 @@ async function checkUrlAuthParams() {
 
     if (authToken) {
       // Store token immediately
-      localStorage.setItem(KEY_TOKEN, authToken);
+      localStorage.setItem(KEY_AUTH_TOKEN, authToken);
       window.history.replaceState({}, document.title, window.location.pathname);
 
       // Fetch verified user profile

@@ -619,11 +619,33 @@ def log_pipeline_run(
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        valid_user_id = user_id
+        if valid_user_id:
+            try:
+                cursor.execute("SELECT 1 FROM users WHERE id = ?", (valid_user_id,))
+                if not cursor.fetchone():
+                    logger.warning(f"User ID '{valid_user_id}' not found in users table; logging run with user_id=None")
+                    valid_user_id = None
+            except Exception as chk_err:
+                logger.warning(f"Failed to verify user_id '{valid_user_id}': {chk_err}")
+                valid_user_id = None
+
         cursor.execute("""
             INSERT OR REPLACE INTO pipeline_runs (id, query, tokens_used, elapsed_seconds, results_json, prompt_tokens, completion_tokens, user_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (run_id, query, tokens_used, elapsed_seconds, json.dumps(results), prompt_tokens, completion_tokens, user_id))
+        """, (run_id, query, tokens_used, elapsed_seconds, json.dumps(results), prompt_tokens, completion_tokens, valid_user_id))
         conn.commit()
+    except Exception as exc:
+        logger.error(f"Failed to log pipeline run {run_id}: {exc}")
+        if user_id:
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO pipeline_runs (id, query, tokens_used, elapsed_seconds, results_json, prompt_tokens, completion_tokens, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                """, (run_id, query, tokens_used, elapsed_seconds, json.dumps(results), prompt_tokens, completion_tokens))
+                conn.commit()
+            except Exception as fallback_exc:
+                logger.error(f"Fallback logging without user_id failed: {fallback_exc}")
     finally:
         conn.close()
 
@@ -1055,11 +1077,33 @@ def save_pdf_session(session_id: str, total_files: int = 0, user_id: Optional[st
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        valid_user_id = user_id
+        if valid_user_id:
+            try:
+                cursor.execute("SELECT 1 FROM users WHERE id = ?", (valid_user_id,))
+                if not cursor.fetchone():
+                    logger.warning(f"User ID '{valid_user_id}' not found in users table; saving PDF session with user_id=None")
+                    valid_user_id = None
+            except Exception as chk_err:
+                logger.warning(f"Failed to verify user_id '{valid_user_id}': {chk_err}")
+                valid_user_id = None
+
         cursor.execute("""
             INSERT OR REPLACE INTO pdf_sessions (session_id, status, total_files, user_id)
             VALUES (?, 'processing', ?, ?)
-        """, (session_id, total_files, user_id))
+        """, (session_id, total_files, valid_user_id))
         conn.commit()
+    except Exception as exc:
+        logger.error(f"Failed to save PDF session {session_id}: {exc}")
+        if user_id:
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO pdf_sessions (session_id, status, total_files, user_id)
+                    VALUES (?, 'processing', ?, NULL)
+                """, (session_id, total_files))
+                conn.commit()
+            except Exception:
+                pass
     finally:
         conn.close()
 

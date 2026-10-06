@@ -1390,13 +1390,15 @@ async def _run_eval_single_system(sys_type: str, query: str, model: str, api_key
     resolved_key, resolved_model = resolve_api_key_for_model(model, user_id=user_id, explicit_key=api_key)
     if sys_type == "a":
         wb = WorkbenchSystem(model_pref=resolved_model)
-        res = await wb.execute(query, api_key=resolved_key)
+        res = await wb.execute(query, api_key=resolved_key, user_id=user_id)
         analysis = analyze_text_quality(res.output_text)
         cost = calculate_estimated_cost(resolved_model, res.input_tokens, res.output_tokens)
         return {
             **res.to_dict(),
+            "run_id": res.run_id,
             "cost_usd": cost,
-            "text_analysis": analysis
+            "text_analysis": analysis,
+            "dossier": res.dossier
         }
     elif sys_type == "b":
         rag = ConventionalRAGSystem(model_pref=resolved_model, top_k=top_k)
