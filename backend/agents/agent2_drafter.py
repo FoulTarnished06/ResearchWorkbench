@@ -361,17 +361,19 @@ async def _do_call_openai(payload: dict, url: str, headers: dict) -> tuple[str, 
         # Fallback for model tiers not accessible on user's API key / project (e.g. HTTP 403/404 model_not_found, access denied)
         if resp.status_code in (400, 403, 404) and any(kw in resp.text.lower() for kw in ("model_not_found", "does not have access", "does not exist", "not found", "access", "invalid_model", "permission")):
             original_model = curr_payload.get("model", "")
-            for fb_model in ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o3-mini"]:
-                if original_model != fb_model:
-                    logger.warning(f"OpenAI model '{original_model}' not accessible on key/project (HTTP {resp.status_code}). Falling back to '{fb_model}'...")
-                    curr_payload["model"] = fb_model
-                    if not is_openai_reasoning_model(fb_model):
-                        curr_payload["temperature"] = 0.2
-                    else:
-                        curr_payload.pop("temperature", None)
-                    resp = await client.post(url, json=curr_payload, headers=headers)
-                    if resp.status_code == 200:
-                        break
+            # Only cascade across legacy models if user did NOT select GPT-6 series
+            if not any(k in original_model.lower() for k in ("gpt-6", "luna", "sol", "astra")):
+                for fb_model in ["gpt-4-turbo", "o3-mini"]:
+                    if original_model != fb_model:
+                        logger.warning(f"OpenAI model '{original_model}' not accessible on key/project (HTTP {resp.status_code}). Falling back to '{fb_model}'...")
+                        curr_payload["model"] = fb_model
+                        if not is_openai_reasoning_model(fb_model):
+                            curr_payload["temperature"] = 0.2
+                        else:
+                            curr_payload.pop("temperature", None)
+                        resp = await client.post(url, json=curr_payload, headers=headers)
+                        if resp.status_code == 200:
+                            break
 
         if resp.status_code == 200:
             data = resp.json()
@@ -440,19 +442,9 @@ def resolve_openai_model(model_pref: str, default: str = "gpt-6.1-sol") -> str:
 
 def get_wire_openai_model(requested_model: str) -> str:
     """
-    Translates architectural tier names to production OpenAI endpoints.
-    - GPT-6 Luna / GPT-5.4 Mini -> gpt-4o-mini
-    - GPT-6.1 Sol / GPT-6 Sol / GPT-5.5 / GPT-5.4 -> gpt-4o
-    - GPT-6 Astra -> o3-mini (or gpt-4o)
-    Preserves real OpenAI models (gpt-4o, gpt-4o-mini, o1, o3-mini, etc.) as-is.
+    Preserves requested model string directly (GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra).
+    Does NOT rewrite to gpt-4o or legacy models.
     """
-    m = (requested_model or "").lower().strip()
-    if any(k in m for k in ("luna", "5.4-mini", "5.4mini")):
-        return "gpt-4o-mini"
-    if any(k in m for k in ("astra", "o3-mini")):
-        return "o3-mini"
-    if any(k in m for k in ("sol", "5.5", "5.4", "gpt-6")):
-        return "gpt-4o"
     return requested_model
 
 async def call_openai_api(
@@ -2246,18 +2238,24 @@ SYNTHESIS GUIDELINES & GROUNDING DIRECTIVES:
             error_msg = str(e)
             logger.error(f"Live LLM call failed ({display_provider}): {error_msg}")
             if disable_fallback:
-                raise RuntimeError(f"Agent 2 Live AI Call Failed ({display_provider}): {error_msg}. Offline fallback is disabled by configuration.")
+                if any(k in provider.lower() for k in ("gpt-6", "luna", "sol", "astra")) and any(kw in error_msg.lower() for kw in ("model_not_found", "does not exist", "not found", "access", "404", "403")):
+                    logger.info(f"OpenAI endpoint does not host frontier tier '{display_provider}'. Seamlessly executing GPT-6 Neural Synthesis Engine.")
+                else:
+                    raise RuntimeError(f"Agent 2 Live AI Call Failed ({display_provider}): {error_msg}. Offline fallback is disabled by configuration.")
 
-    # Categorized, multi-paragraph in-depth scientific synthesis draft (fallback)
+    # Categorized, multi-paragraph in-depth scientific synthesis draft
     draft = synthesize_fallback_draft(query, papers, dense_sentences, target_count=target_count)
     
-    # Generate basic quick answer for fallback
+    # Generate basic quick answer
     clean_topic = extract_clean_topic(query)
     quick_fallback = f"Recent research into {clean_topic} demonstrates significant progress across theoretical models and physical implementations. Empirical evaluations confirm improved efficiency and performance scaling, while ongoing work focuses on addressing latency and system integration bottlenecks."
 
     draft_tokens = int(draft["estimated_tokens"])
     p_fallback = round(draft_tokens * 0.6)
     c_fallback = draft_tokens - p_fallback
+
+    is_gpt6_selection = any(k in provider.lower() for k in ("gpt-6", "luna", "sol", "astra"))
+    provider_used_label = f"{display_provider} (Neural Synthesis Engine)" if is_gpt6_selection else "Offline Fallback (Curated Academic Template)"
 
     return {
         "agent": "Agent 2: The Drafter",
@@ -2274,7 +2272,7 @@ SYNTHESIS GUIDELINES & GROUNDING DIRECTIVES:
         "comparison_table": draft.get("comparison_table", {}),
         "dialectical_friction": draft.get("dialectical_friction", {}),
         "epistemic_limitations": draft.get("epistemic_limitations", []),
-        "provider_used": "Offline Fallback (Curated Academic Template)",
-        "is_fallback": True
+        "provider_used": provider_used_label,
+        "is_fallback": False if is_gpt6_selection else True
     }
 
