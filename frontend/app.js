@@ -372,7 +372,7 @@ function toggleTheme() {
   showToast(nextTheme === 'theme-beige' ? "Aesthetic Warm Beige Mode" : "Midnight Obsidian Mode");
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function initMainApp() {
   applyTheme(currentTheme);
   initSidebarDock();
   initScrapersManager();
@@ -391,7 +391,13 @@ document.addEventListener('DOMContentLoaded', () => {
     positionNodeCards();
     drawBezierConnectors();
   });
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMainApp);
+} else {
+  initMainApp();
+}
 
 // =========================================================
 // VIEW SWITCHING & TOGGLE OPTIONS VISIBILITY
@@ -1701,25 +1707,54 @@ async function executeLiveBackend(query) {
       logToCanvas(`[PROGRESS] ${data.details}`);
       if (data.agent_id === 1) {
         document.getElementById('chk-agent1-query')?.classList.add('done');
-        document.getElementById('chk-agent1-filter')?.classList.add('done');
-        if (elements.prog1) elements.prog1.style.width = '80%';
+        const icon1 = document.getElementById('chk-agent1-query')?.querySelector('.chk-icon');
+        if (icon1) icon1.textContent = '●';
+        const chkFilter = document.getElementById('chk-agent1-filter');
+        if (chkFilter) {
+          chkFilter.classList.add('active');
+          const iconFilter = chkFilter.querySelector('.chk-icon');
+          if (iconFilter && !chkFilter.classList.contains('done')) iconFilter.textContent = '◐';
+        }
+        if (elements.prog1) elements.prog1.style.width = '70%';
       } else if (data.agent_id === 2) {
         document.getElementById('chk-agent2-q')?.classList.add('done');
-        document.getElementById('chk-agent2-tag')?.classList.add('done');
-        if (elements.prog2) elements.prog2.style.width = '80%';
+        const icon2 = document.getElementById('chk-agent2-q')?.querySelector('.chk-icon');
+        if (icon2) icon2.textContent = '●';
+        const chkTag = document.getElementById('chk-agent2-tag');
+        if (chkTag) {
+          chkTag.classList.add('active');
+          const iconTag = chkTag.querySelector('.chk-icon');
+          if (iconTag && !chkTag.classList.contains('done')) iconTag.textContent = '◐';
+        }
+        if (elements.prog2) elements.prog2.style.width = '70%';
       } else if (data.agent_id === 3) {
         document.getElementById('chk-agent3-cache')?.classList.add('done');
-        document.getElementById('chk-agent3-filter')?.classList.add('done');
-        if (elements.prog3) elements.prog3.style.width = '80%';
+        const icon3 = document.getElementById('chk-agent3-cache')?.querySelector('.chk-icon');
+        if (icon3) icon3.textContent = '●';
+        const chkFilter3 = document.getElementById('chk-agent3-filter');
+        if (chkFilter3) {
+          chkFilter3.classList.add('active');
+          const iconFilter3 = chkFilter3.querySelector('.chk-icon');
+          if (iconFilter3 && !chkFilter3.classList.contains('done')) iconFilter3.textContent = '◐';
+        }
+        if (elements.prog3) elements.prog3.style.width = '70%';
       } else if (data.agent_id === 4) {
         document.getElementById('chk-agent4-eval')?.classList.add('done');
-        document.getElementById('chk-agent4-dossier')?.classList.add('done');
-        if (elements.prog4) elements.prog4.style.width = '80%';
+        const icon4 = document.getElementById('chk-agent4-eval')?.querySelector('.chk-icon');
+        if (icon4) icon4.textContent = '●';
+        const chkDossier = document.getElementById('chk-agent4-dossier');
+        if (chkDossier) {
+          chkDossier.classList.add('active');
+          const iconDossier = chkDossier.querySelector('.chk-icon');
+          if (iconDossier && !chkDossier.classList.contains('done')) iconDossier.textContent = '◐';
+        }
+        if (elements.prog4) elements.prog4.style.width = '70%';
       }
     },
     agent_completed: (e) => {
       const data = JSON.parse(e.data);
       completeNode(data.agent_id);
+      logToCanvas(`[SUCCESS] Agent ${data.agent_id}: ${data.name || 'Stage'} complete.`);
       const tokens = data.tokens_used || 0;
       const pTok = data.prompt_tokens || 0;
       const cTok = data.completion_tokens || 0;
@@ -2183,6 +2218,45 @@ function activateNode(nodeId) {
     badge.className = 'node-badge badge-active';
     badge.textContent = 'Processing';
   }
+
+  const prog = document.getElementById(`prog-agent${nodeId}`);
+  if (prog && (!prog.style.width || prog.style.width === '0%')) {
+    prog.style.width = '25%';
+  }
+
+  if (nodeId === 1) {
+    const chk1 = document.getElementById('chk-agent1-query');
+    if (chk1) {
+      chk1.classList.add('active');
+      const icon = chk1.querySelector('.chk-icon');
+      if (icon && !chk1.classList.contains('done')) icon.textContent = '◐';
+    }
+    const papersEl = document.getElementById('m-agent1-papers');
+    if (papersEl && (papersEl.textContent === '0' || papersEl.textContent === '')) {
+      papersEl.textContent = 'Scraping...';
+    }
+  } else if (nodeId === 2) {
+    const chk2 = document.getElementById('chk-agent2-q');
+    if (chk2) {
+      chk2.classList.add('active');
+      const icon = chk2.querySelector('.chk-icon');
+      if (icon && !chk2.classList.contains('done')) icon.textContent = '◐';
+    }
+  } else if (nodeId === 3) {
+    const chk3 = document.getElementById('chk-agent3-cache');
+    if (chk3) {
+      chk3.classList.add('active');
+      const icon = chk3.querySelector('.chk-icon');
+      if (icon && !chk3.classList.contains('done')) icon.textContent = '◐';
+    }
+  } else if (nodeId === 4) {
+    const chk4 = document.getElementById('chk-agent4-eval');
+    if (chk4) {
+      chk4.classList.add('active');
+      const icon = chk4.querySelector('.chk-icon');
+      if (icon && !chk4.classList.contains('done')) icon.textContent = '◐';
+    }
+  }
 }
 
 function completeNode(nodeId) {
@@ -2194,6 +2268,51 @@ function completeNode(nodeId) {
     card.classList.add('node-completed');
     badge.className = 'node-badge badge-done';
     badge.textContent = 'Completed';
+  }
+
+  const prog = document.getElementById(`prog-agent${nodeId}`);
+  if (prog) prog.style.width = '100%';
+
+  if (nodeId === 1) {
+    ['chk-agent1-query', 'chk-agent1-filter'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.add('done');
+        el.classList.remove('active');
+        const icon = el.querySelector('.chk-icon');
+        if (icon) icon.textContent = '●';
+      }
+    });
+  } else if (nodeId === 2) {
+    ['chk-agent2-q', 'chk-agent2-tag'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.add('done');
+        el.classList.remove('active');
+        const icon = el.querySelector('.chk-icon');
+        if (icon) icon.textContent = '●';
+      }
+    });
+  } else if (nodeId === 3) {
+    ['chk-agent3-cache', 'chk-agent3-filter'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.add('done');
+        el.classList.remove('active');
+        const icon = el.querySelector('.chk-icon');
+        if (icon) icon.textContent = '●';
+      }
+    });
+  } else if (nodeId === 4) {
+    ['chk-agent4-eval', 'chk-agent4-dossier'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.add('done');
+        el.classList.remove('active');
+        const icon = el.querySelector('.chk-icon');
+        if (icon) icon.textContent = '●';
+      }
+    });
   }
 }
 
@@ -2218,9 +2337,13 @@ function resetNodeStates() {
     if (prog) prog.style.width = '0%';
   }
 
+  const p1Papers = document.getElementById('m-agent1-papers');
+  if (p1Papers) p1Papers.textContent = '0';
+
   document.querySelectorAll('.check-item').forEach(chk => {
-    chk.classList.remove('done');
-    chk.querySelector('.chk-icon').textContent = '○';
+    chk.classList.remove('done', 'active');
+    const icon = chk.querySelector('.chk-icon');
+    if (icon) icon.textContent = '○';
   });
 
   [elements.path12, elements.path23, elements.path34].forEach(p => {

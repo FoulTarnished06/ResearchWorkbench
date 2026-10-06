@@ -332,6 +332,11 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     active_scrapers = config.get("active_scrapers")
     scraper_label = f"{len(active_scrapers)} selected" if active_scrapers else "6 public academic"
 
+    # Anti-buffering proxy prelude: Render, Nginx, Envoy, and Cloudflare reverse proxies
+    # buffer chunked HTTP responses until 1-2 KB have been received.
+    # Yielding a 2 KB SSE comment immediately forces the reverse proxy to flush chunk #1 to the browser!
+    yield f": {' ' * 2048}\n\n"
+
     # Initial start event
     yield sse_message("pipeline_start", {
         "run_id": run_id,
@@ -348,30 +353,33 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     })
     await asyncio.sleep(0.01)
 
-    # Check cache first
+    # Check cache first with bounded 2s timeout
     use_cache = not config.get("bypass_cache", False)
     if use_cache:
-        cached_result = await asyncio.to_thread(get_response_cache, user_query)
-        if cached_result:
-            hit_run_id = run_id or f"run_{uuid.uuid4().hex[:8]}"
-            cached_result_copy = dict(cached_result)
-            cached_result_copy["run_id"] = hit_run_id
-            tok_usage = cached_result_copy.get("token_usage", {})
-            total_toks = tok_usage.get("total_tokens", 0)
-            p_toks = tok_usage.get("prompt_tokens", 0)
-            c_toks = tok_usage.get("completion_tokens", 0)
-            elapsed = cached_result_copy.get("elapsed_seconds", 0.0)
-            await asyncio.to_thread(
-                log_pipeline_run, hit_run_id, user_query, total_toks, elapsed, cached_result_copy, p_toks, c_toks, user_id
-            )
-            yield sse_message("agent_completed", {
-                "agent_id": 0,
-                "name": "Semantic Cache",
-                "tokens_used": 0,
-                "status": "Cache hit: restored from local SQLite response cache (0 tokens)."
-            })
-            yield sse_message("pipeline_complete", cached_result_copy)
-            return
+        try:
+            cached_result = await asyncio.wait_for(asyncio.to_thread(get_response_cache, user_query), timeout=2.0)
+            if cached_result:
+                hit_run_id = run_id or f"run_{uuid.uuid4().hex[:8]}"
+                cached_result_copy = dict(cached_result)
+                cached_result_copy["run_id"] = hit_run_id
+                tok_usage = cached_result_copy.get("token_usage", {})
+                total_toks = tok_usage.get("total_tokens", 0)
+                p_toks = tok_usage.get("prompt_tokens", 0)
+                c_toks = tok_usage.get("completion_tokens", 0)
+                elapsed = cached_result_copy.get("elapsed_seconds", 0.0)
+                asyncio.create_task(asyncio.to_thread(
+                    log_pipeline_run, hit_run_id, user_query, total_toks, elapsed, cached_result_copy, p_toks, c_toks, user_id
+                ))
+                yield sse_message("agent_completed", {
+                    "agent_id": 0,
+                    "name": "Semantic Cache",
+                    "tokens_used": 0,
+                    "status": "Cache hit: restored from local SQLite response cache (0 tokens)."
+                })
+                yield sse_message("pipeline_complete", cached_result_copy)
+                return
+        except Exception as cache_err:
+            logger.debug(f"Cache check bypass/error: {cache_err}")
 
     disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", False))
     disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", False))
@@ -394,7 +402,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     await asyncio.sleep(0.01)
     
     try:
-        agent1_res = await run_agent1_academic_scraper(
+        scraper_task = asyncio.create_task(run_agent1_academic_scraper(
             user_query, 
             limit=int(config.get("paper_limit", 5)), 
             sources=scraper_sources, 
@@ -402,7 +410,57 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             disable_fallback=disable_fallback_agent2,
             active_scrapers=active_scrapers,
             max_pdf_pages=int(config.get("max_pdf_pages", 15))
-        )
+        ))
+
+        scraper_elapsed = 0.0
+        while not scraper_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(scraper_task), timeout=1.5)
+            except asyncio.TimeoutError:
+                scraper_elapsed += 1.5
+                yield f": keep-alive scraper {scraper_elapsed:.1f}s\n\n"
+                if 2.5 <= scraper_elapsed < 4.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 1,
+                        "name": "Academic Scraper",
+                        "details": "Querying Crossref DOIs & OpenAlex citation index...",
+                        "tokens_used": 0
+                    })
+                elif 5.5 <= scraper_elapsed < 7.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 1,
+                        "name": "Academic Scraper",
+                        "details": "Aggregating Semantic Scholar & Europe PMC open-access entries...",
+                        "tokens_used": 0
+                    })
+                elif 9.5 <= scraper_elapsed < 11.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 1,
+                        "name": "Academic Scraper",
+                        "details": "Extracting full-text empirical findings & scoring information density...",
+                        "tokens_used": 0
+                    })
+                elif scraper_elapsed >= 22.0:
+                    logger.warning(f"Scraper task exceeded 22.0s limit for '{user_query}'; canceling.")
+                    scraper_task.cancel()
+                    break
+
+        try:
+            agent1_res = await scraper_task
+        except (asyncio.CancelledError, Exception) as exc:
+            logger.warning(f"Scraper task recovered after cancellation/exception: {exc}")
+            agent1_res = {
+                "agent": "Agent 1: Academic Scraper",
+                "tokens_used": 0,
+                "papers_found": 0,
+                "papers": [],
+                "dense_sentences": [],
+                "total_sentences_extracted": 0,
+                "facets": [],
+                "covered_facets": [],
+                "uncovered_facets": []
+            }
+
         partial_data["agent1_scraped"] = agent1_res
         
         yield sse_message("agent_progress", {
@@ -423,11 +481,16 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        # Phase 1 Pre-Filter
-        distilled_sentences = await asyncio.to_thread(
-            run_agent3_context_distiller,
-            user_query, agent1_res, top_k=15
-        )
+        # Phase 1 Pre-Filter with bounded 5s timeout
+        try:
+            distilled_sentences = await asyncio.wait_for(
+                asyncio.to_thread(run_agent3_context_distiller, user_query, agent1_res, top_k=15),
+                timeout=5.0
+            )
+        except Exception as dist_err:
+            logger.debug(f"Distiller timeout/error: {dist_err}")
+            distilled_sentences = agent1_res.get("dense_sentences", [])
+
         distilled_agent1_res = dict(agent1_res)
         distilled_agent1_res["dense_sentences"] = distilled_sentences
 
@@ -440,7 +503,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        agent2_res = await run_agent2_the_drafter(
+        drafter_task = asyncio.create_task(run_agent2_the_drafter(
             user_query, 
             distilled_agent1_res, 
             provider=config.get("provider_agent2", "auto"),
@@ -448,7 +511,28 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             anthropic_key=config.get("anthropic_key"),
             openai_key=config.get("openai_key"),
             disable_fallback=disable_fallback_agent2
-        )
+        ))
+
+        drafter_elapsed = 0.0
+        while not drafter_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(drafter_task), timeout=2.0)
+            except asyncio.TimeoutError:
+                drafter_elapsed += 2.0
+                yield f": keep-alive drafter {drafter_elapsed:.1f}s\n\n"
+                if 4.0 <= drafter_elapsed < 6.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 2,
+                        "name": "The Drafter",
+                        "details": "Structuring dialectical sections & embedding atomic <claim> boundaries...",
+                        "tokens_used": 0
+                    })
+                elif drafter_elapsed >= 45.0:
+                    logger.warning(f"Drafter task exceeded 45.0s limit; canceling.")
+                    drafter_task.cancel()
+                    break
+
+        agent2_res = await drafter_task
         partial_data["agent2_draft"] = agent2_res
         
         yield sse_message("agent_progress", {
@@ -494,10 +578,23 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        agent3_res = await asyncio.to_thread(
-            run_agent3_context_cacher,
-            user_query, agent1_res, agent2_res, similarity_threshold=float(config.get("similarity_threshold", 0.55))
-        )
+        try:
+            agent3_res = await asyncio.wait_for(
+                asyncio.to_thread(
+                    run_agent3_context_cacher,
+                    user_query, agent1_res, agent2_res, similarity_threshold=float(config.get("similarity_threshold", 0.55))
+                ),
+                timeout=8.0
+            )
+        except Exception as cacher_err:
+            logger.warning(f"Context cacher timeout/error: {cacher_err}")
+            agent3_res = {
+                "auto_verified_count": 0,
+                "unverified_for_agent4_count": len(agent2_res.get("claims", [])),
+                "verified_claims": [],
+                "unverified_claims": agent2_res.get("claims", [])
+            }
+
         partial_data["agent3_cacher"] = agent3_res
 
         yield sse_message("agent_progress", {
@@ -537,7 +634,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             else:
                 resolved_stream_provider_a4 = "gemini-3.6-flash"
 
-        agent4_res = await run_agent4_fact_checker_synthesizer(
+        synth_task = asyncio.create_task(run_agent4_fact_checker_synthesizer(
             user_query, 
             agent1_res, 
             agent2_res, 
@@ -547,7 +644,28 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             anthropic_key=config.get("anthropic_key"),
             openai_key=config.get("openai_key"),
             disable_fallback=disable_fallback_agent4
-        )
+        ))
+
+        synth_elapsed = 0.0
+        while not synth_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(synth_task), timeout=2.0)
+            except asyncio.TimeoutError:
+                synth_elapsed += 2.0
+                yield f": keep-alive synthesizer {synth_elapsed:.1f}s\n\n"
+                if 4.0 <= synth_elapsed < 6.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 4,
+                        "name": "Fact-Checker & Synthesizer",
+                        "details": "Adjudicating claim confidence & indexing citations against source literature...",
+                        "tokens_used": 0
+                    })
+                elif synth_elapsed >= 45.0:
+                    logger.warning(f"Synthesizer task exceeded 45.0s limit; canceling.")
+                    synth_task.cancel()
+                    break
+
+        agent4_res = await synth_task
 
         yield sse_message("agent_progress", {
             "agent_id": 4,
@@ -625,11 +743,12 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         
         final_payload = post_process_dossier(final_payload)
 
-        # Asynchronously log to SQLite database and cache (BUG-01, TOK-03-REVISED)
-        await asyncio.to_thread(log_pipeline_run, run_id, user_query, total_tokens, elapsed, final_payload, total_prompt, total_comp, user_id)
-        await asyncio.to_thread(set_response_cache, user_query, final_payload)
-
+        # Emit completion IMMEDIATELY to client without blocking on DB write latency
         yield sse_message("pipeline_complete", final_payload)
+
+        # Asynchronously log to SQLite database and cache in background (BUG-01, TOK-03-REVISED)
+        asyncio.create_task(asyncio.to_thread(log_pipeline_run, run_id, user_query, total_tokens, elapsed, final_payload, total_prompt, total_comp, user_id))
+        asyncio.create_task(asyncio.to_thread(set_response_cache, user_query, final_payload))
     except Exception as exc:
         err_msg = str(exc)
         logger.error(f"Pipeline error: {err_msg}")

@@ -186,7 +186,7 @@ class DatabaseEngine:
         else:
             try:
                 import psycopg2
-                conn = psycopg2.connect(self.db_url, connect_timeout=3)
+                conn = psycopg2.connect(self.db_url, connect_timeout=2, options="-c statement_timeout=3000")
                 return PostgresConnectionWrapper(conn)
             except Exception as e:
                 logger.warning(f"Failed to connect to cloud database via DATABASE_URL: {e}; falling back to SQLite")

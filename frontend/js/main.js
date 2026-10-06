@@ -290,8 +290,8 @@ function initEventListeners() {
   }
 
   // Sliders
-  elements.cfgPaperLimit.addEventListener('input', (e) => {
-    elements.valPaperLimit.textContent = `${e.target.value} papers`;
+  elements.cfgPaperLimit?.addEventListener('input', (e) => {
+    if (elements.valPaperLimit) elements.valPaperLimit.textContent = `${e.target.value} papers`;
   });
   elements.cfgPdfPageLimit?.addEventListener('input', (e) => {
     if (elements.valPdfPageLimit) {
@@ -320,7 +320,7 @@ function initEventListeners() {
   });
 
   // Bottom Chat Prompt Input: Live Character Counter and Auto-Resize
-  elements.inputQuery.addEventListener('input', () => {
+  elements.inputQuery?.addEventListener('input', () => {
     autoResizeQueryTextarea(elements.inputQuery);
     updateQueryCharCounter();
   });
@@ -334,13 +334,14 @@ function initEventListeners() {
   });
 
   // Bottom Chat Prompt Input: Enter Submission
-  elements.inputQuery.addEventListener('keydown', (e) => {
+  elements.inputQuery?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleQuerySubmit();
     }
   });
   elements.btnSendQuery?.addEventListener('click', handleQuerySubmit);
+  document.getElementById('btn-submit-query')?.addEventListener('click', handleQuerySubmit);
 
   // Preset query chips
   document.querySelectorAll('.query-chip, .btn-chip').forEach(btn => {

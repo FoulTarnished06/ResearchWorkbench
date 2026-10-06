@@ -223,25 +223,54 @@ export async function executeLiveBackend(query) {
       logToCanvas(`[PROGRESS] ${data.details}`);
       if (data.agent_id === 1) {
         document.getElementById('chk-agent1-query')?.classList.add('done');
-        document.getElementById('chk-agent1-filter')?.classList.add('done');
-        if (elements.prog1) elements.prog1.style.width = '80%';
+        const icon1 = document.getElementById('chk-agent1-query')?.querySelector('.chk-icon');
+        if (icon1) icon1.textContent = '●';
+        const chkFilter = document.getElementById('chk-agent1-filter');
+        if (chkFilter) {
+          chkFilter.classList.add('active');
+          const iconFilter = chkFilter.querySelector('.chk-icon');
+          if (iconFilter && !chkFilter.classList.contains('done')) iconFilter.textContent = '◐';
+        }
+        if (elements.prog1) elements.prog1.style.width = '70%';
       } else if (data.agent_id === 2) {
         document.getElementById('chk-agent2-q')?.classList.add('done');
-        document.getElementById('chk-agent2-tag')?.classList.add('done');
-        if (elements.prog2) elements.prog2.style.width = '80%';
+        const icon2 = document.getElementById('chk-agent2-q')?.querySelector('.chk-icon');
+        if (icon2) icon2.textContent = '●';
+        const chkTag = document.getElementById('chk-agent2-tag');
+        if (chkTag) {
+          chkTag.classList.add('active');
+          const iconTag = chkTag.querySelector('.chk-icon');
+          if (iconTag && !chkTag.classList.contains('done')) iconTag.textContent = '◐';
+        }
+        if (elements.prog2) elements.prog2.style.width = '70%';
       } else if (data.agent_id === 3) {
         document.getElementById('chk-agent3-cache')?.classList.add('done');
-        document.getElementById('chk-agent3-filter')?.classList.add('done');
-        if (elements.prog3) elements.prog3.style.width = '80%';
+        const icon3 = document.getElementById('chk-agent3-cache')?.querySelector('.chk-icon');
+        if (icon3) icon3.textContent = '●';
+        const chkFilter3 = document.getElementById('chk-agent3-filter');
+        if (chkFilter3) {
+          chkFilter3.classList.add('active');
+          const iconFilter3 = chkFilter3.querySelector('.chk-icon');
+          if (iconFilter3 && !chkFilter3.classList.contains('done')) iconFilter3.textContent = '◐';
+        }
+        if (elements.prog3) elements.prog3.style.width = '70%';
       } else if (data.agent_id === 4) {
         document.getElementById('chk-agent4-eval')?.classList.add('done');
-        document.getElementById('chk-agent4-dossier')?.classList.add('done');
-        if (elements.prog4) elements.prog4.style.width = '80%';
+        const icon4 = document.getElementById('chk-agent4-eval')?.querySelector('.chk-icon');
+        if (icon4) icon4.textContent = '●';
+        const chkDossier = document.getElementById('chk-agent4-dossier');
+        if (chkDossier) {
+          chkDossier.classList.add('active');
+          const iconDossier = chkDossier.querySelector('.chk-icon');
+          if (iconDossier && !chkDossier.classList.contains('done')) iconDossier.textContent = '◐';
+        }
+        if (elements.prog4) elements.prog4.style.width = '70%';
       }
     },
     agent_completed: (e) => {
       const data = JSON.parse(e.data);
       completeNode(data.agent_id);
+      logToCanvas(`[SUCCESS] Agent ${data.agent_id}: ${data.name || 'Stage'} complete.`);
       const tokens = data.tokens_used || 0;
       const pTok = data.prompt_tokens || 0;
       const cTok = data.completion_tokens || 0;

@@ -530,8 +530,8 @@ async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pa
                 return None
                 
             # Bounded timeout for responsive scraping turnaround
-            pdf_resp = await client.get(pdf_url, timeout=6.0, follow_redirects=True)
-            if pdf_resp.status_code == 200 and len(pdf_resp.content) > 1000 and pdf_resp.content[:4] == b"%PDF" and pymupdf is not None:
+            pdf_resp = await client.get(pdf_url, timeout=4.0, follow_redirects=True)
+            if pdf_resp.status_code == 200 and 1000 < len(pdf_resp.content) <= 8 * 1024 * 1024 and pdf_resp.content[:4] == b"%PDF" and pymupdf is not None:
                 doc = pymupdf.open(stream=io.BytesIO(pdf_resp.content), filetype="pdf")
                 total_pages = len(doc)
                 extracted_paragraphs = []
@@ -1601,9 +1601,9 @@ async def run_agent1_academic_scraper(
     doi_papers = [p for p in papers if p.get("doi") and "10." in str(p.get("doi"))][:3]
     if doi_papers:
         try:
-            async with httpx.AsyncClient() as oa_client:
+            async with httpx.AsyncClient(timeout=4.0) as oa_client:
                 oa_tasks = [fetch_open_access_fulltext(p["doi"], oa_client, max_pages=max_pdf_pages) for p in doi_papers]
-                oa_results = await asyncio.gather(*oa_tasks, return_exceptions=True)
+                oa_results = await asyncio.wait_for(asyncio.gather(*oa_tasks, return_exceptions=True), timeout=5.0)
                 for dp, oa_res in zip(doi_papers, oa_results):
                     if isinstance(oa_res, dict) and oa_res.get("paragraphs"):
                         dp["oa_pdf_url"] = oa_res.get("pdf_url")
