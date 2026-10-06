@@ -358,15 +358,17 @@ async def _do_call_openai(payload: dict, url: str, headers: dict) -> tuple[str, 
                     if mod2:
                         resp = await client.post(url, json=curr_payload, headers=headers)
 
-        # Fallback for model tiers not accessible on user's API key (e.g. HTTP 404 model_not_found)
-        if (resp.status_code == 404 or resp.status_code == 400) and any(kw in resp.text.lower() for kw in ("model_not_found", "does not exist", "not found", "access", "invalid_model")):
+        # Fallback for model tiers not accessible on user's API key / project (e.g. HTTP 403/404 model_not_found, access denied)
+        if resp.status_code in (400, 403, 404) and any(kw in resp.text.lower() for kw in ("model_not_found", "does not have access", "does not exist", "not found", "access", "invalid_model", "permission")):
             original_model = curr_payload.get("model", "")
-            for fb_model in ["gpt-4o-mini", "gpt-4o", "o3-mini"]:
+            for fb_model in ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o3-mini"]:
                 if original_model != fb_model:
-                    logger.warning(f"OpenAI model '{original_model}' not accessible on key (HTTP {resp.status_code}). Falling back to '{fb_model}'...")
+                    logger.warning(f"OpenAI model '{original_model}' not accessible on key/project (HTTP {resp.status_code}). Falling back to '{fb_model}'...")
                     curr_payload["model"] = fb_model
-                    if "temperature" not in curr_payload:
+                    if not is_openai_reasoning_model(fb_model):
                         curr_payload["temperature"] = 0.2
+                    else:
+                        curr_payload.pop("temperature", None)
                     resp = await client.post(url, json=curr_payload, headers=headers)
                     if resp.status_code == 200:
                         break
