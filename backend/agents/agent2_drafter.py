@@ -436,6 +436,23 @@ def resolve_openai_model(model_pref: str, default: str = "gpt-6.1-sol") -> str:
         return "gpt-4o"
     return default
 
+def get_wire_openai_model(requested_model: str) -> str:
+    """
+    Translates architectural tier names to production OpenAI endpoints.
+    - GPT-6 Luna / GPT-5.4 Mini -> gpt-4o-mini
+    - GPT-6.1 Sol / GPT-6 Sol / GPT-5.5 / GPT-5.4 -> gpt-4o
+    - GPT-6 Astra -> o3-mini (or gpt-4o)
+    Preserves real OpenAI models (gpt-4o, gpt-4o-mini, o1, o3-mini, etc.) as-is.
+    """
+    m = (requested_model or "").lower().strip()
+    if any(k in m for k in ("luna", "5.4-mini", "5.4mini")):
+        return "gpt-4o-mini"
+    if any(k in m for k in ("astra", "o3-mini")):
+        return "o3-mini"
+    if any(k in m for k in ("sol", "5.5", "5.4", "gpt-6")):
+        return "gpt-4o"
+    return requested_model
+
 async def call_openai_api(
     prompt: str,
     api_key: str,
@@ -451,7 +468,8 @@ async def call_openai_api(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    model_name = resolve_openai_model(model_pref)
+    canonical_model = resolve_openai_model(model_pref)
+    wire_model = get_wire_openai_model(canonical_model)
 
     messages = []
     if system_instruction:
@@ -459,13 +477,13 @@ async def call_openai_api(
     messages.append({"role": "user", "content": prompt})
 
     payload: Dict[str, Any] = {
-        "model": model_name,
+        "model": wire_model,
         "max_completion_tokens": 8192,
         "response_format": {"type": "json_object"},
         "messages": messages
     }
     # Proactively omit temperature for reasoning models that reject custom temperatures
-    if not is_openai_reasoning_model(model_name):
+    if not is_openai_reasoning_model(wire_model):
         payload["temperature"] = 0.2
 
     return await retry_async(_do_call_openai, payload, url, headers, max_retries=2, base_delay=1.2)

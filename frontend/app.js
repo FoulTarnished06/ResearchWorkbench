@@ -1990,25 +1990,58 @@ async function executeLiveBackend(query) {
     }
   };
 
+  let streamCompleted = false;
+  const wrappedEventHandlers = {
+    ...eventHandlers,
+    pipeline_complete: (e) => {
+      streamCompleted = true;
+      eventHandlers.pipeline_complete(e);
+    },
+    pipeline_completed: (e) => {
+      streamCompleted = true;
+      eventHandlers.pipeline_completed(e);
+    },
+    pipeline_error: (e) => {
+      streamCompleted = true;
+      eventHandlers.pipeline_error(e);
+    }
+  };
+
   try {
-    await fetchSSE('/api/pipeline/stream', payload, eventHandlers, abortController.signal);
+    await fetchSSE('/api/pipeline/stream', payload, wrappedEventHandlers, abortController.signal);
+    if (!streamCompleted && !abortController.signal.aborted) {
+      if (elements.btnAbortPipeline) elements.btnAbortPipeline.style.display = 'none';
+      stopElapsedTimer();
+      UIState.isRunning = false;
+      logToCanvas("[WARN] Stream closed before completion event; recovering partial dossier...");
+      eventHandlers.pipeline_error({
+        data: JSON.stringify({
+          error: "Pipeline stream closed unexpectedly before completion.",
+          partial_data: {
+            agent1_scraped: { papers: [], papers_found: 0 },
+            agent2_draft: { sections: [], sub_questions: [], claims: [] }
+          }
+        })
+      });
+    }
   } catch (err) {
     if (abortController.signal.aborted) {
+      stopElapsedTimer();
+      UIState.isRunning = false;
+      if (elements.btnAbortPipeline) elements.btnAbortPipeline.style.display = 'none';
       logToCanvas("[ABORT] Pipeline aborted by user.");
       return;
     }
     if (elements.btnAbortPipeline) elements.btnAbortPipeline.style.display = 'none';
+    stopElapsedTimer();
+    UIState.isRunning = false;
     if (disableFallback) {
-      stopElapsedTimer();
-      UIState.isRunning = false;
       elements.teleStatusDot.className = "pulse-indicator status-rose";
       elements.teleStatusText.textContent = "Connection Error";
       logToCanvas(`[ERROR] Backend connection failed: ${err.message}`);
       showToast("Backend connection failed.");
       return;
     }
-    stopElapsedTimer();
-    UIState.isRunning = false;
     elements.teleStatusDot.className = "pulse-indicator status-rose";
     elements.teleStatusText.textContent = "Error";
     logToCanvas(`\n[ERROR] Research pipeline stream failed: ${err.message}`);

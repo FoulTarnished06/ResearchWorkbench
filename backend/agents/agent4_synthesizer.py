@@ -15,7 +15,7 @@ except ImportError:
 from backend.logger import get_logger
 from backend.retry import retry_async
 from backend.post_processor import clean_monograph_text
-from backend.agents.agent2_drafter import safe_parse_json, TokenCount, resolve_anthropic_model, resolve_openai_model, is_openai_reasoning_model, is_openai_provider
+from backend.agents.agent2_drafter import safe_parse_json, TokenCount, resolve_anthropic_model, resolve_openai_model, get_wire_openai_model, is_openai_reasoning_model, is_openai_provider
 from backend.agents.agent1_scraper import classify_paper_provenance
 
 logger = get_logger("Agent4_Synthesizer")
@@ -210,6 +210,19 @@ async def _post_openai_factcheck(url: str, payload: dict, headers: dict) -> tupl
             if modified:
                 resp = await client.post(url, json=curr_payload, headers=headers)
 
+        # Fallback for model tiers not accessible on user's API key (e.g. HTTP 404 model_not_found)
+        if (resp.status_code == 404 or resp.status_code == 400) and any(kw in resp.text.lower() for kw in ("model_not_found", "does not exist", "not found", "access", "invalid_model")):
+            original_model = curr_payload.get("model", "")
+            for fb_model in ["gpt-4o-mini", "gpt-4o", "o3-mini"]:
+                if original_model != fb_model:
+                    logger.warning(f"OpenAI Fact-Check model '{original_model}' not accessible on key (HTTP {resp.status_code}). Falling back to '{fb_model}'...")
+                    curr_payload["model"] = fb_model
+                    if "temperature" not in curr_payload and not is_openai_reasoning_model(fb_model):
+                        curr_payload["temperature"] = 0.1
+                    resp = await client.post(url, json=curr_payload, headers=headers)
+                    if resp.status_code == 200:
+                        break
+
         if resp.status_code == 200:
             data = resp.json()
             choices = data.get("choices", [])
@@ -273,14 +286,15 @@ Claims and Targeted Evidence:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    model_name = resolve_openai_model(model_pref, default="gpt-6-luna")
+    canonical_model = resolve_openai_model(model_pref, default="gpt-6-luna")
+    wire_model = get_wire_openai_model(canonical_model)
     payload = {
-        "model": model_name,
+        "model": wire_model,
         "max_completion_tokens": 2048,
         "messages": [{"role": "user", "content": prompt}]
     }
     # Proactively omit temperature for reasoning models
-    if not is_openai_reasoning_model(model_name):
+    if not is_openai_reasoning_model(wire_model):
         payload["temperature"] = 0.1
     return await retry_async(_post_openai_factcheck, url, payload, headers, max_retries=2, base_delay=1.0)
 

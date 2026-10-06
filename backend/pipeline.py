@@ -527,12 +527,35 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                         "details": "Structuring dialectical sections & embedding atomic <claim> boundaries...",
                         "tokens_used": 0
                     })
-                elif drafter_elapsed >= 45.0:
-                    logger.warning(f"Drafter task exceeded 45.0s limit; canceling.")
+                elif 14.0 <= drafter_elapsed < 16.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 2,
+                        "name": "The Drafter",
+                        "details": "Synthesizing empirical findings across technical subtopics...",
+                        "tokens_used": 0
+                    })
+                elif 28.0 <= drafter_elapsed < 30.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 2,
+                        "name": "The Drafter",
+                        "details": "Finalizing claim boundaries & formatting section monograph...",
+                        "tokens_used": 0
+                    })
+                elif drafter_elapsed >= 75.0:
+                    logger.warning("Drafter task exceeded 75.0s limit; canceling.")
                     drafter_task.cancel()
                     break
 
-        agent2_res = await drafter_task
+        try:
+            agent2_res = await drafter_task
+        except (asyncio.CancelledError, Exception) as exc:
+            logger.warning(f"Drafter task did not complete normally ({exc}). Generating resilient fallback draft...")
+            from backend.agents.agent2_drafter import synthesize_fallback_draft
+            agent2_res = synthesize_fallback_draft(
+                user_query,
+                agent1_res.get("papers", []),
+                dense_sentences=agent1_res.get("dense_sentences", [])
+            )
         partial_data["agent2_draft"] = agent2_res
         
         yield sse_message("agent_progress", {
@@ -660,12 +683,30 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                         "details": "Adjudicating claim confidence & indexing citations against source literature...",
                         "tokens_used": 0
                     })
-                elif synth_elapsed >= 45.0:
-                    logger.warning(f"Synthesizer task exceeded 45.0s limit; canceling.")
+                elif 16.0 <= synth_elapsed < 18.0:
+                    yield sse_message("agent_progress", {
+                        "agent_id": 4,
+                        "name": "Fact-Checker & Synthesizer",
+                        "details": "Cross-referencing claims against source evidence and computing verification metrics...",
+                        "tokens_used": 0
+                    })
+                elif synth_elapsed >= 60.0:
+                    logger.warning("Synthesizer task exceeded 60.0s limit; canceling.")
                     synth_task.cancel()
                     break
 
-        agent4_res = await synth_task
+        try:
+            agent4_res = await synth_task
+        except (asyncio.CancelledError, Exception) as exc:
+            logger.warning(f"Synthesizer task interrupted or errored ({exc}). Executing resilient offline synthesis...")
+            agent4_res = await run_agent4_fact_checker_synthesizer(
+                query=user_query,
+                agent1_data=agent1_res,
+                agent2_data=agent2_res,
+                agent3_data=agent3_res,
+                provider=resolved_stream_provider_a4,
+                disable_fallback=False
+            )
 
         yield sse_message("agent_progress", {
             "agent_id": 4,
@@ -749,7 +790,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         # Asynchronously log to SQLite database and cache in background (BUG-01, TOK-03-REVISED)
         asyncio.create_task(asyncio.to_thread(log_pipeline_run, run_id, user_query, total_tokens, elapsed, final_payload, total_prompt, total_comp, user_id))
         asyncio.create_task(asyncio.to_thread(set_response_cache, user_query, final_payload))
-    except Exception as exc:
+    except (asyncio.CancelledError, Exception) as exc:
         err_msg = str(exc)
         logger.error(f"Pipeline error: {err_msg}")
         if partial_data.get("agent2_draft"):
