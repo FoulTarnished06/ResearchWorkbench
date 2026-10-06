@@ -16,7 +16,7 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: DATABASE_URL
-        value: postgresql://neondb_owner:npg_9lnm8QCNAeRy@ep-frosty-queen-b3hs744s-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: APP_BASE_URL

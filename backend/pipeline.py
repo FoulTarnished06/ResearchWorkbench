@@ -128,14 +128,26 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
     """
     config = config or {}
     ensure_pipeline_db()
-    
+    user_id = config.get("user_id")
+
     # 1. Check Query-Level Response Cache for identical queries (0 tokens, 100% quality)
     use_cache = not config.get("bypass_cache", False)
     if use_cache:
         cached_result = await asyncio.to_thread(get_response_cache, user_query)
         if cached_result:
             logger.info(f"Cache hit for query '{user_query[:40]}'. Returning cached synthesis (0 tokens).")
-            return cached_result
+            hit_run_id = f"run_{uuid.uuid4().hex[:8]}"
+            cached_result_copy = dict(cached_result)
+            cached_result_copy["run_id"] = hit_run_id
+            tok_usage = cached_result_copy.get("token_usage", {})
+            total_toks = tok_usage.get("total_tokens", 0)
+            p_toks = tok_usage.get("prompt_tokens", 0)
+            c_toks = tok_usage.get("completion_tokens", 0)
+            elapsed = cached_result_copy.get("elapsed_seconds", 0.0)
+            await asyncio.to_thread(
+                log_pipeline_run, hit_run_id, user_query, total_toks, elapsed, cached_result_copy, p_toks, c_toks, user_id
+            )
+            return cached_result_copy
 
     provider_agent2 = config.get("provider_agent2", "auto")
     provider_agent4 = config.get("provider_agent4", "auto")
@@ -315,6 +327,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     def sse_message(event_type: str, data: Dict[str, Any]) -> str:
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
+    user_id = config.get("user_id")
+
     # Initial start event
     yield sse_message("pipeline_start", {
         "run_id": run_id,
@@ -329,13 +343,24 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     if use_cache:
         cached_result = await asyncio.to_thread(get_response_cache, user_query)
         if cached_result:
+            hit_run_id = run_id or f"run_{uuid.uuid4().hex[:8]}"
+            cached_result_copy = dict(cached_result)
+            cached_result_copy["run_id"] = hit_run_id
+            tok_usage = cached_result_copy.get("token_usage", {})
+            total_toks = tok_usage.get("total_tokens", 0)
+            p_toks = tok_usage.get("prompt_tokens", 0)
+            c_toks = tok_usage.get("completion_tokens", 0)
+            elapsed = cached_result_copy.get("elapsed_seconds", 0.0)
+            await asyncio.to_thread(
+                log_pipeline_run, hit_run_id, user_query, total_toks, elapsed, cached_result_copy, p_toks, c_toks, user_id
+            )
             yield sse_message("agent_completed", {
                 "agent_id": 0,
                 "name": "Semantic Cache",
                 "tokens_used": 0,
                 "status": "Cache hit: restored from local SQLite response cache (0 tokens)."
             })
-            yield sse_message("pipeline_complete", cached_result)
+            yield sse_message("pipeline_complete", cached_result_copy)
             return
 
     disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", False))
@@ -343,7 +368,6 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     scraper_sources = config.get("scraper_sources", "all")
     active_scrapers = config.get("active_scrapers")
     serpapi_key = config.get("serpapi_key")
-    user_id = config.get("user_id")
     
     partial_data = {
         "query": user_query,
@@ -451,7 +475,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             asyncio.create_task(asyncio.to_thread(
                 log_pipeline_run, run_id, user_query, rapid_res["token_usage"]["total_tokens"], rapid_res["elapsed_seconds"], rapid_res, a2_p, a2_c, user_id
             ))
-            yield sse_message("pipeline_completed", rapid_res)
+            yield sse_message("pipeline_complete", rapid_res)
             return
 
         # AGENT 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens)

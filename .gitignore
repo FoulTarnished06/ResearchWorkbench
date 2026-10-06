@@ -21,6 +21,7 @@ venv.bak/
 # Local SQLite databases & runtime cache
 backend/cache.db
 *.sqlite3
+*.db
 *.db-journal
 
 # User-uploaded PDF files & extracted figures (keep folder structure clean)

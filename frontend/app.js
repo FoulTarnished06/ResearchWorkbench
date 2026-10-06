@@ -1922,6 +1922,9 @@ async function executeLiveBackend(query) {
         citations: data.citations || [],
         evaluated_claims: data.evaluated_claims || []
       });
+    },
+    pipeline_completed: (e) => {
+      eventHandlers.pipeline_complete(e);
     }
   };
 
@@ -2959,9 +2962,21 @@ function setupClaimCitationInteractions() {
   if (_claimCitationDelegated) return;
   _claimCitationDelegated = true;
 
-  // Delegated clicks on claims and citation anchors in dossier content
+  // Delegated clicks on claims, drilldowns, and citation anchors in dossier content
   if (elements.dossierContent) {
     elements.dossierContent.addEventListener('click', (e) => {
+      const drillBtn = e.target.closest('.claim-drilldown-btn');
+      if (drillBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        const claimWrapper = drillBtn.closest('.claim-wrapper');
+        if (claimWrapper) {
+          const claimId = claimWrapper.dataset.claimId;
+          const cText = claimWrapper.querySelector('.claim-text')?.textContent?.trim() || claimWrapper.textContent.trim();
+          openFollowupDrawer('claim', claimId || 'claim_drill', cText, claimWrapper);
+        }
+        return;
+      }
       const item = e.target.closest('.claim-wrapper, .citation-anchor');
       if (item) {
         e.preventDefault();

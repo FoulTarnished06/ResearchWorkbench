@@ -177,7 +177,8 @@ async def call_gemini_api(
     api_key: str,
     model_pref: str = "gemini-3.6-flash",
     system_instruction: Optional[str] = None,
-    response_schema: Optional[Dict[str, Any]] = None
+    response_schema: Optional[Dict[str, Any]] = None,
+    response_mime_type: Optional[str] = None
 ) -> tuple[str, int]:
     """
     Calls Google Gemini API targeting modern Flash/Pro models with system instruction,
@@ -200,8 +201,14 @@ async def call_gemini_api(
     gen_config: Dict[str, Any] = {
         "temperature": 0.2,
         "maxOutputTokens": 8192,
-        "response_mime_type": "application/json"
     }
+    if response_mime_type is not None:
+        gen_config["response_mime_type"] = response_mime_type
+    elif response_schema is not None:
+        gen_config["response_mime_type"] = "application/json"
+    else:
+        gen_config["response_mime_type"] = "application/json"
+
     if response_schema is not None:
         gen_config["responseSchema"] = response_schema
 

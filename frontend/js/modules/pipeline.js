@@ -444,6 +444,9 @@ export async function executeLiveBackend(query) {
         citations: data.citations || [],
         evaluated_claims: data.evaluated_claims || []
       });
+    },
+    pipeline_completed: (e) => {
+      eventHandlers.pipeline_complete(e);
     }
   };
 

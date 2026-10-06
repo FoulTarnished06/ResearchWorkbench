@@ -2538,11 +2538,13 @@ body.theme-beige .log-line.success {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
-/* STRICT RULE: Bottom chat command bar is ONLY visible on Interactive Pipeline Canvas */
+/* Display bottom chat command bar on Canvas, Dossier, and About landing views */
 .bottom-chat-container {
   display: none !important;
 }
-body.on-canvas .bottom-chat-container {
+body.on-canvas .bottom-chat-container,
+body.on-dossier .bottom-chat-container,
+body.on-about .bottom-chat-container {
   display: flex !important;
 }
 

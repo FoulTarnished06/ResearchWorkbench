@@ -372,7 +372,8 @@ class ConventionalRAGSystem:
                         prompt=f"{system_instruction}\n\n{user_prompt}",
                         api_key=resolved_key,
                         model_pref=self.model_pref,
-                        system_instruction=system_instruction
+                        system_instruction=system_instruction,
+                        response_mime_type="text/plain"
                     )
                 
                 output_text = raw_output
