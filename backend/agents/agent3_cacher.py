@@ -258,24 +258,38 @@ def run_agent3_context_distiller(query: str, agent1_data: Any, top_k: int = 15, 
     query_profile = text_to_vector_profile(query)
     sent_texts = [sent.get("text", "") for sent in dense_sentences]
     
+    # Fast subword BM25 ranking (sub-millisecond)
+    tokenized_corpus = [tokenize_words(t) for t in sent_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+    bm25_scores = bm25.get_scores(tokenize_words(query))
+
     # 1. Embed query
     model = get_embedding_model()
     q_vec = embed_texts([query]) if model is not None else None
     
-    # 2. Embed all sentences
-    s_mat = embed_texts(sent_texts) if (model is not None and sent_texts) else None
-    
-    # 3. BM25 Setup
-    tokenized_corpus = [tokenize_words(t) for t in sent_texts]
-    bm25 = BM25Okapi(tokenized_corpus)
-    bm25_scores = bm25.get_scores(tokenize_words(query))
+    # 2. Embed sentences efficiently (pre-filter to top 30 if large corpus to guarantee <150ms execution)
+    if len(dense_sentences) > 30 and model is not None:
+        lex_ranks = [
+            compute_profile_similarity(query_profile, text_to_vector_profile(t)) + (bm25_scores[i] * 0.1)
+            for i, t in enumerate(sent_texts)
+        ]
+        top_cand_indices = set(sorted(range(len(dense_sentences)), key=lambda i: lex_ranks[i], reverse=True)[:30])
+        cand_subset = [sent_texts[i] for i in sorted(list(top_cand_indices))]
+        c_mat = embed_texts(cand_subset)
+        s_mat = None
+        if c_mat is not None:
+            s_mat = np.zeros((len(dense_sentences), c_mat.shape[1]), dtype=np.float32)
+            for c_i, orig_i in enumerate(sorted(list(top_cand_indices))):
+                s_mat[orig_i] = c_mat[c_i]
+    else:
+        s_mat = embed_texts(sent_texts) if (model is not None and sent_texts) else None
     
     # Calculate similarities to query using RRF (Reciprocal Rank Fusion)
     semantic_scores = []
     for s_idx, sent in enumerate(dense_sentences):
         sent_profile = text_to_vector_profile(sent.get("text", ""))
         lex_sim = compute_profile_similarity(query_profile, sent_profile)
-        if q_vec is not None and s_mat is not None:
+        if q_vec is not None and s_mat is not None and np.any(s_mat[s_idx]):
             n_sim = float(np.dot(q_vec[0], s_mat[s_idx]))
             sim = max(lex_sim, n_sim)
         else:
@@ -410,12 +424,7 @@ def run_agent3_context_cacher(
         f_metrics, f_acronyms = extract_grounding_features(claim_text)
         claim_nums = set(re.findall(r'\b\d+(?:\.\d+)?\b', claim_text))
         
-        f_vec = None
-        if s_mat is not None:
-            try:
-                f_vec = embed_texts([claim_text])
-            except:
-                pass
+        f_vec = c_mat[c_idx:c_idx+1] if (c_mat is not None and c_idx < len(c_mat)) else None
 
         full_matches = []
         for s_idx, (sent, s_prof) in enumerate(sentence_profiles):
@@ -457,13 +466,7 @@ def run_agent3_context_cacher(
         for atomic_text in atomic_claims:
             atomic_profile = text_to_vector_profile(atomic_text)
             a_metrics, a_acronyms = extract_grounding_features(atomic_text)
-
-            n_vec = None
-            if s_mat is not None:
-                try:
-                    n_vec = embed_texts([atomic_text])
-                except:
-                    pass
+            n_vec = f_vec
 
             scored_matches = []
             for s_idx, (sent, s_prof) in enumerate(sentence_profiles):

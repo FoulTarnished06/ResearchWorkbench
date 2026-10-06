@@ -43,6 +43,34 @@ export async function fetchSSE(url, payload, eventHandlers, abortSignal) {
   let currentEvent = 'message';
   let currentData = '';
 
+  const dispatchEvent = () => {
+    if (currentData) {
+      if (eventHandlers[currentEvent]) {
+        try {
+          eventHandlers[currentEvent]({ data: currentData });
+        } catch (err) {
+          console.error('SSE handler error for event', currentEvent, err);
+        }
+      }
+      currentEvent = 'message';
+      currentData = '';
+    }
+  };
+
+  const processLine = (rawLine) => {
+    const line = rawLine.replace(/\r$/, '');
+    if (line === '') {
+      dispatchEvent();
+    } else if (line.startsWith(':')) {
+      // Ignore keepalive / comment line
+    } else if (line.startsWith('event:')) {
+      currentEvent = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      const d = line.slice(5).trim();
+      currentData = currentData ? currentData + '\n' + d : d;
+    }
+  };
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -51,43 +79,18 @@ export async function fetchSSE(url, payload, eventHandlers, abortSignal) {
     buffer = lines.pop() || '';
 
     for (const rawLine of lines) {
-      const line = rawLine.replace(/\r$/, '');
-      if (line === '') {
-        if (currentData) {
-          if (eventHandlers[currentEvent]) {
-            try {
-              eventHandlers[currentEvent]({ data: currentData });
-            } catch (err) {
-              console.error('SSE handler error for event', currentEvent, err);
-            }
-          }
-          currentEvent = 'message';
-          currentData = '';
-        }
-      } else if (line.startsWith('event:')) {
-        currentEvent = line.slice(6).trim();
-      } else if (line.startsWith('data:')) {
-        const d = line.slice(5).trim();
-        currentData = currentData ? currentData + '\n' + d : d;
-      }
+      processLine(rawLine);
     }
   }
 
+  // Flush remaining bytes and buffer when reader completes
+  buffer += decoder.decode();
   if (buffer) {
-    const line = buffer.replace(/\r$/, '');
-    if (line.startsWith('event:')) {
-      currentEvent = line.slice(6).trim();
-    } else if (line.startsWith('data:')) {
-      const d = line.slice(5).trim();
-      currentData = currentData ? currentData + '\n' + d : d;
+    const remainingLines = buffer.split('\n');
+    for (const rawLine of remainingLines) {
+      processLine(rawLine);
     }
   }
-
-  if (currentData && eventHandlers[currentEvent]) {
-    try {
-      eventHandlers[currentEvent]({ data: currentData });
-    } catch (err) {
-      console.error('SSE handler flush error', err);
-    }
-  }
+  // Final dispatch in case stream terminated without trailing empty line
+  dispatchEvent();
 }

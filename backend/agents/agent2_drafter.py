@@ -417,10 +417,8 @@ def resolve_openai_model(model_pref: str, default: str = "gpt-6.1-sol") -> str:
         return "gpt-5.4-mini"
     if "5.4" in pref:
         return "gpt-5.4"
-    if "4o-mini" in pref:
-        return "gpt-4o-mini"
-    if "4o" in pref:
-        return "gpt-4o"
+    if "4o-mini" in pref or "4o" in pref:
+        return "gpt-6-luna"
     return default
 
 def get_wire_openai_model(requested_model: str) -> str:

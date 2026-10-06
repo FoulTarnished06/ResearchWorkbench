@@ -377,6 +377,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                     "status": "Cache hit: restored from local SQLite response cache (0 tokens)."
                 })
                 yield sse_message("pipeline_complete", cached_result_copy)
+                await asyncio.sleep(0.05)
                 return
         except Exception as cache_err:
             logger.debug(f"Cache check bypass/error: {cache_err}")
@@ -590,6 +591,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                 log_pipeline_run, run_id, user_query, rapid_res["token_usage"]["total_tokens"], rapid_res["elapsed_seconds"], rapid_res, a2_p, a2_c, user_id
             ))
             yield sse_message("pipeline_complete", rapid_res)
+            await asyncio.sleep(0.05)
             return
 
         # AGENT 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens)
@@ -786,6 +788,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
 
         # Emit completion IMMEDIATELY to client without blocking on DB write latency
         yield sse_message("pipeline_complete", final_payload)
+        await asyncio.sleep(0.05)
 
         # Asynchronously log to SQLite database and cache in background (BUG-01, TOK-03-REVISED)
         asyncio.create_task(asyncio.to_thread(log_pipeline_run, run_id, user_query, total_tokens, elapsed, final_payload, total_prompt, total_comp, user_id))
