@@ -62,9 +62,8 @@ AGENT2_PINNED_SYSTEM_INSTRUCTION = (
     "FORENSIC GROUNDING & METRIC PLAUSIBILITY GUARDS (STRICT):\n"
     "- ALGORITHMIC & PHYSICAL SCALING LAWS: Sanity-check all quantitative figures against fundamental domain physics. In asymmetric cryptographic schemes (SNARKs, KZG, Groth16), verification is succinct (O(1) ~2-5 ms), while prover work scales with circuit complexity (O(d log d)). Never assert that verification takes longer than proof generation (e.g. claiming 6s verification vs <1s proving is physically inverted).\n"
     "- DOMAIN CONSISTENCY: If a retrieved paper's primary contribution is orthogonal to the user's research query (e.g. consumer product liability or supply-chain email verification in a cryptocurrency scaling query), you MUST discard it. Do NOT contort or re-frame unrelated workloads into benchmarks for the target system.\n"
-    "- CALIBRATED EMPIRICAL REFUSAL: When retrieved sources lack direct benchmark measurements for a target parameter (e.g. no measured 7-day challenge window or head-to-head empirical comparison), explicitly state: 'No empirical measurement reported in the retrieved evidence'. Never hallucinate proxy metrics or synthetic numbers.\n"
-    "- DEMARCATED PARAMETRIC SYNTHESIS: When external empirical literature lacks direct head-to-head measurements, synthesize theoretical foundations from first principles strictly inside an explicitly labeled subsection titled 'Theoretical Modeling & Parametric Derivation (Parametric Bounds)'. Keep empirical evidence strictly segregated from theoretical derivations.\n"
-    "- SECTION 2 EMPIRICAL PURITY MANDATE: Section 2 ('Empirical Validation & Benchmark Delta' / 'Core Empirical Findings & Takeaways') MUST contain STRICTLY empirical findings, benchmark figures, experimental measurements, and ablation results extracted directly from retrieved literature. ZERO speculative theoretical modeling, parametric estimations, or ungrounded assertions are permitted in Section 2. If retrieved evidence lacks direct empirical measurements for a target facet, explicitly state calibrated refusal: 'No empirical measurement reported in retrieved evidence: [parameter/facet]'.\n"
+    "- EMPIRICAL RIGOR: Anchor all quantitative claims directly in the retrieved literature. If a specific dataset or benchmark comparison was not tested in the literature, state the gap succinctly in an objective academic tone without repeating repetitive boilerplates. Never hallucinate proxy metrics or synthetic numbers.\n"
+    "- SECTION 2 EMPIRICAL FOCUS: Section 2 must present concrete empirical findings, benchmark metrics, experimental measurements, and ablation results extracted directly from retrieved literature. Populate Section 2 with substantive quantitative evidence from the papers.\n"
     "- IMMUTABLE CITATION INTEGRITY: Cite only papers that are actually provided in the retrieved evidence using consistent identifiers. Never invent phantom citations or unlinked reference numbers.\n"
     "\n"
     "SECURITY DIRECTIVE:\n"
@@ -525,27 +524,27 @@ def analyze_query_complexity(query: str) -> Dict[str, Any]:
     if complexity_score >= 6:
         tier = "Tier 3: Comprehensive Monograph"
         tier_name = "Comprehensive"
-        subtopics_count = 5
-        paragraphs_per_subtopic = 4
-        target_words = 1800
-        estimated_tokens = 3200
+        subtopics_count = 4
+        paragraphs_per_subtopic = 3
+        target_words = 1400
+        estimated_tokens = 2600
         summary_paragraphs = 3
     elif complexity_score >= 4:
         tier = "Tier 2: In-Depth Architectural"
         tier_name = "In-Depth"
-        subtopics_count = 4
+        subtopics_count = 3
         paragraphs_per_subtopic = 3
-        target_words = 1300
-        estimated_tokens = 2400
+        target_words = 1100
+        estimated_tokens = 2000
         summary_paragraphs = 3
     else:
         tier = "Tier 1: Focused Inquiry"
         tier_name = "Focused"
         subtopics_count = 3
-        paragraphs_per_subtopic = 3
-        target_words = 900
-        estimated_tokens = 1800
-        summary_paragraphs = 3
+        paragraphs_per_subtopic = 2
+        target_words = 800
+        estimated_tokens = 1500
+        summary_paragraphs = 2
 
     return {
         "tier": tier,
@@ -2009,17 +2008,17 @@ async def run_agent2_the_drafter(
         if not biblio_str:
             biblio_str = "No formal indexed papers available."
 
-        # Facet coverage context (Pillar 2 & 6)
+        # Research dimensions context
         covered_facets = agent1_data.get("covered_facets", [])
         uncovered_facets = agent1_data.get("uncovered_facets", [])
         facet_coverage_lines = []
         if covered_facets:
-            c_titles = [f"'{f.get('sub_query', '')}' (Empirical sources: {', '.join(f.get('matching_papers', []))})" for f in covered_facets]
-            facet_coverage_lines.append("Covered Sub-Questions: " + "; ".join(c_titles))
+            c_titles = [f"'{f.get('sub_query', '')}'" for f in covered_facets]
+            facet_coverage_lines.append("Primary Sub-Questions: " + "; ".join(c_titles))
         if uncovered_facets:
-            u_titles = [f"'{f.get('sub_query', '')}' [NO direct empirical paper found in retrieved literature]" for f in uncovered_facets]
-            facet_coverage_lines.append("Uncovered Facets / Missing Empirical Evidence: " + "; ".join(u_titles))
-        facet_str = "\n".join(facet_coverage_lines).strip() if facet_coverage_lines else "Single-facet query."
+            u_titles = [f"'{f.get('sub_query', '')}'" for f in uncovered_facets]
+            facet_coverage_lines.append("Broader Technical Scope: " + "; ".join(u_titles))
+        facet_str = "\n".join(facet_coverage_lines).strip() if facet_coverage_lines else "Single research inquiry."
 
         # Rich Literature & Full Text/Abstract Extraction
         # Feeds the complete natural-language abstract and open-access full-text benchmark paragraphs
@@ -2045,10 +2044,10 @@ async def run_agent2_the_drafter(
             dense_lines = [f"[{s.get('paper_idx', 'P1')}] {s.get('text', '')}" for s in (dense_sentences or []) if s.get('text')]
             empirical_context = "\n".join(dense_lines).strip() or "No indexed empirical excerpts returned. Ground synthesis in verified physical/mathematical principles and state theoretical boundaries."
         
-        context_str = f"""--- RETRIEVED LITERATURE & BIBLIOGRAPHIC METADATA ---
+        context_str = f"""--- RETRIEVED RESEARCH PAPERS & EMPIRICAL SOURCES ---
 {biblio_str}
 
---- FACET COVERAGE & EMPIRICAL EVIDENCE STATUS ---
+--- RESEARCH DIMENSIONS ---
 {facet_str}
 
 --- EMPIRICAL EXTRACTS & BENCHMARK EVIDENCE ---
@@ -2065,25 +2064,22 @@ Complexity Level: {complexity['tier']} (Target Depth: {target_words} words acros
 
 SYNTHESIS GUIDELINES & GROUNDING DIRECTIVES:
 1. DUAL-OUTPUT REQUIREMENT:
-   - 'quick_answer': 3-4 plain-English sentences summarizing the essential answer to the query at a college-freshman level. If certain sub-questions had no retrieved empirical papers, explicitly separate what was found from what was absent (e.g., 'Retrieved literature confirms [found findings]. Direct empirical benchmarks for [uncovered entity] were not identified in the indexed literature and require parametric estimation.'). Zero jargon, zero LaTeX, zero citation tags.
+   - 'quick_answer': 3-4 plain-English sentences summarizing the essential answer to the query at a college-freshman level. State what was experimentally confirmed and note open questions in an objective tone. Zero jargon, zero LaTeX, zero citation tags.
    - 'executive_summary': A rigorous {summary_paragraphs}-paragraph technical monograph briefing with formal metrics and claim tags.
 
 2. MANDATORY IN-TEXT CITATION & LITERATURE GROUNDING (CRITICAL):
-   - In every section and executive summary paragraph, cite ONLY papers present in the RETRIEVED LITERATURE block above using their exact index and authors (e.g., 'As demonstrated by Author et al. (Year) [P1]...').
-   - NEVER invent phantom citations (e.g. citing [P7] or unlisted sources when only [P1]-[P3] exist).
-   - Anchor empirical claims directly in the facts, metrics, and mechanisms provided in the digest. Retain the exact measurements, error rates, and formal terms.
-   - For empirical assertions, benchmark figures, and regulatory mechanisms, embed <claim id="c#" paper="P#">empirical assertion</claim> tags (e.g. <claim id="c1" paper="P1">metric</claim>).
-   - UNCOVERED FACETS / MISSING EMPIRICAL BENCHMARKS (STRICT):
-     If a sub-question or entity is listed under 'Uncovered Facets / Missing Empirical Evidence' (or lacks empirical data in the retrieved papers):
-     Do NOT hallucinate empirical measurements or attribute it to unrelated retrieved papers!
-     Instead, synthesize it strictly under a dedicated subsection titled:
-     "Theoretical Modeling & Parametric Derivations [Unverified External Benchmark]"
-     Clearly stating: "No direct empirical measurement reported in the retrieved literature. Theoretical principles indicate..."
+   - In every section and executive summary paragraph, cite ONLY papers present in the sources above using their exact index and authors (e.g., 'As demonstrated by Wieder et al. (2020) [P1]...').
+   - Wrap the ACTUAL claim phrase or clause inside <claim id="c#" paper="P#">...</claim> tags. NEVER append duplicate claim fragments at the end of a sentence.
+     CORRECT:
+     '<p>As demonstrated by Wieder et al. [P1], <claim id="c1" paper="P1">the benchmark classifies 80 GNNs across 48 molecular datasets</claim>.</p>'
+     INCORRECT (NEVER DO THIS):
+     '<p>Wieder et al. [P1] reviewed 48 datasets with <claim id="c1" paper="P1">80 GNNs, 20 properties, and 48 datasets</claim>.</p>'
+   - STYLE & PERSON MANDATE: Write strictly in an authoritative academic literature review voice. NEVER mention "the literature block", "the prompt", "retrieved literature", "uncovered facets", or pipeline internals. If discussing a benchmark with limited empirical evaluations, frame it naturally (e.g. 'Standard molecular benchmarks such as ZINC have not been exhaustively evaluated under these positional encodings.').
+   - NEVER add bracketed tags like '[Unverified External Benchmark]' to subtopic titles. Keep all subtopic titles clean and professional.
 
-3. SECTION 2 EMPIRICAL PURITY MANDATE (CRITICAL):
-   - Section 2 ('Empirical Validation & Benchmark Delta' / 'Core Empirical Findings & Takeaways') must hold STRICTLY empirical findings, benchmark figures, and experimental results extracted directly from the retrieved literature above.
-   - Absolutely ZERO speculative theoretical modeling, parametric estimations, or ungrounded claims in Section 2.
-   - If retrieved evidence lacks direct empirical measurements for a target facet or comparison, explicitly state calibrated refusal: 'No empirical measurement reported in retrieved evidence: [facet]'. Any mathematical deductions or parametric models belong exclusively in Section 1 or in Section 3's dedicated 'Theoretical Modeling & Parametric Derivations' subsection.
+3. SECTION 2 EMPIRICAL VALIDATION & BENCHMARK EVIDENCE (MANDATORY):
+   - Section 2 ('Empirical Validation & Benchmark Delta' / 'Core Empirical Findings') MUST be thoroughly populated with the concrete quantitative findings, benchmark metrics (e.g., MAE, ROC-AUC, RMSE, throughput, parameters), and experimental evaluations extracted directly from the papers above.
+   - Do NOT leave Section 2 empty or fill it with repetitive refusal boilerplate. Summarize what WAS empirically evaluated and measured across the papers.
 
 4. MANDATORY COMPARATIVE BENCHMARK MATRIX TABLE & TRADE-OFF TAXONOMY (CRITICAL):
    - You MUST populate 'comparison_table' with 3 to 6 rows comparing the primary methods, models, architectures, or papers identified in the retrieved evidence across columns:
@@ -2100,25 +2096,25 @@ SYNTHESIS GUIDELINES & GROUNDING DIRECTIVES:
 6. OUTPUT FORMAT (Return strictly a raw JSON object, no markdown code fences):
 {{
   "quick_answer": "Plain-English 3-4 sentence direct answer to the query without academic jargon.",
-  "executive_summary": "<p><strong>Executive Problem Formulation:</strong> According to Authors (Year) [P1], ... with <claim id=\\"c1\\" paper=\\"P1\\">core assertion</claim>...</p><p><strong>Quantitative Consensus:</strong> As established in [P2], ... with <claim id=\\"c2\\" paper=\\"P2\\">metric</claim>...</p>",
+  "executive_summary": "<p><strong>Executive Problem Formulation:</strong> According to Authors (Year) [P1], <claim id=\\"c1\\" paper=\\"P1\\">core empirical assertion</claim>.</p><p><strong>Quantitative Consensus:</strong> As established in [P2], <claim id=\\"c2\\" paper=\\"P2\\">measured metric</claim>.</p>",
   "sub_questions": [{', '.join([f'"Subtopic {i+1}: Detailed Thematic Title"' for i in range(target_count)])}],
   "sections": [
     {{
       "sub_question": "Subtopic 1: (Replace with relevant thematic title based on query domain)",
-      "answer_html": "<p><strong>(Dynamic Section Header):</strong> Paragraph 1 citing [P1]...</p><p><strong>(Dynamic Section Header):</strong> Paragraph 2 with <claim id=\\"c3\\" paper=\\"P1\\">quantitative metric</claim>...</p>",
+      "answer_html": "<p><strong>(Dynamic Section Header):</strong> Paragraph 1 citing [P1]...</p><p><strong>(Dynamic Section Header):</strong> Paragraph 2 demonstrating that <claim id=\\"c3\\" paper=\\"P1\\">quantitative metric</claim> holds across evaluation tasks.</p>",
       "claims": [{{"id": "c3", "text": "quantitative metric", "paper": "P1"}}]
     }}
   ],
   "comparison_table": {{
     "columns": ["Method / Architecture", "Domain / Focus", "Key Mechanism", "Reported Benchmark / Metric", "Trade-offs / Limitations"],
     "rows": [
-      ["Method / Model A [P1]", "Vision / Robotics", "Selective state updates with continuous-time recurrence", "Linear time O(L) scaling", "Weaker associative recall on irregular dependencies"],
-      ["Method / Model B [P2]", "Sequence Modeling", "Associative kernelization and linear attention matrix", "Constant per-step evaluation", "Spatial consistency vs temporal horizon trade-offs"]
+      ["Method / Model A [P1]", "Molecular / Drug Discovery", "Selective message passing with positional encodings", "0.012 MAE on QM9", "Higher computational overhead on dense subgraphs"],
+      ["Method / Model B [P2]", "Chemoinformatics", "Sparse multitask graph convolutional network", "0.85 ROC-AUC on Tox21", "Sensitivity to dataset sparsity"]
     ]
   }},
   "dialectical_friction": {{
     "disagreements": "Specific methodological or empirical contradictions between sources in the literature.",
-    "pareto_tradeoffs": "Core Pareto trade-off frontiers (e.g. latency vs. memory, fidelity vs. gate speed, local precision vs. long-context scale)."
+    "pareto_tradeoffs": "Core Pareto trade-off frontiers (e.g. latency vs. memory, expressiveness vs. generalization)."
   }},
   "epistemic_limitations": [
     "Untested parameter regimes or evaluation gaps in current literature.",

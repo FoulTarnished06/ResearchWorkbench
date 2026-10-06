@@ -16,6 +16,7 @@ from backend.logger import get_logger
 from backend.retry import retry_async
 from backend.post_processor import clean_monograph_text
 from backend.agents.agent2_drafter import safe_parse_json, TokenCount, resolve_anthropic_model, resolve_openai_model, is_openai_reasoning_model, is_openai_provider
+from backend.agents.agent1_scraper import classify_paper_provenance
 
 logger = get_logger("Agent4_Synthesizer")
 
@@ -414,18 +415,24 @@ async def run_agent4_fact_checker_synthesizer(
     
     # Merge all evaluated claims
     all_evaluated_claims = {}
-    for c in verified_from_cache:
+    for idx, c in enumerate(verified_from_cache):
         if not c.get("verification_tier"):
             c["verification_tier"] = "auto_cache"
         if not c.get("reviewer_2_caveat"):
             c["reviewer_2_caveat"] = "Locally verified via high-confidence n-gram token overlap against source corpus."
-        all_evaluated_claims[c["claim_id"]] = c
-    for c in checked_claims:
+        cid = c.get("claim_id") or c.get("id") or f"c_cache_{idx+1}"
+        c["claim_id"] = cid
+        c["id"] = cid
+        all_evaluated_claims[cid] = c
+    for idx, c in enumerate(checked_claims):
         if c.get("status") in ["verified_by_llm", "plausible", "LLM-Verified"]:
             c["verification_tier"] = "llm_rag"
         else:
             c["verification_tier"] = "no_source"
-        all_evaluated_claims[c["claim_id"]] = c
+        cid = c.get("claim_id") or c.get("id") or f"c_check_{idx+1}"
+        c["claim_id"] = cid
+        c["id"] = cid
+        all_evaluated_claims[cid] = c
         
     # Build citation index matching claims to sources
     citations = []
@@ -438,6 +445,12 @@ async def run_agent4_fact_checker_synthesizer(
             citation_id_map[p["paper_idx"]] = c_id
         authors = p.get("authors", [])
         author_str = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "") if authors else "Author Unknown"
+        
+        prov_tier = p.get("provenance_tier")
+        prov_lbl = p.get("provenance_label")
+        if not prov_tier or not prov_lbl:
+            prov_tier, prov_lbl = classify_paper_provenance(p)
+            
         citations.append({
             "ref_id": c_id,
             "paper_idx": p.get("paper_idx", f"P{idx+1}"),
@@ -448,8 +461,8 @@ async def run_agent4_fact_checker_synthesizer(
             "venue": p.get("venue", "Scientific Archive"),
             "url": p.get("url", "#"),
             "citation_count": p.get("citationCount") if p.get("citationCount") is not None else 0,
-            "provenance_tier": p.get("provenance_tier", "peer_reviewed"),
-            "provenance_label": p.get("provenance_label", "Peer-Reviewed Literature"),
+            "provenance_tier": prov_tier,
+            "provenance_label": prov_lbl,
             "verified_claims_count": 0,
             "supporting_snippets": []
         })
@@ -595,6 +608,21 @@ async def run_agent4_fact_checker_synthesizer(
     p_tok = getattr(tokens_used, "prompt_tokens", 0) or round(int(tokens_used) * 0.6)
     c_tok = getattr(tokens_used, "completion_tokens", 0) or (int(tokens_used) - p_tok)
 
+    # Prune bibliography to strictly cited references in text or verified claims
+    full_monograph_text = f"{safe_exec_summary} " + " ".join(s["content_html"] for s in formatted_sections)
+    cited_p_tags = {p.upper() for p in re.findall(r'\[(P\d+)\]', full_monograph_text, re.IGNORECASE)}
+    cited_ref_ids = {r.upper() for r in re.findall(r'data-ref-id="([^"]+)"', full_monograph_text, re.IGNORECASE)}
+    cited_ref_brackets = {r.upper() for r in re.findall(r'\[(REF-\d+)\]', full_monograph_text, re.IGNORECASE)}
+
+    active_citations = []
+    for cit in citations:
+        p_idx = str(cit.get("paper_idx", "")).upper()
+        r_id = str(cit.get("ref_id", "")).upper()
+        if (p_idx and p_idx in cited_p_tags) or (r_id and r_id in cited_ref_ids) or (r_id and r_id in cited_ref_brackets) or (cit.get("verified_claims_count", 0) > 0):
+            active_citations.append(cit)
+
+    final_citations = active_citations if active_citations else citations[:4]
+
     return {
         "agent": "Agent 4: Fact-Checker & Synthesizer",
         "call_index": 2,
@@ -607,7 +635,7 @@ async def run_agent4_fact_checker_synthesizer(
         "quick_answer": agent2_data.get("quick_answer", ""),
         "executive_summary": safe_exec_summary,
         "dossier_sections": formatted_sections,
-        "citations": citations,
+        "citations": final_citations,
         "evaluated_claims": list(all_evaluated_claims.values()),
         "comparison_table": agent2_data.get("comparison_table", []),
         "dialectical_friction": agent2_data.get("dialectical_friction", {}),

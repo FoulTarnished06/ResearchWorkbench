@@ -73,8 +73,8 @@ def clean_monograph_text(text: str) -> str:
     # 6. Unwrap accidental quotes around entire assertion sentences (between tags only)
     text = re.sub(r'(?<=>)\s*["\u201c\u201d]([A-Z][^"\u201c\u201d<]{20,}\.?)["\u201c\u201d]\s*(?=<)', r'\1', text)
 
-    # 7. Forensic Fix: Scrub leaked internal pipeline/cache verification tags in raw prose
-    # e.g., '[✓ cache • 7]', '[⚠ 7]', '[⚠ 5]', '[? preprint ? 2]', '[✓ preprint • 5]'
+    # 7. Forensic Fix: Scrub leaked internal pipeline/cache verification tags and prompt artifacts in raw prose
+    # e.g., '[✓ cache • 7]', '[⚠ 7]', '[⚠ 5]', '[? preprint ? 2]', '[✓ preprint • 5]', '[Unverified External Benchmark]'
     # Protect authorized UI badge anchors (e.g. <sup class="citation-anchor...">...</sup> or <a href="#cit-card-...>...</a>)
     badge_tokens = {}
     def _protect_badge(m):
@@ -87,6 +87,17 @@ def clean_monograph_text(text: str) -> str:
 
     internal_tag_pattern = r'\[\s*(?:[✓⚠?]|cache|preprint)\s*(?:[•·\?]\s*|\s+)*(?:cache|preprint)?\s*(?:[•·\?]\s*|\s+)*\d+\s*\]'
     text = re.sub(internal_tag_pattern, '', text)
+    # Scrub leaked internal prompt language and benchmark tags
+    text = re.sub(r'\[\s*Unverified\s+External\s+Benchmark\s*\]', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(?:the\s+)?literature\s+block\s+(?:explicitly\s+)?identifies\b.*?(?:as\s+uncovered|\.|\;)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\[\s*No empirical measurement reported in retrieved evidence:?\s*([^\]]*)\]', r'\1', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bNo empirical measurement reported in retrieved evidence:?\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bExplored research dimension:\s*', '', text, flags=re.IGNORECASE)
+
+    # Clean up phrase stutter immediately preceding claim tags (e.g. "... 48 datasets <claim>80 GNNs... 48 datasets</claim>")
+    text = re.sub(r'(\b\w+(?:\s+\w+){1,5})\s+(<claim[^>]*>\s*)\1\b', r'\2\1', text, flags=re.IGNORECASE)
+    text = re.sub(r'(\b\w+(?:\s+\w+){1,5})\s+(<span\s+class="[^"]*claim-wrapper[^"]*"[^>]*>\s*<span\s+class="[^"]*claim-text"[^>]*>\s*)\1\b', r'\2\1', text, flags=re.IGNORECASE)
+
     text = re.sub(r'[ \t]{2,}', ' ', text)
     text = re.sub(r'\s+([,.;:])', r'\1', text)
 
@@ -216,7 +227,7 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
         for item in existing:
             if isinstance(item, str):
                 cleaned = clean_monograph_text(item).strip()
-                if cleaned and not re.search(r'sqlite|hallucination|llm call|token|pre-filtered|constrained strictly|pipeline failed', cleaned, re.I):
+                if cleaned and not re.search(r'sqlite|hallucination|llm call|token|pre-filtered|constrained strictly|pipeline failed|explored research dimension|unverified external benchmark|no empirical measurement', cleaned, re.I):
                     takeaways.append(cleaned)
         if len(takeaways) >= 3:
             return takeaways[:3]
@@ -231,7 +242,7 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
             txt = c.get("claim_text") or c.get("text") or ""
             txt = re.sub(r'<[^>]+>', '', txt).strip()
             txt = re.sub(r'^[•\-\*\s]+', '', txt).strip()
-            if len(txt) > 25 and not re.search(r'sqlite|hallucination|llm|token|cache', txt, re.I):
+            if len(txt) > 25 and not re.search(r'sqlite|hallucination|llm|token|cache|explored research dimension|unverified external benchmark|no empirical measurement', txt, re.I):
                 if not any(txt.lower() == t.lower() for t in takeaways):
                     if not txt.endswith('.'):
                         txt += '.'
@@ -248,7 +259,7 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
         matches = re.findall(r'([A-Z][^.!?]{35,180}[.!?])', clean_text)
         for m in matches:
             sentence = m.strip()
-            if not re.search(r'sqlite|hallucination|llm|token|monograph|tier|cache', sentence, re.I):
+            if not re.search(r'sqlite|hallucination|llm|token|monograph|tier|cache|explored research dimension|unverified external benchmark|no empirical measurement', sentence, re.I):
                 if not any(sentence.lower() == t.lower() for t in takeaways):
                     takeaways.append(sentence)
                     if len(takeaways) >= 3:
@@ -395,10 +406,8 @@ def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[st
 def enforce_section2_empirical_purity(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Enforces that Section 2 ('Empirical Validation & Benchmark Delta' / 'Core Empirical Findings & Takeaways')
-    holds ONLY retrieved findings.
-    Any ungrounded theoretical speculations or claims without an empirical paper in Section 2
-    are calibrated to state clearly:
-    'No direct empirical measurement reported in the retrieved evidence.'
+    retains substantive empirical findings and cleans out any stray meta-commentary.
+    Does not destroy claim text or replace findings with repetitive refusal boilerplate.
     """
     if not dossier_data or not isinstance(dossier_data, dict):
         return dossier_data
@@ -410,21 +419,19 @@ def enforce_section2_empirical_purity(dossier_data: Dict[str, Any]) -> Dict[str,
     sec2 = sections[1]
     sec2_html = sec2.get("content_html") or sec2.get("answer_html") or ""
     
-    # If Section 2 has ungrounded claims with tier no_source, rewrite them to calibrated refusal notice
-    if "claim-tier-no_source" in sec2_html:
-        sec2_html = re.sub(
-            r'<span class="claim-wrapper claim-tier-no_source[^"]*"[^>]*><span class="claim-text">([^<]+)</span>.*?</span>',
-            r'<span class="empirical-gap-notice">[No empirical measurement reported in retrieved evidence: \1]</span>',
-            sec2_html
-        )
+    # Clean any accidental boilerplate or stray tags from Section 2
+    if sec2_html:
+        cleaned_html = re.sub(r'\[\s*No empirical measurement reported in retrieved evidence:?\s*([^\]]*)\]', r'\1', sec2_html, flags=re.IGNORECASE)
+        cleaned_html = re.sub(r'\bNo empirical measurement reported in retrieved evidence:?\s*', '', cleaned_html, flags=re.IGNORECASE)
+        cleaned_html = re.sub(r'\bExplored research dimension:\s*', '', cleaned_html, flags=re.IGNORECASE)
         if "content_html" in sec2:
-            sec2["content_html"] = sec2_html
+            sec2["content_html"] = cleaned_html
         if "answer_html" in sec2:
-            sec2["answer_html"] = sec2_html
+            sec2["answer_html"] = cleaned_html
 
-    # Also ensure claims array in Section 2 only holds claims linked to actual papers
+    # Also ensure claims array in Section 2 retains substantive claims
     if "claims" in sec2 and isinstance(sec2["claims"], list):
-        sec2["claims"] = [c for c in sec2["claims"] if c.get("paper") or c.get("paper_id")]
+        sec2["claims"] = [c for c in sec2["claims"] if (c.get("claim_text") or c.get("text") or "").strip()]
 
     return dossier_data
 

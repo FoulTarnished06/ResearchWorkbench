@@ -1882,27 +1882,55 @@ async function executeLiveBackend(query) {
       }
 
       if (agent1Scraped && Array.isArray(agent1Scraped.papers)) {
-        p_citations = agent1Scraped.papers.map((p, i) => {
+        const draftCorpus = ((p_exec_summary || '') + ' ' + p_sections.map(s => s.answer_html || '').join(' ')).toLowerCase();
+        const citedPMatches = new Set([...draftCorpus.matchAll(/\[p(\d+)\]/gi)].map(m => parseInt(m[1], 10)));
+        const citedRefMatches = new Set([...draftCorpus.matchAll(/\[ref-(\d+)\]/gi)].map(m => parseInt(m[1], 10)));
+
+        const mappedCitations = agent1Scraped.papers.map((p, i) => {
           const authorStr = Array.isArray(p.authors) ? (p.authors.slice(0, 3).join(', ') + (p.authors.length > 3 ? ' et al.' : '')) : (p.authors || 'Author Unknown');
           let snippet = (p.abstract && p.abstract.trim())
             ? (p.abstract.length > 280 ? p.abstract.substring(0, 280) + '...' : p.abstract)
             : (p.snippet || p.tldr || 'Corroborating text stored in SQLite cache.');
+          
+          const isPreprint = p.is_preprint || (p.doi && (p.doi.startsWith('10.26434') || p.doi.startsWith('10.48550') || p.doi.startsWith('10.1101') || p.doi.startsWith('10.21203'))) || (p.venue && /chemrxiv|arxiv|biorxiv|research square/i.test(p.venue));
+          const provLabel = isPreprint ? 'Unrefereed Preprint' : (p.provenance_label || 'Peer-Reviewed Literature');
+
           return {
             ref_id: `REF-${i+1}`,
+            paper_idx: `P${i+1}`,
             paper_id: p.id,
             title: p.title || 'Untitled Research Publication',
             authors: authorStr,
             year: p.year || 'n.d.',
             venue: p.venue || 'Academic Repository',
+            provenance_label: provLabel,
+            provenance_tier: isPreprint ? 'preprint' : 'peer_reviewed',
             url: p.url || '#',
             citation_count: p.citationCount || p.citation_count || 0,
             evidence: snippet,
             supporting_snippets: [snippet]
           };
         });
+
+        // Retain only citations that are cited in text; otherwise keep the first 3
+        const activeOnly = mappedCitations.filter((c, i) => {
+          const idx = i + 1;
+          if (citedPMatches.has(idx) || citedRefMatches.has(idx)) return true;
+          const cleanTitle = (c.title || '').toLowerCase();
+          if (cleanTitle.length > 15 && draftCorpus.includes(cleanTitle)) return true;
+          return false;
+        });
+
+        p_citations = activeOnly.length > 0 ? activeOnly : mappedCitations.slice(0, 3);
       }
 
       const p_evaluated_claims = Object.values(verifiedMap);
+      const cleanFallbackTakeaways = extractAcademicTakeaways({
+        evaluated_claims: p_evaluated_claims,
+        dossier_sections: p_sections,
+        executive_summary: p_exec_summary,
+        citations: p_citations
+      });
 
       finishPipeline({
         query: query,
@@ -1910,13 +1938,7 @@ async function executeLiveBackend(query) {
         elapsed: UIState.elapsedSeconds,
         tokens: UIState.totalTokens,
         executive_summary: p_exec_summary || "Pipeline interrupted. Partial execution recovered. Unverified draft shown below.",
-        takeaways: (agent2Draft?.sub_questions && agent2Draft.sub_questions.length > 0)
-          ? agent2Draft.sub_questions.map(sq => `Explored research dimension: ${sq}`)
-          : [
-            "Synthesis interrupted by downstream latency.",
-            "Complete unverified monograph draft recovered for preliminary review.",
-            "Primary sources and candidate citations indexed below."
-          ],
+        takeaways: cleanFallbackTakeaways,
         comparison_table: agent2Draft?.comparison_table || {},
         dialectical_friction: agent2Draft?.dialectical_friction || [],
         epistemic_limitations: agent2Draft?.epistemic_limitations || [],

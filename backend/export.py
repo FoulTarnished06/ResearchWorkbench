@@ -98,6 +98,17 @@ def sanitize_author_display(raw_authors: Any, venue: str = "") -> str:
         return f"{venue} Editorial Board" if venue else "Institutional Publication"
     return s_raw
 
+def _is_redundant_text(a: str, b: str, threshold: float = 0.65) -> bool:
+    """Checks if text chunk 'a' shares substantial lexical overlap with 'b' to avoid repeated sections."""
+    if not a or not b:
+        return False
+    words_a = set(re.findall(r'\b[a-zA-Z]{4,}\b', a.lower()))
+    words_b = set(re.findall(r'\b[a-zA-Z]{4,}\b', b.lower()))
+    if len(words_a) < 5 or len(words_b) < 5:
+        return False
+    overlap = len(words_a & words_b) / min(len(words_a), len(words_b))
+    return overlap >= threshold
+
 def filter_active_citations(dossier_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Automated Post-Generation Citation Linter:
@@ -120,10 +131,11 @@ def filter_active_citations(dossier_data: Dict[str, Any]) -> List[Dict[str, Any]
     ]
     for t in dossier_data.get("takeaways", []):
         text_chunks.append(str(t))
-    for s in dossier_data.get("sections", []):
+    raw_sections = dossier_data.get("dossier_sections") or dossier_data.get("sections", [])
+    for s in raw_sections:
         if isinstance(s, dict):
             text_chunks.append(str(s.get("sub_question", "")))
-            text_chunks.append(str(s.get("answer_html", "")))
+            text_chunks.append(str(s.get("answer_html", s.get("content_html", ""))))
             for c in s.get("claims", []):
                 if isinstance(c, dict):
                     text_chunks.append(str(c.get("text", "")))
@@ -167,7 +179,9 @@ def filter_active_citations(dossier_data: Dict[str, Any]) -> List[Dict[str, Any]
         if is_cited:
             active.append(cit)
             
-    return active if active else all_citations
+    if active:
+        return active
+    return all_citations[:min(len(all_citations), 3)]
 
 def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     """
@@ -253,6 +267,7 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
 
     # 4. Dialectical Friction & Disagreements
     friction_items = _normalize_dialectical_friction(dossier_data.get("dialectical_friction"))
+    friction_corpus = " ".join([f"{l} {b}" for l, b in friction_items]) if friction_items else ""
     if friction_items:
         doc.add_heading(f"{sec_num}. Dialectical Friction & Methodological Disagreements", level=2)
         sec_num += 1
@@ -274,11 +289,16 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
         t_num = sec_num
         doc.add_heading(f"{sec_num}. Thematic Literature Synthesis & Analysis", level=2)
         sec_num += 1
+        sec_sub_idx = 1
         for idx, sec in enumerate(sections):
             sub_q = sec.get("sub_question", f"Section {idx+1}")
             clean_title = re.sub(r'^(?:Subtopic\s*\d+[:.-]?|\d+[\.\):]|\d+\s+[-–:]\s*)\s*', '', str(sub_q), flags=re.IGNORECASE)
-            doc.add_heading(f"{t_num}.{idx+1} {strip_html_tags(clean_title)}", level=3)
-            doc.add_paragraph(strip_html_tags(sec.get("answer_html", sec.get("content_html", ""))))
+            sec_body = strip_html_tags(sec.get("answer_html", sec.get("content_html", "")))
+            if friction_corpus and _is_redundant_text(sec_body, friction_corpus, threshold=0.7):
+                continue
+            doc.add_heading(f"{t_num}.{sec_sub_idx} {strip_html_tags(clean_title)}", level=3)
+            doc.add_paragraph(sec_body)
+            sec_sub_idx += 1
     elif dossier_data.get("output_text"):
         # For System B or System C baseline runs where sections are stored as markdown in output_text
         doc.add_heading(f"{sec_num}. Monograph Output", level=2)
@@ -295,10 +315,11 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
 
     # 7. Epistemic Horizons & Limitations
     epistemic_items = _normalize_epistemic_limitations(dossier_data.get("epistemic_limitations"))
-    if epistemic_items:
+    epistemic_filtered = [item for item in epistemic_items if not (friction_corpus and _is_redundant_text(item, friction_corpus, threshold=0.7))]
+    if epistemic_filtered:
         doc.add_heading(f"{sec_num}. Epistemic Horizons & Unresolved Frontiers", level=2)
         sec_num += 1
-        for item in epistemic_items:
+        for item in epistemic_filtered:
             doc.add_paragraph(strip_html_tags(item), style='List Bullet')
 
     # 8. References & Bibliography
@@ -439,6 +460,7 @@ def export_to_latex(dossier_data: Dict[str, Any]) -> str:
 
     # Dialectical Friction
     friction_items = _normalize_dialectical_friction(dossier_data.get("dialectical_friction"))
+    friction_corpus = " ".join([f"{l} {b}" for l, b in friction_items]) if friction_items else ""
     if friction_items:
         latex.append("\\section{Dialectical Friction \\& Methodological Disagreements}")
         latex.append("\\begin{itemize}")
@@ -458,8 +480,11 @@ def export_to_latex(dossier_data: Dict[str, Any]) -> str:
         for idx, sec in enumerate(sections):
             sub_q = sec.get("sub_question", f"Section {idx+1}")
             clean_title = re.sub(r'^(?:Subtopic\s*\d+[:.-]?|\d+[\.\):]|\d+\s+[-–:]\s*)\s*', '', str(sub_q), flags=re.IGNORECASE)
+            sec_body = strip_html_tags(sec.get("answer_html", sec.get("content_html", "")))
+            if friction_corpus and _is_redundant_text(sec_body, friction_corpus, threshold=0.7):
+                continue
             latex.append(f"\\section{{{escape_latex(clean_title)}}}")
-            latex.append(escape_latex(sec.get("answer_html", sec.get("content_html", ""))) + "\n")
+            latex.append(escape_latex(sec_body) + "\n")
     elif dossier_data.get("output_text"):
         latex.append("\\section{Monograph Output}")
         paragraphs = str(dossier_data.get("output_text", "")).split("\n\n")
@@ -474,10 +499,11 @@ def export_to_latex(dossier_data: Dict[str, Any]) -> str:
 
     # Epistemic Limitations
     epistemic_items = _normalize_epistemic_limitations(dossier_data.get("epistemic_limitations"))
-    if epistemic_items:
+    epistemic_filtered = [item for item in epistemic_items if not (friction_corpus and _is_redundant_text(item, friction_corpus, threshold=0.7))]
+    if epistemic_filtered:
         latex.append("\\section{Epistemic Horizons \\& Unresolved Frontiers}")
         latex.append("\\begin{itemize}")
-        for item in epistemic_items:
+        for item in epistemic_filtered:
             latex.append(f"  \\item {escape_latex(item)}")
         latex.append("\\end{itemize}\n")
 
@@ -553,6 +579,7 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
 
     # Dialectical Friction
     friction_items = _normalize_dialectical_friction(dossier_data.get("dialectical_friction"))
+    friction_corpus = " ".join([f"{l} {b}" for l, b in friction_items]) if friction_items else ""
     if friction_items:
         md.append(f"## {sec_num}. Dialectical Friction & Methodological Disagreements\n")
         sec_num += 1
@@ -573,11 +600,16 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
         t_num = sec_num
         md.append(f"## {sec_num}. Thematic Literature Synthesis & Analysis\n")
         sec_num += 1
+        sec_sub_idx = 1
         for idx, sec in enumerate(sections):
             sub_q = sec.get("sub_question", f"Section {idx+1}")
             clean_title = re.sub(r'^(?:Subtopic\s*\d+[:.-]?|\d+[\.\):]|\d+\s+[-–:]\s*)\s*', '', str(sub_q), flags=re.IGNORECASE)
-            md.append(f"### {t_num}.{idx+1} {strip_html_tags(clean_title)}\n")
-            md.append(strip_html_tags(sec.get("answer_html", sec.get("content_html", ""))) + "\n")
+            sec_body = strip_html_tags(sec.get("answer_html", sec.get("content_html", "")))
+            if friction_corpus and _is_redundant_text(sec_body, friction_corpus, threshold=0.7):
+                continue
+            md.append(f"### {t_num}.{sec_sub_idx} {strip_html_tags(clean_title)}\n")
+            md.append(sec_body + "\n")
+            sec_sub_idx += 1
     elif dossier_data.get("output_text"):
         md.append(f"## {sec_num}. Monograph Output\n")
         sec_num += 1
@@ -585,10 +617,11 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
 
     # Epistemic Limitations
     epistemic_items = _normalize_epistemic_limitations(dossier_data.get("epistemic_limitations"))
-    if epistemic_items:
+    epistemic_filtered = [item for item in epistemic_items if not (friction_corpus and _is_redundant_text(item, friction_corpus, threshold=0.7))]
+    if epistemic_filtered:
         md.append(f"## {sec_num}. Epistemic Horizons & Unresolved Frontiers\n")
         sec_num += 1
-        for item in epistemic_items:
+        for item in epistemic_filtered:
             md.append(f"- {strip_html_tags(item)}")
         md.append("")
 

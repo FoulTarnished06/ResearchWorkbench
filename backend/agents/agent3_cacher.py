@@ -348,7 +348,7 @@ def run_agent3_context_cacher(
     query: str,
     agent1_data: Any,
     agent2_data: Any,
-    similarity_threshold: float = 0.82
+    similarity_threshold: float = 0.58
 ) -> Dict[str, Any]:
     """
     Agent 3: Context Cacher & Pre-Filter (Automated Tool 2 - Zero LLM Tokens).
@@ -356,7 +356,7 @@ def run_agent3_context_cacher(
     2. Calculates semantic similarity between Drafter's claims and cached text using
        fastembed dense neural vectors and subword profiles.
     3. Enforces Polarity & Negation Inversion Guards.
-    4. Routes top-2 candidate context sentences per claim for Call 2 targeted context routing (Point 24).
+    4. Routes top candidate context sentences per claim for Call 2 targeted context routing.
     5. Segregates unverified / disputed claims for Agent 4 to inspect.
     """
     if isinstance(agent1_data, list):
@@ -399,24 +399,65 @@ def run_agent3_context_cacher(
     comparison_logs = []
     
     for c_idx, claim in enumerate(claims):
-        claim_id = claim.get("id")
+        claim_id = claim.get("id") or claim.get("claim_id") or f"c_{c_idx+1}"
         raw_claim_text = claim.get("text", "").strip()
         claim_text = html.unescape(raw_claim_text)
         claim_text = re.sub(r'\s+', ' ', claim_text).strip()
+        claim_paper_tag = (claim.get("paper") or "").upper().strip()
         
-        # Local Atomic Claim Splitting
+        # 1. Full-claim evaluation against all sentences
+        full_profile = text_to_vector_profile(claim_text)
+        f_metrics, f_acronyms = extract_grounding_features(claim_text)
+        claim_nums = set(re.findall(r'\b\d+(?:\.\d+)?\b', claim_text))
+        
+        f_vec = None
+        if s_mat is not None:
+            try:
+                f_vec = embed_texts([claim_text])
+            except:
+                pass
+
+        full_matches = []
+        for s_idx, (sent, s_prof) in enumerate(sentence_profiles):
+            lex_sim = compute_profile_similarity(full_profile, s_prof)
+            if f_vec is not None and s_mat is not None:
+                n_sim = float(np.dot(f_vec[0], s_mat[s_idx]))
+                if full_profile.get("is_negative") != s_prof.get("is_negative"):
+                    n_sim = min(n_sim, 0.35)
+                sim = max(lex_sim, n_sim)
+            else:
+                sim = lex_sim
+
+            sent_text = sent.get("text", "")
+            sent_nums = set(re.findall(r'\b\d+(?:\.\d+)?\b', sent_text))
+            sent_metrics, sent_acronyms = extract_grounding_features(sent_text)
+            
+            boost = 0.0
+            if f_metrics & sent_metrics: boost += 0.15
+            if f_acronyms & sent_acronyms: boost += 0.12
+            if claim_paper_tag and (sent.get("paper_idx") == claim_paper_tag or claim_paper_tag in (sent.get("paper_id") or "")):
+                boost += 0.15
+            # Precise Numerical Grounding Match (e.g. 80 GNNs, 20 properties, 48 datasets)
+            if claim_nums and (claim_nums.issubset(sent_nums) or len(claim_nums & sent_nums) >= 2):
+                boost += 0.25
+
+            eff_sim = min(0.98, sim + boost) if sim > 0.20 else sim
+            full_matches.append((eff_sim, sent))
+
+        full_matches.sort(key=lambda x: x[0], reverse=True)
+        best_full_sim = full_matches[0][0] if full_matches else 0.0
+        best_full_sent = full_matches[0][1] if full_matches else {}
+
+        # 2. Local Atomic Claim Splitting
         atomic_claims = split_compound_claim(claim_text)
         min_atomic_sim = 1.0
         overall_best_sent = {}
-        top_candidates = []
         all_high_matches = []
         
         for atomic_text in atomic_claims:
             atomic_profile = text_to_vector_profile(atomic_text)
             a_metrics, a_acronyms = extract_grounding_features(atomic_text)
-            claim_paper_tag = (claim.get("paper") or "").upper().strip()
 
-            # Fix: Compute neural embedding once per atomic claim, not once per sentence
             n_vec = None
             if s_mat is not None:
                 try:
@@ -427,7 +468,6 @@ def run_agent3_context_cacher(
             scored_matches = []
             for s_idx, (sent, s_prof) in enumerate(sentence_profiles):
                 lex_sim = compute_profile_similarity(atomic_profile, s_prof)
-                # Compute neural on the fly for atomic
                 if n_vec is not None and s_mat is not None:
                     n_sim = float(np.dot(n_vec[0], s_mat[s_idx]))
                     if atomic_profile.get("is_negative") != s_prof.get("is_negative"):
@@ -445,9 +485,9 @@ def run_agent3_context_cacher(
                 if common_metrics: boost += 0.15
                 if common_acronyms: boost += 0.12
                 if claim_paper_tag and (sent.get("paper_idx") == claim_paper_tag or claim_paper_tag in (sent.get("paper_id") or "")):
-                    boost += 0.12
+                    boost += 0.15
                     
-                effective_sim = min(0.98, sim + boost) if sim > 0.25 else sim
+                effective_sim = min(0.98, sim + boost) if sim > 0.20 else sim
                 scored_matches.append((effective_sim, sent))
                 if effective_sim >= (similarity_threshold - 0.08):
                     all_high_matches.append((effective_sim, sent))
@@ -458,14 +498,34 @@ def run_agent3_context_cacher(
                 min_atomic_sim = min(min_atomic_sim, best_atomic_sim)
                 if not overall_best_sent:
                     overall_best_sent = scored_matches[0][1]
-                    top_candidates = scored_matches[:2]
             else:
                 min_atomic_sim = 0.0
                 
-        best_sim = min_atomic_sim
+        # Best similarity across full claim and atomic evaluation
+        best_sim = max(best_full_sim, min_atomic_sim)
+        if best_full_sim >= min_atomic_sim or not overall_best_sent:
+            overall_best_sent = best_full_sent
+
         best_match_sentence = overall_best_sent.get("text")
         best_match_paper_id = overall_best_sent.get("paper_id")
         best_match_paper_title = overall_best_sent.get("paper_title")
+
+        # Candidate evidence snippets for targeted routing (Point 24)
+        candidate_snippets = [
+            {"text": m[1].get("text"), "paper_id": m[1].get("paper_id"), "paper_title": m[1].get("paper_title"), "score": float(m[0])}
+            for m in full_matches[:3] if m[1].get("text")
+        ]
+        if claim_paper_tag:
+            for s in dense_sentences:
+                if s.get("paper_idx") == claim_paper_tag or claim_paper_tag in (s.get("paper_id") or ""):
+                    stext = s.get("text")
+                    if stext and not any(cs.get("text") == stext for cs in candidate_snippets):
+                        candidate_snippets.append({
+                            "text": stext,
+                            "paper_id": s.get("paper_id"),
+                            "paper_title": s.get("paper_title"),
+                            "score": 0.90
+                        })
 
         # Multi-source corroboration check across distinct papers
         distinct_sources = {}
@@ -477,12 +537,6 @@ def run_agent3_context_cacher(
                     "sim": sim_val
                 }
         is_multi_source = len(distinct_sources) >= 2
-
-        # Point 24: Top-2 Candidate evidence snippets for targeted routing
-        candidate_snippets = [
-            {"text": m[1].get("text"), "paper_id": m[1].get("paper_id"), "paper_title": m[1].get("paper_title"), "score": m[0]}
-            for m in top_candidates if m[1].get("text")
-        ]
                 
         # Determine paper metadata and provenance
         matched_paper = next((p for p in papers if p.get("id") == best_match_paper_id), None)
@@ -500,6 +554,7 @@ def run_agent3_context_cacher(
 
         eval_result = {
             "claim_id": claim_id,
+            "id": claim_id,
             "claim_text": claim_text,
             "best_similarity": best_sim,
             "matched_sentence": best_match_sentence,

@@ -278,38 +278,49 @@ def classify_paper_provenance(paper: Dict[str, Any]) -> Tuple[str, str]:
     if "wikipedia" in source or "serpapi" in source or "wikipedia" in venue or "web search" in source_type:
         return "reference_web", "Web Reference"
         
-    # 2. Preprints (arXiv, bioRxiv, medRxiv, Research Square, Preprints.org, SSRN, OSF)
+    # 2. Preprints (ChemRxiv 10.26434, arXiv 10.48550, bioRxiv 10.1101, medRxiv, Research Square 10.21203, Preprints.org 10.20944, SSRN 10.2139, OSF)
     is_preprint = (
-        "arxiv" in venue or "arxiv" in url or "arxiv" in doi or "arxiv" in pid or
+        "arxiv" in venue or "arxiv" in url or "arxiv" in doi or "arxiv" in pid or "10.48550/" in doi or
         "biorxiv" in venue or "biorxiv" in url or "10.1101/" in doi or
         "medrxiv" in venue or "medrxiv" in url or
-        "chemrxiv" in venue or "chemrxiv" in url or
+        "chemrxiv" in venue or "chemrxiv" in url or "chemrxiv" in doi or "10.26434/" in doi or "10.26434" in doi or
         "preprints.org" in venue or "preprints.org" in url or "10.20944/" in doi or
         "research square" in venue or "10.21203/" in doi or
-        "ssrn" in venue or "ssrn" in url or
-        "osf.io" in url or "osf.io" in doi or
-        "10.48550/" in doi or
-        "preprint" in venue or "preprint" in source_type
+        "ssrn" in venue or "ssrn" in url or "10.2139/" in doi or
+        "authorea" in venue or "authorea" in url or "10.22541/" in doi or
+        "techrxiv" in venue or "techrxiv" in url or "10.36227/" in doi or
+        "osf.io" in url or "osf.io" in doi or "10.31219/" in doi or
+        "preprint" in venue or "preprint" in source_type or "working paper" in venue or "working paper" in source_type
     )
     if is_preprint:
         return "preprint", "Unrefereed Preprint"
 
-    # 3. Explicit Peer-Reviewed indicators
+    # 3. Book Chapters / Monographs
+    is_book_chapter = (
+        "chapter" in venue or "book" in venue or "monograph" in venue or
+        "springer protocols" in venue or "methods in molecular biology" in venue or
+        "book-chapter" in source_type or "book chapter" in source_type
+    )
+    if is_book_chapter:
+        return "book_chapter", "Book Chapter / Monograph"
+
+    # 4. Editorial / Announcements / Calls for Papers
+    title_lower = (paper.get("title") or "").lower()
+    if any(ed in venue or ed in title_lower for ed in ["call for papers", "calls for papers", "editorial", "erratum", "author correction"]):
+        return "editorial", "Editorial / Announcement"
+
+    # 5. Explicit Peer-Reviewed indicators (requires recognizable peer-reviewed venue or indexed source)
     peer_review_venues = [
         "nature", "science", "cell", "ieee", "acm", "neurips", "icml", "cvpr", "iclr", 
         "proceedings", "journal", "transactions", "physical review", "lancet", "jama", 
         "plos", "springer", "elsevier", "wiley", "oxford", "cambridge", "annual review",
-        "advances in neural information processing", "asplos", "jmlr"
+        "advances in neural information processing", "asplos", "jmlr", "chemical science",
+        "bioinformatics", "briefings in bioinformatics", "jacs", "chem. sci.", "nucleic acids"
     ]
-    if (
-        "peer-reviewed" in source_type or
-        "pubmed" in source or
-        "doaj" in source or
-        any(pv in venue for pv in peer_review_venues)
-    ):
+    if any(pv in venue for pv in peer_review_venues) or "pubmed" in source or "doaj" in source:
         return "peer_reviewed", "Peer-Reviewed Literature"
 
-    # 4. Fallback: Academic Repository
+    # 6. Fallback: Academic Repository
     return "academic_repository", "Academic Repository"
 
 def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -330,11 +341,13 @@ def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict
     if len(title) < 5 or title.lower() in ["untitled", "title not available", "index", "table of contents"]:
         return None
         
-    # Rejection of administrative corrections, errata, and retractions
+    # Rejection of administrative corrections, errata, calls for papers, and retractions
     title_lower = title.lower()
     bad_title_signals = [
         "author correction", "publisher correction", "erratum", "corrigendum",
-        "retraction notice", "expression of concern", "withdrawal notice"
+        "retraction notice", "expression of concern", "withdrawal notice",
+        "call for papers", "calls for papers", "special issue announcement",
+        "editorial board", "table of contents", "author index", "subject index"
     ]
     if any(sig in title_lower for sig in bad_title_signals):
         return None
@@ -354,6 +367,10 @@ def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict
     # Word count check: reject abstracts with < 20 words (insufficient to ground empirical claims)
     abstract_words = clean_abstract.split()
     if len(abstract_words) < 20:
+        return None
+
+    # Reject synthetic stub abstracts (e.g. Crossref container/subject boilerplate)
+    if "focus areas include:" in clean_abstract.lower() and len(abstract_words) < 35:
         return None
 
     # Paywall / publisher boilerplate check
@@ -492,6 +509,17 @@ def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str, fac
             ]
             if any(sig in text for sig in orthogonal_econ_signals):
                 if not any(ec in text for ec in ["central bank", "currency", "bank", "monetary", "deposit", "liquidity"]):
+                    return False
+
+        # Domain Cluster 4: Molecular Property Prediction / Chemoinformatics / Graph Neural Networks
+        if any(k in q_lower for k in ["molecular", "molecule", "chemoinformatics", "chemistry", "property prediction", "zinc", "qm9", "smiles", "conformation", "1-wl", "weisfeiler-lehman"]):
+            orthogonal_molecular_signals = [
+                "traffic", "traffic flow", "rail vehicle", "railway", "train", "vehicle dynamics",
+                "point cloud", "point clouds", "tabular transformer", "tabular data", "power grid",
+                "urban mobility", "road network", "air quality"
+            ]
+            if any(sig in title or sig in abstract for sig in orthogonal_molecular_signals):
+                if not any(mol in text for mol in ["molecule", "molecular", "chemical", "atom", "bond", "compound", "chemistry", "drug", "bioinformatics", "qm9", "zinc", "biomolecule", "conformation"]):
                     return False
 
         return True
@@ -716,6 +744,79 @@ async def fetch_semantic_scholar(query: str, limit: int = 5) -> List[Dict[str, A
         logger.warning(f"Semantic Scholar API warning: {e}")
     return []
 
+async def _fetch_eprint_repository(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Direct open-access scraper for arXiv e-prints via arXiv Atom XML API.
+    Provides complete, unabridged abstracts, author lists, and DOIs/URLs.
+    """
+    clean_q = re.sub(r'[^a-zA-Z0-9\s]', ' ', query).strip()
+    words = clean_q.split()
+    if not words:
+        return []
+    # Search in all fields
+    search_term = "+AND+".join(words[:5])
+    url = f"http://export.arxiv.org/api/query?search_query=all:{search_term}&start=0&max_results={limit}"
+    
+    try:
+        async with httpx.AsyncClient(timeout=SCRAPER_HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers={"User-Agent": "AI-Research-Workbench/3.0 (academic research tool)"})
+            if resp.status_code == 200:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(resp.text)
+                papers = []
+                ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+                for entry in root.findall("atom:entry", ns):
+                    title_elem = entry.find("atom:title", ns)
+                    summary_elem = entry.find("atom:summary", ns)
+                    id_elem = entry.find("atom:id", ns)
+                    published_elem = entry.find("atom:published", ns)
+                    
+                    if title_elem is None or summary_elem is None:
+                        continue
+                    title = re.sub(r'\s+', ' ', title_elem.text or "").strip()
+                    summary = re.sub(r'\s+', ' ', summary_elem.text or "").strip()
+                    if len(title) < 5 or len(summary.split()) < 20:
+                        continue
+                    
+                    arxiv_url = (id_elem.text or "").strip() if id_elem is not None else ""
+                    aid_match = re.search(r'arxiv\.org/abs/([0-9]+\.[0-9]+(?:v\d+)?)', arxiv_url, re.I)
+                    arxiv_id = aid_match.group(1) if aid_match else ""
+                    
+                    authors = []
+                    for a in entry.findall("atom:author", ns):
+                        name_elem = a.find("atom:name", ns)
+                        if name_elem is not None and name_elem.text:
+                            authors.append(name_elem.text.strip())
+                            
+                    year = None
+                    if published_elem is not None and published_elem.text:
+                        y_match = re.search(r'\b(20\d\d|19\d\d)\b', published_elem.text)
+                        if y_match:
+                            year = int(y_match.group(1))
+                            
+                    doi_elem = entry.find("arxiv:doi", ns)
+                    doi = doi_elem.text.strip() if doi_elem is not None and doi_elem.text else (f"10.48550/arXiv.{arxiv_id}" if arxiv_id else "")
+                    
+                    papers.append({
+                        "id": f"arxiv_{arxiv_id or re.sub(r'[^a-zA-Z0-9]', '_', title)[:30]}",
+                        "title": title,
+                        "authors": authors,
+                        "year": year,
+                        "abstract": summary,
+                        "doi": doi,
+                        "url": arxiv_url or f"https://arxiv.org/abs/{arxiv_id}",
+                        "venue": "arXiv e-Print Archive",
+                        "citationCount": 0,
+                        "source": "arXiv",
+                        "source_type": "arXiv Preprint",
+                        "provenance_tier": "preprint",
+                        "provenance_label": "Unrefereed Preprint"
+                    })
+                return papers
+    except Exception as e:
+        logger.warning(f"arXiv API warning: {e}")
+    return []
+
 async def fetch_crossref(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
     Crossref REST API: Premier global DOI registration agency.
@@ -753,13 +854,9 @@ async def fetch_crossref(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                     if not doi:
                         continue
 
-                    # If Crossref didn't index an abstract, synthesize an informative bibliographical abstract
-                    # from container/subject to preserve real DOIs for classical/economics literature
-                    if not clean_abstract or len(clean_abstract.split()) < 10:
-                        container = item.get("container-title", [""])[0] if item.get("container-title") else ""
-                        subjects = ", ".join(item.get("subject", [])[:3])
-                        pub_type = item.get("type", "work").replace("-", " ").title()
-                        clean_abstract = f"Published in {container or 'academic press'}. {pub_type} exploring {title}. Focus areas include: {subjects or 'theoretical foundations'}."
+                    # If Crossref didn't index a real abstract, leave it empty rather than synthesizing fake stubs
+                    if not clean_abstract or len(clean_abstract.split()) < 15:
+                        clean_abstract = ""
 
                     # Authors extraction
                     authors = []
@@ -1426,6 +1523,8 @@ async def run_agent1_academic_scraper(
             fetch_tasks.append(fetch_base(search_keywords, limit=limit))
         if "pubmed" in active_set or "pubmed_ncbi" in active_set:
             fetch_tasks.append(fetch_pubmed_ncbi(search_keywords, limit=limit))
+        if "arxiv" in active_set or "papers" in active_set:
+            fetch_tasks.append(_fetch_eprint_repository(search_keywords, limit=limit))
         if "serpapi" in active_set and serpapi_key:
             fetch_tasks.append(fetch_serpapi_web(query, limit=limit, api_key=serpapi_key))
         if "wikipedia" in active_set:
@@ -1442,10 +1541,13 @@ async def run_agent1_academic_scraper(
                     fetch_tasks.append(fetch_openalex(f_kw, limit=facet_limit))
                 if "crossref" in active_set:
                     fetch_tasks.append(fetch_crossref(f_kw, limit=facet_limit))
+                if "arxiv" in active_set or "papers" in active_set:
+                    fetch_tasks.append(_fetch_eprint_repository(f_kw, limit=facet_limit))
     else:
         # Default behavior: run all active academic repositories
         if sources in ["all", "papers"]:
             fetch_tasks.append(fetch_crossref(search_keywords, limit=limit))
+            fetch_tasks.append(_fetch_eprint_repository(search_keywords, limit=limit))
             fetch_tasks.append(fetch_doaj(search_keywords, limit=limit))
             fetch_tasks.append(fetch_semantic_scholar(search_keywords, limit=limit))
             fetch_tasks.append(fetch_europepmc(search_keywords, limit=limit))
@@ -1466,6 +1568,7 @@ async def run_agent1_academic_scraper(
                 fetch_tasks.append(fetch_semantic_scholar(f_kw, limit=facet_limit))
                 fetch_tasks.append(fetch_openalex(f_kw, limit=facet_limit))
                 fetch_tasks.append(fetch_crossref(f_kw, limit=facet_limit))
+                fetch_tasks.append(_fetch_eprint_repository(f_kw, limit=facet_limit))
         
     if fetch_tasks:
         results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
@@ -1484,6 +1587,8 @@ async def run_agent1_academic_scraper(
             if active_set is not None:
                 if "crossref" in active_set:
                     relaxed_tasks.append(fetch_crossref(rq, limit=limit))
+                if "arxiv" in active_set or "papers" in active_set:
+                    relaxed_tasks.append(_fetch_eprint_repository(rq, limit=limit))
                 if "openalex" in active_set:
                     relaxed_tasks.append(fetch_openalex(rq, limit=limit))
                 if "doaj" in active_set:
@@ -1500,6 +1605,7 @@ async def run_agent1_academic_scraper(
                     relaxed_tasks.append(fetch_pubmed_ncbi(rq, limit=limit))
             else:
                 relaxed_tasks.append(fetch_crossref(rq, limit=limit))
+                relaxed_tasks.append(_fetch_eprint_repository(rq, limit=limit))
                 relaxed_tasks.append(fetch_openalex(rq, limit=limit))
                 relaxed_tasks.append(fetch_doaj(rq, limit=limit))
                 relaxed_tasks.append(fetch_europepmc(rq, limit=limit))
@@ -1515,17 +1621,59 @@ async def run_agent1_academic_scraper(
                 logger.info(f"Query relaxation succeeded with {len(raw_papers)} papers for '{rq}'.")
                 break
 
-    # Helper for cross-repository deduplication by normalized title or DOI
+    # Helper for cross-repository deduplication by normalized title and version-stripped DOI
+    def _normalize_doi_key(doi_str: str) -> str:
+        if not doi_str:
+            return ""
+        d = doi_str.strip().lower()
+        d = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', d)
+        d = re.sub(r'[-._/]v\d+$', '', d)
+        return d.strip('/')
+
+    def _normalize_title_key(t_str: str) -> str:
+        if not t_str:
+            return ""
+        t = (t_str or "").lower()
+        t = re.sub(r'[\(\[\{]\s*(?:version|v)\s*\d+\s*[\)\]\}]', '', t)
+        t = re.sub(r'\s*-\s*(?:version|v)\s*\d+$', '', t)
+        return re.sub(r'[^a-zA-Z0-9]', '', t)
+
     def _dedup_papers_list(papers_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         deduped_papers = []
-        seen_keys = set()
+        seen_dois = {}
+        seen_titles = {}
         for p in papers_list:
-            title_clean = re.sub(r'[^a-zA-Z0-9]', '', (p.get("title") or "").lower())
-            doi = (p.get("doi") or "").strip().lower()
-            key = doi if doi else title_clean
-            if not key or key in seen_keys:
+            norm_doi = _normalize_doi_key(p.get("doi") or "")
+            norm_title = _normalize_title_key(p.get("title") or "")
+            if not norm_doi and not norm_title:
                 continue
-            seen_keys.add(key)
+
+            existing_idx = None
+            if norm_doi and norm_doi in seen_dois:
+                existing_idx = seen_dois[norm_doi]
+            elif norm_title and norm_title in seen_titles:
+                existing_idx = seen_titles[norm_title]
+
+            if existing_idx is not None:
+                # Merge into existing paper if current has a richer abstract or higher citation count
+                existing = deduped_papers[existing_idx]
+                curr_abs = p.get("abstract") or ""
+                exist_abs = existing.get("abstract") or ""
+                if len(curr_abs.split()) > len(exist_abs.split()):
+                    existing["abstract"] = curr_abs
+                if not existing.get("doi") and p.get("doi"):
+                    existing["doi"] = p.get("doi")
+                if not existing.get("url") and p.get("url"):
+                    existing["url"] = p.get("url")
+                if (p.get("citationCount") or 0) > (existing.get("citationCount") or 0):
+                    existing["citationCount"] = p["citationCount"]
+                continue
+
+            idx = len(deduped_papers)
+            if norm_doi:
+                seen_dois[norm_doi] = idx
+            if norm_title:
+                seen_titles[norm_title] = idx
             deduped_papers.append(p)
         return deduped_papers
 
@@ -1661,9 +1809,9 @@ async def run_agent1_academic_scraper(
                     "window_size": 2
                 })
             
-    # Sort by information density score descending and take top sentences
+    # Sort by information density score descending and retain info-dense sentences
     dense_sentences.sort(key=lambda x: x["density_score"], reverse=True)
-    top_sentences = dense_sentences[:15] # Top 15 most info-dense sentences
+    top_sentences = dense_sentences[:120] # Retain up to 120 sentences to comprehensively cover all paper abstracts
     
     return {
         "agent": "Agent 1: Academic Scraper",
