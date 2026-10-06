@@ -348,7 +348,12 @@ def check_dangling_references(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # 1. Detect and recover in-text citation pointers
     all_cited_p = set(re.findall(r'\[\s*(P\d+)\s*\]', full_corpus, re.IGNORECASE))
-    all_cited_p_upper = {f"P{re.search(r'\d+', p).group(0)}" for p in all_cited_p if re.search(r'\d+', p)}
+    digit_pattern = re.compile(r'\d+')
+    all_cited_p_upper = set()
+    for p in all_cited_p:
+        dm = digit_pattern.search(p)
+        if dm:
+            all_cited_p_upper.add("P" + dm.group(0))
 
     # Recover missing bibliography entries for in-text cited papers from the paper pool
     all_pool_papers = dossier_data.get("all_scraped_papers") or dossier_data.get("all_pool_papers") or dossier_data.get("papers") or dossier_data.get("agent1_data", {}).get("papers") or []
