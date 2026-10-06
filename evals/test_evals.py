@@ -262,7 +262,7 @@ class TestMainAppEvalsEndpoints(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_frontend_has_study_integration(self):
-        res = self.client.get("/")
+        res = self.client.get("/?auth_token=test_client_token")
         self.assertEqual(res.status_code, 200)
         self.assertIn('canvasArchBar', res.text)
         self.assertIn('arch-radio-group', res.text)

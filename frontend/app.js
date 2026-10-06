@@ -693,14 +693,23 @@ function getSystemApiKey(sys = 'a') {
   const perSys = sessionStorage.getItem(`workbench_key_sys_${sys}`) || '';
   if (perSys) return perSys;
   
-  const a2Model = (localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash').toLowerCase();
+  // 1. Fall back to preferred model provider key
+  const a2Model = (elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash').toLowerCase();
+  let candidate = '';
   if (a2Model.includes('gpt') || a2Model.includes('sol') || a2Model.includes('luna') || a2Model.includes('astra') || a2Model.includes('openai')) {
-    return sessionStorage.getItem('workbench_openai_key') || '';
+    candidate = sessionStorage.getItem('workbench_openai_key') || '';
+  } else if (a2Model.includes('claude') || a2Model.includes('sonnet') || a2Model.includes('opus') || a2Model.includes('haiku')) {
+    candidate = sessionStorage.getItem('workbench_anthropic_key') || '';
+  } else {
+    candidate = sessionStorage.getItem('workbench_gemini_key') || '';
   }
-  if (a2Model.includes('claude') || a2Model.includes('sonnet') || a2Model.includes('opus') || a2Model.includes('haiku')) {
-    return sessionStorage.getItem('workbench_anthropic_key') || '';
-  }
-  return sessionStorage.getItem('workbench_gemini_key') || '';
+  if (candidate) return candidate;
+
+  // 2. Fall back to any available provider key
+  return sessionStorage.getItem('workbench_gemini_key') || 
+         sessionStorage.getItem('workbench_openai_key') || 
+         sessionStorage.getItem('workbench_anthropic_key') || 
+         '';
 }
 
 function setActiveArchitecture(arch, notify = true) {
@@ -1964,7 +1973,7 @@ async function executeConventionalRAGBaseline(query) {
   }, 600);
   UIState.activeTimeouts.push(t1);
 
-  const model = localStorage.getItem('workbench_agent2_model') || 'claude-sonnet-5.5';
+  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash';
   const apiKey = getSystemApiKey('b');
   const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
   const headers = { 'Content-Type': 'application/json' };
@@ -2075,7 +2084,7 @@ async function executeDirectAPIBaseline(query) {
   activateNode(2);
   logToCanvas("[SYSTEM C] Dispatching direct single zero-shot LLM API call (Zero retrieval / Zero verification)...");
 
-  const model = localStorage.getItem('workbench_agent2_model') || 'claude-sonnet-5.5';
+  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash';
   const apiKey = getSystemApiKey('c');
   const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
   const headers = { 'Content-Type': 'application/json' };

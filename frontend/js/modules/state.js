@@ -498,15 +498,23 @@ export function getSystemApiKey(sys = 'a') {
   const perSys = sessionStorage.getItem(`workbench_key_sys_${sys}`) || '';
   if (perSys) return perSys;
   
-  // Fall back to preferred model provider key
-  const a2Model = (localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash').toLowerCase();
+  // 1. Fall back to preferred model provider key
+  const a2Model = (elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash').toLowerCase();
+  let candidate = '';
   if (a2Model.includes('gpt') || a2Model.includes('sol') || a2Model.includes('luna') || a2Model.includes('astra') || a2Model.includes('openai')) {
-    return sessionStorage.getItem('workbench_openai_key') || '';
+    candidate = sessionStorage.getItem('workbench_openai_key') || '';
+  } else if (a2Model.includes('claude') || a2Model.includes('sonnet') || a2Model.includes('opus') || a2Model.includes('haiku')) {
+    candidate = sessionStorage.getItem('workbench_anthropic_key') || '';
+  } else {
+    candidate = sessionStorage.getItem('workbench_gemini_key') || '';
   }
-  if (a2Model.includes('claude') || a2Model.includes('sonnet') || a2Model.includes('opus') || a2Model.includes('haiku')) {
-    return sessionStorage.getItem('workbench_anthropic_key') || '';
-  }
-  return sessionStorage.getItem('workbench_gemini_key') || '';
+  if (candidate) return candidate;
+
+  // 2. If preferred provider key is not found, check if ANY active provider key is present in session storage
+  return sessionStorage.getItem('workbench_gemini_key') || 
+         sessionStorage.getItem('workbench_openai_key') || 
+         sessionStorage.getItem('workbench_anthropic_key') || 
+         '';
 }
 
 export function setActiveArchitecture(arch, notify = true) {

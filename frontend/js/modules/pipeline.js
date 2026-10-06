@@ -527,7 +527,7 @@ export async function executeConventionalRAGBaseline(query) {
   }, 600);
   UIState.activeTimeouts.push(t1);
 
-  const model = localStorage.getItem('workbench_agent2_model') || 'claude-sonnet-5.5';
+  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash';
   const apiKey = getSystemApiKey('b');
   const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
   const headers = { 'Content-Type': 'application/json' };
@@ -678,7 +678,7 @@ export async function executeDirectAPIBaseline(query) {
   activateNode(2);
   logToCanvas("[SYSTEM C] Dispatching direct single zero-shot LLM API call (Zero retrieval / Zero verification)...");
 
-  const model = localStorage.getItem('workbench_agent2_model') || 'claude-sonnet-5.5';
+  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash';
   const apiKey = getSystemApiKey('c');
   const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
   const headers = { 'Content-Type': 'application/json' };

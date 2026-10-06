@@ -553,42 +553,50 @@ def get_user_decrypted_keys(user_id: Optional[str]) -> Dict[str, str]:
             logger.warning(f"Failed to decrypt vault key for {prov} (user {user_id}): {e}")
     return decrypted
 
-def resolve_api_key_for_model(model: str, user_id: Optional[str] = None, explicit_key: Optional[str] = None) -> Optional[str]:
+def resolve_api_key_for_model(model: str, user_id: Optional[str] = None, explicit_key: Optional[str] = None) -> tuple[Optional[str], str]:
     """
-    Intelligently resolves the required API key for a requested model across:
-    1. Explicit key parameter or header
+    Intelligently resolves the required API key and aligned model across:
+    1. Explicit key parameter or header (auto-detecting provider prefix)
     2. User's encrypted PostgreSQL vault (via user_id)
     3. Server-level environment variables
     """
+    m = (model or "gemini-3.6-flash").strip()
     if explicit_key and explicit_key.strip():
-        return explicit_key.strip()
+        k = explicit_key.strip()
+        if k.startswith("AIzaSy"):
+            return k, (m if "gemini" in m.lower() else "gemini-3.6-flash")
+        elif k.startswith("sk-ant-"):
+            return k, (m if "claude" in m.lower() else "claude-sonnet-5.5")
+        elif k.startswith("sk-") and not k.startswith("sk-ant-"):
+            return k, (m if any(x in m.lower() for x in ["gpt", "sol", "luna", "astra"]) else "gpt-6.1-sol")
+        return k, m
 
-    m = (model or "").lower().strip()
-    is_openai = any(k in m for k in ("gpt", "sol", "luna", "astra", "o1", "o3", "openai", "text-embedding"))
-    is_claude = any(k in m for k in ("claude", "sonnet", "opus", "haiku", "anthropic"))
-    is_gemini = "gemini" in m
+    m_lower = m.lower()
+    is_openai = any(k in m_lower for k in ("gpt", "sol", "luna", "astra", "o1", "o3", "openai", "text-embedding"))
+    is_claude = any(k in m_lower for k in ("claude", "sonnet", "opus", "haiku", "anthropic"))
+    is_gemini = "gemini" in m_lower
 
     vault_keys = get_user_decrypted_keys(user_id) if user_id else {}
+    openai_key = vault_keys.get("openai") or os.environ.get("OPENAI_API_KEY")
+    claude_key = vault_keys.get("anthropic") or os.environ.get("ANTHROPIC_API_KEY")
+    gemini_key = vault_keys.get("gemini") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
-    if is_openai:
-        if vault_keys.get("openai"):
-            return vault_keys["openai"]
-        return os.environ.get("OPENAI_API_KEY")
-    elif is_claude:
-        if vault_keys.get("anthropic"):
-            return vault_keys["anthropic"]
-        return os.environ.get("ANTHROPIC_API_KEY")
-    elif is_gemini:
-        if vault_keys.get("gemini"):
-            return vault_keys["gemini"]
-        return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if is_openai and openai_key:
+        return openai_key, m
+    elif is_claude and claude_key:
+        return claude_key, m
+    elif is_gemini and gemini_key:
+        return gemini_key, m
 
-    # If model preference does not explicitly name a known provider, check active vault keys
-    for prov in ["openai", "gemini", "anthropic"]:
-        if vault_keys.get(prov):
-            return vault_keys[prov]
+    # Intelligent fallback: If preferred provider has no key, use whichever provider HAS a key
+    if gemini_key:
+        return gemini_key, "gemini-3.6-flash"
+    elif openai_key:
+        return openai_key, "gpt-6.1-sol"
+    elif claude_key:
+        return claude_key, "claude-sonnet-5.5"
 
-    return os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    return None, m
 
 def inject_user_api_keys(cfg: Dict[str, Any], user_id: Optional[str]) -> Dict[str, Any]:
     """
@@ -1379,22 +1387,22 @@ class EvalComparisonRequest(BaseModel):
 
 async def _run_eval_single_system(sys_type: str, query: str, model: str, api_key: Optional[str], top_k: int = 5, user_id: Optional[str] = None) -> Dict[str, Any]:
     sys_type = sys_type.lower()
-    resolved_key = resolve_api_key_for_model(model, user_id=user_id, explicit_key=api_key)
+    resolved_key, resolved_model = resolve_api_key_for_model(model, user_id=user_id, explicit_key=api_key)
     if sys_type == "a":
-        wb = WorkbenchSystem(model_pref=model)
+        wb = WorkbenchSystem(model_pref=resolved_model)
         res = await wb.execute(query, api_key=resolved_key)
         analysis = analyze_text_quality(res.output_text)
-        cost = calculate_estimated_cost(model, res.input_tokens, res.output_tokens)
+        cost = calculate_estimated_cost(resolved_model, res.input_tokens, res.output_tokens)
         return {
             **res.to_dict(),
             "cost_usd": cost,
             "text_analysis": analysis
         }
     elif sys_type == "b":
-        rag = ConventionalRAGSystem(model_pref=model, top_k=top_k)
+        rag = ConventionalRAGSystem(model_pref=resolved_model, top_k=top_k)
         res = await rag.execute(query, api_key=resolved_key)
         analysis = analyze_text_quality(res.output_text)
-        cost = calculate_estimated_cost(model, res.input_tokens, res.output_tokens)
+        cost = calculate_estimated_cost(resolved_model, res.input_tokens, res.output_tokens)
         
         run_id = f"run_b_{uuid.uuid4().hex[:8]}"
         citations = [
@@ -1451,10 +1459,10 @@ async def _run_eval_single_system(sys_type: str, query: str, model: str, api_key
             "dossier": rag_dossier
         }
     elif sys_type == "c":
-        direct = DirectAPISystem(model_pref=model)
+        direct = DirectAPISystem(model_pref=resolved_model)
         res = await direct.execute(query, api_key=resolved_key)
         analysis = analyze_text_quality(res.output_text)
-        cost = calculate_estimated_cost(model, res.input_tokens, res.output_tokens)
+        cost = calculate_estimated_cost(resolved_model, res.input_tokens, res.output_tokens)
         
         run_id = f"run_c_{uuid.uuid4().hex[:8]}"
         direct_dossier = {
