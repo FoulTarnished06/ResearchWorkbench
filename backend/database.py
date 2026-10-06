@@ -169,12 +169,15 @@ class DatabaseEngine:
     def __init__(self, db_path: Optional[str] = None):
         self.db_url = os.environ.get("DATABASE_URL", "")
         self.db_path = db_path or DB_PATH
+        self.fallback_to_sqlite = False
         self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
 
     def connect(self):
-        self.db_url = os.environ.get("DATABASE_URL", self.db_url)
-        self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
-        if self.is_sqlite:
+        if not self.fallback_to_sqlite:
+            self.db_url = os.environ.get("DATABASE_URL", self.db_url)
+            self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
+            
+        if self.is_sqlite or self.fallback_to_sqlite:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("PRAGMA synchronous = NORMAL;")
@@ -187,8 +190,13 @@ class DatabaseEngine:
                 return PostgresConnectionWrapper(conn)
             except Exception as e:
                 logger.warning(f"Failed to connect to cloud database via DATABASE_URL: {e}; falling back to SQLite")
+                self.fallback_to_sqlite = True
                 self.is_sqlite = True
-                return self.connect()
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
+                conn.execute("PRAGMA foreign_keys = ON;")
+                conn.execute("PRAGMA synchronous = NORMAL;")
+                conn.row_factory = sqlite3.Row
+                return conn
 
 _DEFAULT_ENGINE = DatabaseEngine()
 

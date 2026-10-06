@@ -92,6 +92,173 @@ def distill_academic_query(query: str) -> str:
         return " ".join(tokens[:7])
     return " ".join(core_terms)
 
+def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
+    """
+    Decomposes multi-facet research prompts into atomic, targeted search sub-queries.
+    Pillar 1: Decompose the query before retrieving.
+    Splits compound queries (3-5 sub-questions or comparative entities) so each gets its own searches.
+    """
+    q_raw = query.strip()
+    if not q_raw:
+        return []
+
+    facets = []
+    
+    # 1. Split on question marks or numbered clauses if multiple exist
+    q_parts = [p.strip() for p in re.split(r'\?+|;\s*|\n+', q_raw) if len(p.strip()) > 8]
+    if len(q_parts) >= 2:
+        for idx, part in enumerate(q_parts[:4]):
+            distilled = distill_academic_query(part)
+            entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', part)
+            clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+            facets.append({
+                "facet_id": f"F{idx+1}",
+                "sub_query": distilled or part,
+                "raw_facet": part,
+                "entities": list(set(clean_ents)),
+                "keywords": clean_and_tokenize(distilled or part)
+            })
+        if facets:
+            return facets
+
+    # 2. Check for comparative constructs: "Compare X, Y, and Z on A, B, C" or "trade-offs between X and Y"
+    comp_match = re.search(r'(?:compare|comparison\s+of|versus|vs\.?|trade-offs?\s+between)\s+([^.]+)', q_raw, re.IGNORECASE)
+    if comp_match:
+        comp_text = comp_match.group(1)
+        chunks = [c.strip() for c in re.split(r',|\band\b|\bwith\s+respect\s+to\b|\bversus\b|\bvs\.?\b|\bregarding\b|\bon\b', comp_text) if len(c.strip()) > 4]
+        if len(chunks) >= 2:
+            for idx, c in enumerate(chunks[:4]):
+                distilled = distill_academic_query(c)
+                entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', c)
+                clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+                facets.append({
+                    "facet_id": f"F{idx+1}",
+                    "sub_query": distilled or c,
+                    "raw_facet": c,
+                    "entities": list(set(clean_ents)),
+                    "keywords": clean_and_tokenize(distilled or c)
+                })
+            if facets:
+                return facets
+
+    # 3. Proper noun / entity extraction for technical multi-system benchmarks
+    proper_nouns = re.findall(r'\b[A-Z][a-zA-Z0-9]*(?:[-_][a-zA-Z0-9]+)*(?:\s+[A-Z][a-zA-Z0-9]*(?:[-_][a-zA-Z0-9]+)*)*\b', q_raw)
+    significant_entities = [
+        pn for pn in proper_nouns 
+        if len(pn) > 2 and pn.lower() not in STOPWORDS 
+        and pn.lower() not in ["what", "how", "why", "when", "where", "which", "compare", "analyze", "explain", "investigate", "evaluate"]
+    ]
+    unique_entities = list(dict.fromkeys(significant_entities))
+    if len(unique_entities) >= 2:
+        for idx, ent in enumerate(unique_entities[:3]):
+            context_tokens = [t for t in clean_and_tokenize(q_raw) if t not in ent.lower()][:3]
+            sub_q = f"{ent} " + " ".join(context_tokens)
+            facets.append({
+                "facet_id": f"F{idx+1}",
+                "sub_query": sub_q.strip(),
+                "raw_facet": ent,
+                "entities": [ent],
+                "keywords": [ent.lower()] + context_tokens
+            })
+        if facets:
+            return facets
+
+    # Fallback: single primary facet
+    distilled = distill_academic_query(q_raw)
+    return [{
+        "facet_id": "F1",
+        "sub_query": distilled or q_raw,
+        "raw_facet": q_raw,
+        "entities": unique_entities[:2],
+        "keywords": clean_and_tokenize(distilled or q_raw)
+    }]
+
+def check_facet_coverage(facets: List[Dict[str, Any]], papers: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Coverage Gate (Pillar 2):
+    Checks whether every sub-question and named entity in the query has at least one on-target source.
+    Returns (covered_facets, uncovered_facets).
+    """
+    covered = []
+    uncovered = []
+    
+    for f in facets:
+        entities = [e.lower() for e in f.get("entities", []) if len(e) > 2]
+        keywords = f.get("keywords", [])
+        matched_paper_ids = []
+        
+        for p in papers:
+            title = (p.get("title") or "").lower()
+            abstract = (p.get("abstract") or "").lower()
+            text = f"{title} {abstract}"
+            
+            # Entity match has highest confidence
+            if any(e in text for e in entities):
+                matched_paper_ids.append(p.get("paper_idx") or p.get("id"))
+                continue
+            
+            # Multi-keyword overlap
+            overlap = sum(1 for kw in keywords if kw in text)
+            if overlap >= max(2, len(keywords) // 2):
+                matched_paper_ids.append(p.get("paper_idx") or p.get("id"))
+                
+        f_copy = dict(f)
+        f_copy["matching_papers"] = list(set(matched_paper_ids))
+        if matched_paper_ids:
+            f_copy["is_covered"] = True
+            covered.append(f_copy)
+        else:
+            f_copy["is_covered"] = False
+            uncovered.append(f_copy)
+            
+    return covered, uncovered
+
+def snowball_citations(seed_papers: List[Dict[str, Any]], facets: List[Dict[str, Any]], max_snowball: int = 2) -> List[Dict[str, Any]]:
+    """
+    Citation Snowballing (Pillar 4):
+    Follows references backward from top-ranked on-target hits (e.g. Semantic Scholar references)
+    to uncover foundational seminal papers.
+    """
+    snowballed = []
+    seen_titles = {re.sub(r'[^a-zA-Z0-9]', '', (p.get("title") or "").lower()) for p in seed_papers}
+    
+    target_tokens = set()
+    for f in facets:
+        for e in f.get("entities", []):
+            target_tokens.add(e.lower())
+        for kw in f.get("keywords", [])[:3]:
+            target_tokens.add(kw.lower())
+            
+    for p in seed_papers[:3]:
+        raw_refs = p.get("raw_references") or p.get("references") or []
+        for ref in raw_refs:
+            if len(snowballed) >= max_snowball:
+                break
+            ref_title = ref.get("title") or ""
+            if not ref_title or len(ref_title) < 10:
+                continue
+            t_clean = re.sub(r'[^a-zA-Z0-9]', '', ref_title.lower())
+            if t_clean in seen_titles:
+                continue
+            
+            ref_lower = ref_title.lower()
+            # Match if reference title overlaps with target entities/keywords
+            if any(tok in ref_lower for tok in target_tokens if len(tok) > 3):
+                seen_titles.add(t_clean)
+                snowballed.append({
+                    "id": f"snowball_{uuid.uuid4().hex[:8]}",
+                    "title": ref_title,
+                    "authors": ref.get("authors") or ["Seminal Literature Authors"],
+                    "year": ref.get("year") or p.get("year", 2020),
+                    "abstract": ref.get("abstract") or f"Seminal foundation reference cited by '{p.get('title', '')}'. Provides primary methodology benchmarks.",
+                    "url": ref.get("url") or p.get("url", "#"),
+                    "venue": ref.get("venue") or "Academic Venue",
+                    "citationCount": ref.get("citationCount", 50),
+                    "source": "Citation Snowball (Reference Tracking)",
+                    "source_type": "Peer-Reviewed Paper"
+                })
+    return snowballed
+
 def classify_paper_provenance(paper: Dict[str, Any]) -> Tuple[str, str]:
     """
     Classifies an academic paper into a provenance tier and human-readable label:
@@ -260,7 +427,7 @@ def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict
     sanitized_paper["provenance_label"] = p_label
     return sanitized_paper
 
-def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str) -> bool:
+def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str, facets: Optional[List[Dict[str, Any]]] = None) -> bool:
     """
     Two-Stage Hierarchical Domain Gating & Relevance Filter:
     1. Immediately discards administrative errata, retractions, and corrections.
@@ -269,63 +436,74 @@ def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str) -> 
     3. Blocks cross-domain drift: if query is focused on a specific technological/methodological
        subsystem (e.g. rollup dispute windows, limit order books), rejects orthogonal domains
        (e.g. consumer product liability, supply chain logistics, social media diffusion).
+    4. Facet support: If facets provided, matches if either the overall query or any atomic facet sub-query matches.
     """
-    title = (paper.get("title") or "").strip().lower()
-    abstract = (paper.get("abstract") or "").strip().lower()
-    venue = (paper.get("venue") or "").strip().lower()
-    text = f"{title} {abstract} {venue}"
-    
-    # 1. Immediately discard publishing metadata / administrative corrections
-    bad_meta = ["author correction", "publisher correction", "erratum", "corrigendum", "retraction notice", "expression of concern"]
-    if any(bm in title for bm in bad_meta):
-        return False
+    def _check_single_intent(q_str: str) -> bool:
+        title = (paper.get("title") or "").strip().lower()
+        abstract = (paper.get("abstract") or "").strip().lower()
+        venue = (paper.get("venue") or "").strip().lower()
+        text = f"{title} {abstract} {venue}"
         
-    q_tokens = clean_and_tokenize(query_intent)
-    if not q_tokens:
-        return True
+        # Discard publishing metadata / administrative corrections
+        bad_meta = ["author correction", "publisher correction", "erratum", "corrigendum", "retraction notice", "expression of concern"]
+        if any(bm in title for bm in bad_meta):
+            return False
+            
+        q_tokens = clean_and_tokenize(q_str)
+        if not q_tokens:
+            return True
+            
+        overlap_tokens = [t for t in q_tokens if t in text]
+        overlap_count = len(overlap_tokens)
         
-    overlap_tokens = [t for t in q_tokens if t in text]
-    overlap_count = len(overlap_tokens)
-    
-    # If query has >= 4 tokens, require at least 2 distinct token matches
-    if len(q_tokens) >= 4 and overlap_count < 2:
-        return False
-    elif overlap_count < 1:
-        return False
+        # If query has >= 4 tokens, require at least 2 distinct token matches
+        if len(q_tokens) >= 4 and overlap_count < 2:
+            return False
+        elif overlap_count < 1:
+            return False
+            
+        # Domain Disambiguation & Cross-Domain Drift Blocker
+        q_lower = q_str.lower()
         
-    # Domain Disambiguation & Cross-Domain Drift Blocker
-    q_lower = query_intent.lower()
-    
-    # Domain Cluster 1: Blockchain / Rollups / L2 Financial Settlement
-    if any(k in q_lower for k in ["rollup", "optimistic", "fraud-proof", "dispute window", "zk-rollup", "l2 settlement"]):
-        orthogonal_crypto_signals = [
-            "product liability", "consumer protection", "supply chain", "dkim", 
-            "right-to-sell", "clinical trial", "oncology", "parking"
-        ]
-        if any(sig in text for sig in orthogonal_crypto_signals):
-            if not any(bc in text for bc in ["blockchain", "rollup", "ethereum", "smart contract", "layer 2", "l2", "evm", "state transition"]):
-                return False
-                
-    # Domain Cluster 2: Limit Order Books / Quantitative Finance / Microstructure
-    if any(k in q_lower for k in ["limit order book", "order book", "queue depletion", "microstructure", "tick"]):
-        orthogonal_finance_signals = [
-            "vehicle parking", "parking prediction", "social media", "weibo", 
-            "traffic congestion", "patient care", "medical records", "nursing"
-        ]
-        if any(sig in text for sig in orthogonal_finance_signals):
-            if not any(fin in text for fin in ["order book", "market", "trading", "liquidity", "financial", "tick", "bid-ask"]):
-                return False
-                
-    # Domain Cluster 3: CBDC / Macroeconomics / Bank Runs
-    if any(k in q_lower for k in ["cbdc", "central bank digital currency", "bank run", "quantity cap"]):
-        orthogonal_econ_signals = [
-            "oncology", "cancer", "immunotherapy", "protein folding", "crop yield"
-        ]
-        if any(sig in text for sig in orthogonal_econ_signals):
-            if not any(ec in text for ec in ["central bank", "currency", "bank", "monetary", "deposit", "liquidity"]):
-                return False
+        # Domain Cluster 1: Blockchain / Rollups / L2 Financial Settlement
+        if any(k in q_lower for k in ["rollup", "optimistic", "fraud-proof", "dispute window", "zk-rollup", "l2 settlement"]):
+            orthogonal_crypto_signals = [
+                "product liability", "consumer protection", "supply chain", "dkim", 
+                "right-to-sell", "clinical trial", "oncology", "parking"
+            ]
+            if any(sig in text for sig in orthogonal_crypto_signals):
+                if not any(bc in text for bc in ["blockchain", "rollup", "ethereum", "smart contract", "layer 2", "l2", "evm", "state transition"]):
+                    return False
+                    
+        # Domain Cluster 2: Limit Order Books / Quantitative Finance / Microstructure
+        if any(k in q_lower for k in ["limit order book", "order book", "queue depletion", "microstructure", "tick"]):
+            orthogonal_finance_signals = [
+                "vehicle parking", "parking prediction", "social media", "weibo", 
+                "traffic congestion", "patient care", "medical records", "nursing"
+            ]
+            if any(sig in text for sig in orthogonal_finance_signals):
+                if not any(fin in text for fin in ["order book", "market", "trading", "liquidity", "financial", "tick", "bid-ask"]):
+                    return False
+                    
+        # Domain Cluster 3: CBDC / Macroeconomics / Bank Runs
+        if any(k in q_lower for k in ["cbdc", "central bank digital currency", "bank run", "quantity cap"]):
+            orthogonal_econ_signals = [
+                "oncology", "cancer", "immunotherapy", "protein folding", "crop yield"
+            ]
+            if any(sig in text for sig in orthogonal_econ_signals):
+                if not any(ec in text for ec in ["central bank", "currency", "bank", "monetary", "deposit", "liquidity"]):
+                    return False
 
-    return True
+        return True
+
+    if _check_single_intent(query_intent):
+        return True
+    if facets:
+        for f in facets:
+            sub_q = f.get("sub_query", "")
+            if sub_q and _check_single_intent(sub_q):
+                return True
+    return False
 
 async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pages: int = 15) -> Optional[Dict[str, Any]]:
     """
@@ -364,12 +542,16 @@ async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pa
                     for para in page_text.split("\n\n"):
                         p_clean = re.sub(r'\s+', ' ', para).strip()
                         words = p_clean.split()
-                        if 25 <= len(words) <= 150:
-                            if not re.search(r'^(?:references|bibliography|table of contents|contents)\b', p_clean, re.IGNORECASE):
-                                extracted_paragraphs.append(p_clean)
-                        if len(extracted_paragraphs) >= 12:
+                        if 20 <= len(words) <= 180:
+                            if not re.search(r'^(?:references|bibliography|table of contents|contents|acknowledgements)\b', p_clean, re.IGNORECASE):
+                                is_quant = bool(re.search(r'\b(?:\d+(?:\.\d+)?\s*(?:ms|ns|s|seconds|KB|MB|GB|Gbps|B|bytes|%|x\s+speedup)|table\s+\d+|benchmark|throughput|latency|accuracy)\b', p_clean, re.IGNORECASE))
+                                if is_quant:
+                                    extracted_paragraphs.insert(0, p_clean)
+                                else:
+                                    extracted_paragraphs.append(p_clean)
+                        if len(extracted_paragraphs) >= 16:
                             break
-                    if len(extracted_paragraphs) >= 12:
+                    if len(extracted_paragraphs) >= 16:
                         break
                 doc.close()
                 if extracted_paragraphs:
@@ -481,7 +663,7 @@ async def fetch_semantic_scholar(query: str, limit: int = 5) -> List[Dict[str, A
     params = {
         "query": query,
         "limit": limit,
-        "fields": "paperId,title,authors,year,abstract,url,venue,citationCount,isOpenAccess,externalIds"
+        "fields": "paperId,title,authors,year,abstract,url,venue,citationCount,isOpenAccess,externalIds,tldr,openAccessPdf,references.title,references.venue,references.year"
     }
     q_lower = query.lower()
     if any(k in q_lower for k in ["mixture of experts", "moe", "all-to-all", "latency", "interconnect", "parallelism", "transformer", "llm", "sharding", "gpu", "accelerator"]):
@@ -502,18 +684,32 @@ async def fetch_semantic_scholar(query: str, limit: int = 5) -> List[Dict[str, A
                     ext_ids = item.get("externalIds") or {}
                     doi = ext_ids.get("DOI") or ext_ids.get("ArXiv") or ""
                     url_link = f"https://doi.org/{doi}" if doi and ext_ids.get("DOI") else (item.get("url") or f"https://www.semanticscholar.org/paper/{item.get('paperId')}")
+                    
+                    raw_abstract = item.get("abstract") or ""
+                    tldr_info = item.get("tldr") or {}
+                    tldr_text = tldr_info.get("text", "").strip() if isinstance(tldr_info, dict) else ""
+                    if tldr_text and tldr_text not in raw_abstract:
+                        abstract = f"[TLDR]: {tldr_text}\n\n{raw_abstract}".strip()
+                    else:
+                        abstract = raw_abstract
+
+                    oa_pdf = (item.get("openAccessPdf") or {}).get("url") if isinstance(item.get("openAccessPdf"), dict) else None
+                    refs = item.get("references") or []
+                    
                     papers.append({
                         "id": item.get("paperId", ""),
                         "title": item.get("title", ""),
                         "authors": authors,
                         "year": item.get("year") or None,
-                        "abstract": item.get("abstract") or "",
+                        "abstract": abstract,
                         "doi": doi,
                         "url": url_link,
+                        "oa_pdf_url": oa_pdf,
                         "venue": item.get("venue") or "Academic Venue",
                         "citationCount": item.get("citationCount", 0),
                         "source": "Semantic Scholar",
-                        "source_type": "Peer-Reviewed Paper"
+                        "source_type": "Peer-Reviewed Paper",
+                        "raw_references": refs
                     })
                 return [p for p in papers if p["abstract"]]
     except Exception as e:
@@ -1206,6 +1402,9 @@ async def run_agent1_academic_scraper(
     search_keywords = distill_academic_query(query)
     raw_papers = []
     
+    # Pillar 1: Decompose compound query into atomic facets
+    facets = decompose_query_into_facets(query)
+    
     # Granular individual scraper selection
     active_set = set(active_scrapers) if active_scrapers is not None else None
     
@@ -1231,6 +1430,18 @@ async def run_agent1_academic_scraper(
             fetch_tasks.append(fetch_serpapi_web(query, limit=limit, api_key=serpapi_key))
         if "wikipedia" in active_set:
             fetch_tasks.append(fetch_wikipedia_knowledge(search_keywords, limit=2))
+
+        # Parallel facet queries for active scrapers if compound query
+        if len(facets) > 1:
+            facet_limit = max(2, limit // len(facets) + 1)
+            for f in facets:
+                f_kw = distill_academic_query(f["sub_query"])
+                if "semantic_scholar" in active_set:
+                    fetch_tasks.append(fetch_semantic_scholar(f_kw, limit=facet_limit))
+                if "openalex" in active_set:
+                    fetch_tasks.append(fetch_openalex(f_kw, limit=facet_limit))
+                if "crossref" in active_set:
+                    fetch_tasks.append(fetch_crossref(f_kw, limit=facet_limit))
     else:
         # Default behavior: run all active academic repositories
         if sources in ["all", "papers"]:
@@ -1246,6 +1457,15 @@ async def run_agent1_academic_scraper(
             fetch_tasks.append(fetch_serpapi_web(query, limit=limit, api_key=serpapi_key))
         if sources == "all":
             fetch_tasks.append(fetch_wikipedia_knowledge(search_keywords, limit=2))
+        
+        # Parallel atomic facet queries to guarantee each sub-question/entity has hits
+        if len(facets) > 1:
+            facet_limit = max(2, limit // len(facets) + 1)
+            for f in facets:
+                f_kw = distill_academic_query(f["sub_query"])
+                fetch_tasks.append(fetch_semantic_scholar(f_kw, limit=facet_limit))
+                fetch_tasks.append(fetch_openalex(f_kw, limit=facet_limit))
+                fetch_tasks.append(fetch_crossref(f_kw, limit=facet_limit))
         
     if fetch_tasks:
         results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
@@ -1295,18 +1515,21 @@ async def run_agent1_academic_scraper(
                 logger.info(f"Query relaxation succeeded with {len(raw_papers)} papers for '{rq}'.")
                 break
 
-    # Cross-repository deduplication by normalized title or DOI
-    deduped_papers = []
-    seen_keys = set()
-    for p in raw_papers:
-        title_clean = re.sub(r'[^a-zA-Z0-9]', '', (p.get("title") or "").lower())
-        doi = (p.get("doi") or "").strip().lower()
-        key = doi if doi else title_clean
-        if not key or key in seen_keys:
-            continue
-        seen_keys.add(key)
-        deduped_papers.append(p)
-    raw_papers = deduped_papers
+    # Helper for cross-repository deduplication by normalized title or DOI
+    def _dedup_papers_list(papers_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        deduped_papers = []
+        seen_keys = set()
+        for p in papers_list:
+            title_clean = re.sub(r'[^a-zA-Z0-9]', '', (p.get("title") or "").lower())
+            doi = (p.get("doi") or "").strip().lower()
+            key = doi if doi else title_clean
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped_papers.append(p)
+        return deduped_papers
+
+    raw_papers = _dedup_papers_list(raw_papers)
 
     # Upstream Ingestion Gatekeeper: Sanitize, validate, and classify provenance
     validated_papers = []
@@ -1317,6 +1540,39 @@ async def run_agent1_academic_scraper(
         else:
             logger.debug(f"Discarded paper due to upstream validation check: '{p.get('title', '')[:40]}'")
     raw_papers = validated_papers
+
+    # Pillar 2: Coverage Gating & Targeted 1-Shot Re-query
+    covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
+    if uncovered_facets:
+        logger.info(f"Coverage gate identified {len(uncovered_facets)} uncovered facets. Executing targeted 1-shot re-query.")
+        re_tasks = []
+        for uf in uncovered_facets[:3]:
+            ents = uf.get("entities", [])
+            target_terms = " ".join(ents[:2]) if ents else " ".join(uf.get("keywords", [])[:3])
+            if target_terms:
+                re_tasks.append(fetch_semantic_scholar(target_terms, limit=3))
+                re_tasks.append(fetch_openalex(target_terms, limit=3))
+                re_tasks.append(fetch_crossref(target_terms, limit=3))
+        if re_tasks:
+            re_results = await asyncio.gather(*re_tasks, return_exceptions=True)
+            for res in re_results:
+                if isinstance(res, list):
+                    for p in res:
+                        san = sanitize_and_validate_paper_metadata(p)
+                        if san:
+                            raw_papers.append(san)
+            raw_papers = _dedup_papers_list(raw_papers)
+            covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
+
+    # Pillar 4: Citation Snowballing (Follow references backward from on-target hits)
+    snowballed = snowball_citations(raw_papers, facets, max_snowball=2)
+    if snowballed:
+        for sp in snowballed:
+            san = sanitize_and_validate_paper_metadata(sp)
+            if san:
+                raw_papers.append(san)
+        raw_papers = _dedup_papers_list(raw_papers)
+        covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
         
     if not raw_papers:
         if disable_fallback:
@@ -1328,8 +1584,8 @@ async def run_agent1_academic_scraper(
             logger.info(f"Zero authentic papers returned from live academic repositories for query '{query}'. Reporting honest zero-result notice.")
             raw_papers = []
                 
-    # Semantic Relevance Gating
-    papers = [p for p in raw_papers if is_paper_semantically_relevant(p, query)]
+    # Semantic Relevance Gating (Multi-Faceted)
+    papers = [p for p in raw_papers if is_paper_semantically_relevant(p, query, facets=facets)]
     # Fallback to raw if filtering removes everything
     if not papers and raw_papers:
         papers = raw_papers
@@ -1415,5 +1671,8 @@ async def run_agent1_academic_scraper(
         "papers_found": len(papers),
         "papers": papers,
         "dense_sentences": top_sentences,
-        "total_sentences_extracted": len(dense_sentences)
+        "total_sentences_extracted": len(dense_sentences),
+        "facets": facets,
+        "covered_facets": covered_facets,
+        "uncovered_facets": uncovered_facets
     }

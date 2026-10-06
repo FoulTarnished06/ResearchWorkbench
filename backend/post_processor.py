@@ -73,13 +73,25 @@ def clean_monograph_text(text: str) -> str:
     # 6. Unwrap accidental quotes around entire assertion sentences (between tags only)
     text = re.sub(r'(?<=>)\s*["\u201c\u201d]([A-Z][^"\u201c\u201d<]{20,}\.?)["\u201c\u201d]\s*(?=<)', r'\1', text)
 
-    # 7. Forensic Fix: Scrub leaked internal pipeline/cache verification tags
+    # 7. Forensic Fix: Scrub leaked internal pipeline/cache verification tags in raw prose
     # e.g., '[✓ cache • 7]', '[⚠ 7]', '[⚠ 5]', '[? preprint ? 2]', '[✓ preprint • 5]'
+    # Protect authorized UI badge anchors (e.g. <sup class="citation-anchor...">...</sup> or <a href="#cit-card-...>...</a>)
+    badge_tokens = {}
+    def _protect_badge(m):
+        tok = f"__BADGE_PROTECTED_{len(badge_tokens)}__"
+        badge_tokens[tok] = m.group(0)
+        return tok
+
+    text = re.sub(r'<sup\s+class="[^"]*citation-anchor[^"]*"[^>]*>[\s\S]*?<\/sup>', _protect_badge, text)
+    text = re.sub(r'<a\s+[^>]*href="#cit-card-[^"]*"[^>]*>[\s\S]*?<\/a>', _protect_badge, text)
+
     internal_tag_pattern = r'\[\s*(?:[✓⚠?]|cache|preprint)\s*(?:[•·\?]\s*|\s+)*(?:cache|preprint)?\s*(?:[•·\?]\s*|\s+)*\d+\s*\]'
     text = re.sub(internal_tag_pattern, '', text)
-    # Clean up double spaces and stranded spaces before punctuation created by scrubbed tags
     text = re.sub(r'[ \t]{2,}', ' ', text)
     text = re.sub(r'\s+([,.;:])', r'\1', text)
+
+    for tok, orig in badge_tokens.items():
+        text = text.replace(tok, orig)
 
     # 8. Forensic Fix: Consecutive Sentence & Bullet Repetition Sieve
     # Collapses identical consecutive sentences or bullet points (e.g., verbatim decoding loops)
@@ -104,7 +116,10 @@ def clean_monograph_text(text: str) -> str:
             prev_norm = norm
     text = '\n'.join(deduped_lines)
 
-    # 9. Clean up empty tags and extra whitespace
+    # 9. Clean up empty template headers, placeholders, and extra whitespace
+    text = re.sub(r'<p>\s*<strong>(?:\([^)]+\)|Dynamic Section Header)?:?\s*</strong>\s*</p>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'<p>\s*<strong>\s*</strong>\s*</p>', '', text)
+    text = re.sub(r'<h[1-6]>\s*</h[1-6]>', '', text)
     text = re.sub(r'<p>\s*</p>', '', text)
     if _USE_NH3:
         sanitized = nh3.clean(text.strip(), tags=_NH3_TAGS, attributes=_NH3_ATTRS)
@@ -258,11 +273,97 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
     return takeaways[:3]
 
 
+def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Forensic Citation Linter & Integrity Enforcer (Pillars 5 & 6):
+    1. Reconciles in-text [P#] pointers against valid bibliography items.
+       Orphan pointers (e.g. [P7] when only P1-P3 exist) are rewritten to [Unverified External Citation].
+    2. Purges ghost bibliography entries: Drops reference list items that are never
+       cited anywhere in the body text, have zero verified claims, and no author mention.
+    3. Derives deterministic venue peer-review badges from metadata.
+    4. Drops empty boilerplate headers.
+    """
+    if not dossier_data or not isinstance(dossier_data, dict):
+        return dossier_data
+
+    citations = dossier_data.get("citations", [])
+    valid_p_indices = set()
+    valid_ref_ids = set()
+    for c in citations:
+        if c.get("paper_idx"):
+            valid_p_indices.add(str(c["paper_idx"]).upper())
+        if c.get("ref_id"):
+            valid_ref_ids.add(str(c["ref_id"]).upper())
+
+    # Build entire corpus text for matching
+    sections = dossier_data.get("dossier_sections") or dossier_data.get("sections") or []
+    full_text_parts = [str(dossier_data.get("executive_summary", "")), str(dossier_data.get("quick_answer", ""))]
+    for sec in sections:
+        full_text_parts.append(str(sec.get("content_html") or sec.get("answer_html") or ""))
+    full_corpus = " ".join(full_text_parts)
+
+    def sanitize_orphan_pointers(text: str) -> str:
+        if not text or not isinstance(text, str):
+            return text
+        def replace_p(m):
+            idx = m.group(1).upper()
+            if not valid_p_indices or idx in valid_p_indices:
+                return m.group(0)
+            return '<span class="citation-orphan" title="Unindexed citation: no matching bibliography entry in retrieved literature">[Unverified External Citation]</span>'
+        # Match [P1], [P2], etc.
+        text = re.sub(r'\[(P\d+)\]', replace_p, text, flags=re.IGNORECASE)
+        return text
+
+    # Apply sanitize_orphan_pointers to executive summary and sections
+    if "executive_summary" in dossier_data and dossier_data["executive_summary"]:
+        dossier_data["executive_summary"] = sanitize_orphan_pointers(dossier_data["executive_summary"])
+
+    for sec in sections:
+        if "content_html" in sec:
+            sec["content_html"] = sanitize_orphan_pointers(sec["content_html"])
+        if "answer_html" in sec:
+            sec["answer_html"] = sanitize_orphan_pointers(sec["answer_html"])
+
+    # Ghost Bibliography Filter: Retain only citations that are actually referenced
+    if citations:
+        active_citations = []
+        for c in citations:
+            p_idx = str(c.get("paper_idx", "")).upper()
+            ref_id = str(c.get("ref_id", "")).upper()
+            claims_cnt = c.get("verified_claims_count", 0)
+            
+            is_cited = False
+            if p_idx and re.search(r'\b' + re.escape(p_idx) + r'\b', full_corpus, re.IGNORECASE):
+                is_cited = True
+            elif ref_id and re.search(r'\b' + re.escape(ref_id) + r'\b', full_corpus, re.IGNORECASE):
+                is_cited = True
+            elif claims_cnt > 0:
+                is_cited = True
+            else:
+                # Check author name
+                authors_str = str(c.get("authors") or "")
+                first_author = authors_str.split(",")[0].split()[0] if authors_str else ""
+                if len(first_author) > 3 and re.search(r'\b' + re.escape(first_author) + r'\b', full_corpus, re.IGNORECASE):
+                    is_cited = True
+            
+            if is_cited:
+                active_citations.append(c)
+
+        # If filtering would remove everything, keep at least the first 2 citations to prevent empty bibliography
+        if not active_citations and citations:
+            active_citations = citations[:2]
+
+        dossier_data["citations"] = active_citations
+
+    return dossier_data
+
+
 def post_process_dossier(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Applies clean_monograph_text across executive summary and all monograph sections.
     Diversifies paragraph subheadings across sections.
     Populates clean, academic takeaways without meta-commentary.
+    Lints and enforces citation integrity, removing ghost references and orphan pointers.
     """
     if not dossier_data or not isinstance(dossier_data, dict):
         return dossier_data
@@ -291,6 +392,9 @@ def post_process_dossier(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Ensure clean, academic takeaways without meta-commentary
     dossier_data["takeaways"] = extract_academic_takeaways(dossier_data)
+
+    # Forensic Citation Linter & Integrity Enforcer (Pillars 5 & 6)
+    dossier_data = lint_and_enforce_citation_integrity(dossier_data)
 
     return dossier_data
 

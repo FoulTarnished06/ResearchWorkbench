@@ -1980,7 +1980,34 @@ async def run_agent2_the_drafter(
         raise RuntimeError(f"Agent 2 cannot run in strict mode: No API key provided for {display_provider}. Please configure a valid API key in Settings.")
 
     if active_key:
-        # Extreme Lexical Compression (Stop-Word Purging)
+        # Build structured bibliographic metadata block so LLM has real authors, years, venues
+        biblio_lines = []
+        for p in (papers or []):
+            pid = p.get("paper_idx") or f"P{len(biblio_lines)+1}"
+            title = p.get("title") or "Academic Study"
+            authors = p.get("authors") or ["Authors Unknown"]
+            auth_str = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "")
+            year_str = str(p.get("year")) if p.get("year") else "n.d."
+            venue = p.get("venue") or p.get("source") or "Academic Venue"
+            prov = p.get("provenance_label") or "Peer-Reviewed Literature"
+            biblio_lines.append(f"[{pid}] \"{title}\" | Authors: {auth_str} ({year_str}) | Venue: {venue} | Status: {prov}")
+        biblio_str = "\n".join(biblio_lines).strip()
+        if not biblio_str:
+            biblio_str = "No formal indexed papers available."
+
+        # Facet coverage context (Pillar 2 & 6)
+        covered_facets = agent1_data.get("covered_facets", [])
+        uncovered_facets = agent1_data.get("uncovered_facets", [])
+        facet_coverage_lines = []
+        if covered_facets:
+            c_titles = [f"'{f.get('sub_query', '')}' (Empirical sources: {', '.join(f.get('matching_papers', []))})" for f in covered_facets]
+            facet_coverage_lines.append("Covered Sub-Questions: " + "; ".join(c_titles))
+        if uncovered_facets:
+            u_titles = [f"'{f.get('sub_query', '')}' [NO direct empirical paper found in retrieved literature]" for f in uncovered_facets]
+            facet_coverage_lines.append("Uncovered Facets / Missing Empirical Evidence: " + "; ".join(u_titles))
+        facet_str = "\n".join(facet_coverage_lines).strip() if facet_coverage_lines else "Single-facet query."
+
+        # Extreme Lexical Compression (Stop-Word Purging) for dense extracts
         stop_words = {"the", "a", "an", "is", "are", "was", "were", "of", "on", "in", "to", "by", "for", "with", "as", "at", "it", "this", "that", "these", "those"}
         def purge_stopwords(t: str) -> str:
             words = t.split()
@@ -1994,9 +2021,18 @@ async def run_agent2_the_drafter(
                 compressed_text = purge_stopwords(text)
                 digest_lines.append(f"[{pid}] {compressed_text}")
                 
-        context_str = "\n".join(digest_lines).strip()
-        if not context_str:
-            context_str = "No indexed literature returned. Ground synthesis in verified physical/mathematical principles and state theoretical boundaries."
+        empirical_context = "\n".join(digest_lines).strip()
+        if not empirical_context:
+            empirical_context = "No indexed empirical excerpts returned. Ground synthesis in verified physical/mathematical principles and state theoretical boundaries."
+        
+        context_str = f"""--- RETRIEVED LITERATURE & BIBLIOGRAPHIC METADATA ---
+{biblio_str}
+
+--- FACET COVERAGE & EMPIRICAL EVIDENCE STATUS ---
+{facet_str}
+
+--- EMPIRICAL EXTRACTS & BENCHMARK EVIDENCE ---
+{empirical_context}"""
         
         # Point 9, 11, 12, 13, 14, 18: Pinned static prefix for Gemini prompt caching with cognitive forcing
         system_instruction = AGENT2_PINNED_SYSTEM_INSTRUCTION
@@ -2009,13 +2045,20 @@ Complexity Level: {complexity['tier']} (Target Depth: {target_words} words acros
 
 SYNTHESIS GUIDELINES & GROUNDING DIRECTIVES:
 1. DUAL-OUTPUT REQUIREMENT:
-   - 'quick_answer': 3-4 plain-English sentences summarizing the essential answer to the query at a college-freshman level. Zero jargon, zero LaTeX, zero citation tags. Clear, engaging, and direct.
+   - 'quick_answer': 3-4 plain-English sentences summarizing the essential answer to the query at a college-freshman level. If certain sub-questions had no retrieved empirical papers, explicitly separate what was found from what was absent (e.g., 'Retrieved literature confirms [found findings]. Direct empirical benchmarks for [uncovered entity] were not identified in the indexed literature and require parametric estimation.'). Zero jargon, zero LaTeX, zero citation tags.
    - 'executive_summary': A rigorous {summary_paragraphs}-paragraph technical monograph briefing with formal metrics and claim tags.
 
 2. MANDATORY IN-TEXT CITATION & LITERATURE GROUNDING (CRITICAL):
-   - In every section and executive summary paragraph, explicitly cite the primary papers by author and index (e.g., 'As demonstrated by Floridi et al. (2023) [P1]...' or 'Under the empirical framework in [P2]...').
+   - In every section and executive summary paragraph, cite ONLY papers present in the RETRIEVED LITERATURE block above using their exact index and authors (e.g., 'As demonstrated by Author et al. (Year) [P1]...').
+   - NEVER invent phantom citations (e.g. citing [P7] or unlisted sources when only [P1]-[P3] exist).
    - Anchor empirical claims directly in the facts, metrics, and mechanisms provided in the digest. Retain the exact measurements, error rates, and formal terms.
    - For empirical assertions, benchmark figures, and regulatory mechanisms, embed <claim id="c#" paper="P#">empirical assertion</claim> tags (e.g. <claim id="c1" paper="P1">metric</claim>).
+   - UNCOVERED FACETS / MISSING EMPIRICAL BENCHMARKS (STRICT):
+     If a sub-question or entity is listed under 'Uncovered Facets / Missing Empirical Evidence' (or lacks empirical data in the retrieved papers):
+     Do NOT hallucinate empirical measurements or attribute it to unrelated retrieved papers!
+     Instead, synthesize it strictly under a dedicated subsection titled:
+     "Theoretical Modeling & Parametric Derivations [Unverified External Benchmark]"
+     Clearly stating: "No direct empirical measurement reported in the retrieved literature. Theoretical principles indicate..."
 
 3. MANDATORY COMPARATIVE BENCHMARK MATRIX TABLE & TRADE-OFF TAXONOMY (CRITICAL):
    - You MUST populate 'comparison_table' with 3 to 6 rows comparing the primary methods, models, architectures, or papers identified in the retrieved evidence across columns:
@@ -2058,7 +2101,6 @@ SYNTHESIS GUIDELINES & GROUNDING DIRECTIVES:
   ]
 }}
 
-Retrieved Literature & Empirical Facts Digest:
 {context_str}
 """
 
