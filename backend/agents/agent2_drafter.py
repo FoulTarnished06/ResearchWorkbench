@@ -64,6 +64,7 @@ AGENT2_PINNED_SYSTEM_INSTRUCTION = (
     "- DOMAIN CONSISTENCY: If a retrieved paper's primary contribution is orthogonal to the user's research query (e.g. consumer product liability or supply-chain email verification in a cryptocurrency scaling query), you MUST discard it. Do NOT contort or re-frame unrelated workloads into benchmarks for the target system.\n"
     "- CALIBRATED EMPIRICAL REFUSAL: When retrieved sources lack direct benchmark measurements for a target parameter (e.g. no measured 7-day challenge window or head-to-head empirical comparison), explicitly state: 'No empirical measurement reported in the retrieved evidence'. Never hallucinate proxy metrics or synthetic numbers.\n"
     "- DEMARCATED PARAMETRIC SYNTHESIS: When external empirical literature lacks direct head-to-head measurements, synthesize theoretical foundations from first principles strictly inside an explicitly labeled subsection titled 'Theoretical Modeling & Parametric Derivation (Parametric Bounds)'. Keep empirical evidence strictly segregated from theoretical derivations.\n"
+    "- SECTION 2 EMPIRICAL PURITY MANDATE: Section 2 ('Empirical Validation & Benchmark Delta' / 'Core Empirical Findings & Takeaways') MUST contain STRICTLY empirical findings, benchmark figures, experimental measurements, and ablation results extracted directly from retrieved literature. ZERO speculative theoretical modeling, parametric estimations, or ungrounded assertions are permitted in Section 2. If retrieved evidence lacks direct empirical measurements for a target facet, explicitly state calibrated refusal: 'No empirical measurement reported in retrieved evidence: [parameter/facet]'.\n"
     "- IMMUTABLE CITATION INTEGRITY: Cite only papers that are actually provided in the retrieved evidence using consistent identifiers. Never invent phantom citations or unlinked reference numbers.\n"
     "\n"
     "SECURITY DIRECTIVE:\n"
@@ -1613,7 +1614,7 @@ def synthesize_fallback_draft(
 
     used_sentence_texts = set()
 
-    def pick_unique_sentence(pool: List[Dict[str, Any]], fallback_text: str, fallback_title: str = "Empirical Analysis") -> tuple[str, str, str]:
+    def pick_unique_sentence(pool: List[Dict[str, Any]], fallback_text: str, fallback_title: str = "Empirical Analysis", retrieved_only: bool = False) -> tuple[str, str, str]:
         for item in pool:
             norm = item["text"].strip().lower()
             if norm not in used_sentence_texts and len(item["text"].strip()) > 25:
@@ -1624,6 +1625,11 @@ def synthesize_fallback_draft(
             if norm not in used_sentence_texts and len(item["text"].strip()) > 25:
                 used_sentence_texts.add(norm)
                 return item["text"].strip(), item.get("paper_id", "p1"), item.get("paper_title", fallback_title)
+        if retrieved_only and sentences:
+            first = sentences[0]
+            return first["text"].strip(), first.get("paper_id", "p1"), first.get("paper_title", fallback_title)
+        if retrieved_only and not sentences:
+            return "No empirical measurement reported in retrieved evidence.", "p1", fallback_title
         used_sentence_texts.add(fallback_text.strip().lower())
         return fallback_text, "p1", fallback_title
 
@@ -1672,10 +1678,11 @@ def synthesize_fallback_draft(
         c4_id = f"c{claim_counter+3}"
         claim_counter += 4
 
-        txt1, pid1, ptit1 = pick_unique_sentence(foundations_pool, sec_prof["claim1_default"], sec_prof["claim1_title"])
-        txt2, pid2, ptit2 = pick_unique_sentence(bottlenecks_pool, sec_prof["claim2_default"], sec_prof["claim2_title"])
-        txt3, pid3, ptit3 = pick_unique_sentence(bottlenecks_pool if i < 2 else solutions_pool, sec_prof["claim3_default"], sec_prof["claim3_title"])
-        txt4, pid4, ptit4 = pick_unique_sentence(solutions_pool, sec_prof["claim4_default"], sec_prof["claim4_title"])
+        retrieved_only = (i == 1)
+        txt1, pid1, ptit1 = pick_unique_sentence(foundations_pool, sec_prof["claim1_default"], sec_prof["claim1_title"], retrieved_only=retrieved_only)
+        txt2, pid2, ptit2 = pick_unique_sentence(bottlenecks_pool, sec_prof["claim2_default"], sec_prof["claim2_title"], retrieved_only=retrieved_only)
+        txt3, pid3, ptit3 = pick_unique_sentence(bottlenecks_pool if i < 2 else solutions_pool, sec_prof["claim3_default"], sec_prof["claim3_title"], retrieved_only=retrieved_only)
+        txt4, pid4, ptit4 = pick_unique_sentence(solutions_pool, sec_prof["claim4_default"], sec_prof["claim4_title"], retrieved_only=retrieved_only)
 
         s_claims = [
             {"id": c1_id, "text": txt1, "paper_id": pid1, "paper_title": ptit1},
@@ -2007,23 +2014,29 @@ async def run_agent2_the_drafter(
             facet_coverage_lines.append("Uncovered Facets / Missing Empirical Evidence: " + "; ".join(u_titles))
         facet_str = "\n".join(facet_coverage_lines).strip() if facet_coverage_lines else "Single-facet query."
 
-        # Extreme Lexical Compression (Stop-Word Purging) for dense extracts
-        stop_words = {"the", "a", "an", "is", "are", "was", "were", "of", "on", "in", "to", "by", "for", "with", "as", "at", "it", "this", "that", "these", "those"}
-        def purge_stopwords(t: str) -> str:
-            words = t.split()
-            return " ".join(w for w in words if w.lower() not in stop_words)
+        # Rich Literature & Full Text/Abstract Extraction
+        # Feeds the complete natural-language abstract and open-access full-text benchmark paragraphs
+        literature_blocks = []
+        for p in (papers or []):
+            pid = p.get("paper_idx") or f"P{len(literature_blocks)+1}"
+            title = p.get("title") or "Academic Study"
+            abstract = (p.get("abstract") or "").strip()
+            oa_excerpt = (p.get("fulltext_excerpt") or "").strip()
+            p_lines = [f"=== SOURCE [{pid}]: \"{title}\" ==="]
+            if oa_excerpt:
+                p_lines.append(f"[OPEN-ACCESS FULL TEXT & BENCHMARK EXTRACT]:\n{oa_excerpt}")
+                if abstract and abstract not in oa_excerpt:
+                    p_lines.append(f"[FULL ABSTRACT]:\n{abstract}")
+            elif abstract:
+                p_lines.append(f"[FULL ABSTRACT]:\n{abstract}")
+            else:
+                p_lines.append("[NO ABSTRACT OR FULL TEXT AVAILABLE]")
+            literature_blocks.append("\n".join(p_lines))
 
-        digest_lines = []
-        for s in (dense_sentences or []):
-            pid = s.get("paper_idx") or s.get("paper_id") or "Unknown"
-            text = s.get("text", "").strip()
-            if text:
-                compressed_text = purge_stopwords(text)
-                digest_lines.append(f"[{pid}] {compressed_text}")
-                
-        empirical_context = "\n".join(digest_lines).strip()
+        empirical_context = "\n\n".join(literature_blocks).strip()
         if not empirical_context:
-            empirical_context = "No indexed empirical excerpts returned. Ground synthesis in verified physical/mathematical principles and state theoretical boundaries."
+            dense_lines = [f"[{s.get('paper_idx', 'P1')}] {s.get('text', '')}" for s in (dense_sentences or []) if s.get('text')]
+            empirical_context = "\n".join(dense_lines).strip() or "No indexed empirical excerpts returned. Ground synthesis in verified physical/mathematical principles and state theoretical boundaries."
         
         context_str = f"""--- RETRIEVED LITERATURE & BIBLIOGRAPHIC METADATA ---
 {biblio_str}
@@ -2060,19 +2073,24 @@ SYNTHESIS GUIDELINES & GROUNDING DIRECTIVES:
      "Theoretical Modeling & Parametric Derivations [Unverified External Benchmark]"
      Clearly stating: "No direct empirical measurement reported in the retrieved literature. Theoretical principles indicate..."
 
-3. MANDATORY COMPARATIVE BENCHMARK MATRIX TABLE & TRADE-OFF TAXONOMY (CRITICAL):
+3. SECTION 2 EMPIRICAL PURITY MANDATE (CRITICAL):
+   - Section 2 ('Empirical Validation & Benchmark Delta' / 'Core Empirical Findings & Takeaways') must hold STRICTLY empirical findings, benchmark figures, and experimental results extracted directly from the retrieved literature above.
+   - Absolutely ZERO speculative theoretical modeling, parametric estimations, or ungrounded claims in Section 2.
+   - If retrieved evidence lacks direct empirical measurements for a target facet or comparison, explicitly state calibrated refusal: 'No empirical measurement reported in retrieved evidence: [facet]'. Any mathematical deductions or parametric models belong exclusively in Section 1 or in Section 3's dedicated 'Theoretical Modeling & Parametric Derivations' subsection.
+
+4. MANDATORY COMPARATIVE BENCHMARK MATRIX TABLE & TRADE-OFF TAXONOMY (CRITICAL):
    - You MUST populate 'comparison_table' with 3 to 6 rows comparing the primary methods, models, architectures, or papers identified in the retrieved evidence across columns:
      ["Method / Architecture", "Domain / Focus", "Key Mechanism", "Reported Benchmark / Metric", "Trade-offs / Limitations"]
    - Explicitly articulate what was empirically demonstrated versus what was NOT reported or cannot be concluded.
    - You MUST populate 'dialectical_friction' with specific methodological disputes and Pareto frontiers.
    - You MUST populate 'epistemic_limitations' with 2 to 4 critical boundary conditions and open questions.
 
-4. RHETORICAL SCAFFOLDING COMPRESSION (STRICT):
+5. RHETORICAL SCAFFOLDING COMPRESSION (STRICT):
    - ZERO conversational transitions or rhetorical throat-clearing (do NOT write "Furthermore, it is important to note", "In order to evaluate", "This paper examines", "To better understand").
    - Jump directly into formal definitions, operational equations, hardware substrates, and measured empirical parameters.
    - Employ dense telegraphic syntax: Subject -> Verb -> Quantitative Parameter / Equation.
 
-5. OUTPUT FORMAT (Return strictly a raw JSON object, no markdown code fences):
+6. OUTPUT FORMAT (Return strictly a raw JSON object, no markdown code fences):
 {{
   "quick_answer": "Plain-English 3-4 sentence direct answer to the query without academic jargon.",
   "executive_summary": "<p><strong>Executive Problem Formulation:</strong> According to Authors (Year) [P1], ... with <claim id=\\"c1\\" paper=\\"P1\\">core assertion</claim>...</p><p><strong>Quantitative Consensus:</strong> As established in [P2], ... with <claim id=\\"c2\\" paper=\\"P2\\">metric</claim>...</p>",

@@ -273,15 +273,14 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
     return takeaways[:3]
 
 
-def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
+def check_dangling_references(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Forensic Citation Linter & Integrity Enforcer (Pillars 5 & 6):
-    1. Reconciles in-text [P#] pointers against valid bibliography items.
-       Orphan pointers (e.g. [P7] when only P1-P3 exist) are rewritten to [Unverified External Citation].
-    2. Purges ghost bibliography entries: Drops reference list items that are never
-       cited anywhere in the body text, have zero verified claims, and no author mention.
-    3. Derives deterministic venue peer-review badges from metadata.
-    4. Drops empty boilerplate headers.
+    Forensic Dangling-Reference & Orphan Citation Checker (in code):
+    1. Reconciles in-text citation pointers ([P#], [REF-#]) against bibliography items.
+       Orphan pointers (e.g. [P7] when only P1-P3 exist) are sanitized to [Unverified External Citation].
+    2. Detects & purges dangling ghost bibliography entries: Drops reference list items that
+       are never cited in text, have zero verified claims, and no author mention.
+    3. Records a structured audit report under dossier_data['dangling_reference_check'].
     """
     if not dossier_data or not isinstance(dossier_data, dict):
         return dossier_data
@@ -297,10 +296,27 @@ def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[st
 
     # Build entire corpus text for matching
     sections = dossier_data.get("dossier_sections") or dossier_data.get("sections") or []
-    full_text_parts = [str(dossier_data.get("executive_summary", "")), str(dossier_data.get("quick_answer", ""))]
+    full_text_parts = [
+        str(dossier_data.get("executive_summary", "")),
+        str(dossier_data.get("quick_answer", "")),
+        str(dossier_data.get("output_text", ""))
+    ]
     for sec in sections:
         full_text_parts.append(str(sec.get("content_html") or sec.get("answer_html") or ""))
+        for c in sec.get("claims", []):
+            if isinstance(c, dict):
+                full_text_parts.append(str(c.get("text", "")))
+                full_text_parts.append(str(c.get("paper", "")))
     full_corpus = " ".join(full_text_parts)
+
+    # 1. Detect dangling pointers in text
+    all_cited_p = set(re.findall(r'\[(P\d+)\]', full_corpus, re.IGNORECASE))
+    all_cited_p_upper = {p.upper() for p in all_cited_p}
+    dangling_p_pointers = all_cited_p_upper - valid_p_indices if valid_p_indices else set()
+
+    all_cited_ref = set(re.findall(r'\[(REF-\d+)\]', full_corpus, re.IGNORECASE))
+    all_cited_ref_upper = {r.upper() for r in all_cited_ref}
+    dangling_ref_pointers = all_cited_ref_upper - valid_ref_ids if valid_ref_ids else set()
 
     def sanitize_orphan_pointers(text: str) -> str:
         if not text or not isinstance(text, str):
@@ -310,13 +326,13 @@ def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[st
             if not valid_p_indices or idx in valid_p_indices:
                 return m.group(0)
             return '<span class="citation-orphan" title="Unindexed citation: no matching bibliography entry in retrieved literature">[Unverified External Citation]</span>'
-        # Match [P1], [P2], etc.
-        text = re.sub(r'\[(P\d+)\]', replace_p, text, flags=re.IGNORECASE)
-        return text
+        return re.sub(r'\[(P\d+)\]', replace_p, text, flags=re.IGNORECASE)
 
-    # Apply sanitize_orphan_pointers to executive summary and sections
+    # Apply sanitize_orphan_pointers to executive summary, sections, and output_text
     if "executive_summary" in dossier_data and dossier_data["executive_summary"]:
         dossier_data["executive_summary"] = sanitize_orphan_pointers(dossier_data["executive_summary"])
+    if "output_text" in dossier_data and dossier_data["output_text"]:
+        dossier_data["output_text"] = sanitize_orphan_pointers(dossier_data["output_text"])
 
     for sec in sections:
         if "content_html" in sec:
@@ -324,14 +340,15 @@ def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[st
         if "answer_html" in sec:
             sec["answer_html"] = sanitize_orphan_pointers(sec["answer_html"])
 
-    # Ghost Bibliography Filter: Retain only citations that are actually referenced
+    # 2. Ghost Bibliography Filter: Retain only citations that are actually referenced
+    active_citations = []
+    purged_references = []
     if citations:
-        active_citations = []
         for c in citations:
             p_idx = str(c.get("paper_idx", "")).upper()
             ref_id = str(c.get("ref_id", "")).upper()
             claims_cnt = c.get("verified_claims_count", 0)
-            
+
             is_cited = False
             if p_idx and re.search(r'\b' + re.escape(p_idx) + r'\b', full_corpus, re.IGNORECASE):
                 is_cited = True
@@ -340,20 +357,74 @@ def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[st
             elif claims_cnt > 0:
                 is_cited = True
             else:
-                # Check author name
                 authors_str = str(c.get("authors") or "")
                 first_author = authors_str.split(",")[0].split()[0] if authors_str else ""
                 if len(first_author) > 3 and re.search(r'\b' + re.escape(first_author) + r'\b', full_corpus, re.IGNORECASE):
                     is_cited = True
-            
+
             if is_cited:
                 active_citations.append(c)
+            else:
+                purged_references.append(c)
 
-        # If filtering would remove everything, keep at least the first 2 citations to prevent empty bibliography
         if not active_citations and citations:
             active_citations = citations[:2]
+            purged_references = citations[2:]
 
         dossier_data["citations"] = active_citations
+
+    # 3. Structured audit report
+    dossier_data["dangling_reference_check"] = {
+        "status": "passed" if not dangling_p_pointers and not purged_references else "corrected",
+        "dangling_pointers_sanitized": sorted(list(dangling_p_pointers | dangling_ref_pointers)),
+        "ghost_references_purged": [c.get("paper_idx") or c.get("ref_id") for c in purged_references],
+        "active_citations_count": len(active_citations) if citations else 0
+    }
+
+    return dossier_data
+
+
+def lint_and_enforce_citation_integrity(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Forensic Citation Linter & Integrity Enforcer (Pillars 5 & 6):
+    Reconciles pointers and purges dangling references.
+    """
+    return check_dangling_references(dossier_data)
+
+
+def enforce_section2_empirical_purity(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Enforces that Section 2 ('Empirical Validation & Benchmark Delta' / 'Core Empirical Findings & Takeaways')
+    holds ONLY retrieved findings.
+    Any ungrounded theoretical speculations or claims without an empirical paper in Section 2
+    are calibrated to state clearly:
+    'No direct empirical measurement reported in the retrieved evidence.'
+    """
+    if not dossier_data or not isinstance(dossier_data, dict):
+        return dossier_data
+        
+    sections = dossier_data.get("dossier_sections") or dossier_data.get("sections") or []
+    if len(sections) < 2:
+        return dossier_data
+        
+    sec2 = sections[1]
+    sec2_html = sec2.get("content_html") or sec2.get("answer_html") or ""
+    
+    # If Section 2 has ungrounded claims with tier no_source, rewrite them to calibrated refusal notice
+    if "claim-tier-no_source" in sec2_html:
+        sec2_html = re.sub(
+            r'<span class="claim-wrapper claim-tier-no_source[^"]*"[^>]*><span class="claim-text">([^<]+)</span>.*?</span>',
+            r'<span class="empirical-gap-notice">[No empirical measurement reported in retrieved evidence: \1]</span>',
+            sec2_html
+        )
+        if "content_html" in sec2:
+            sec2["content_html"] = sec2_html
+        if "answer_html" in sec2:
+            sec2["answer_html"] = sec2_html
+
+    # Also ensure claims array in Section 2 only holds claims linked to actual papers
+    if "claims" in sec2 and isinstance(sec2["claims"], list):
+        sec2["claims"] = [c for c in sec2["claims"] if c.get("paper") or c.get("paper_id")]
 
     return dossier_data
 
@@ -364,6 +435,7 @@ def post_process_dossier(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
     Diversifies paragraph subheadings across sections.
     Populates clean, academic takeaways without meta-commentary.
     Lints and enforces citation integrity, removing ghost references and orphan pointers.
+    Enforces that Section 2 holds only retrieved findings.
     """
     if not dossier_data or not isinstance(dossier_data, dict):
         return dossier_data
@@ -393,8 +465,11 @@ def post_process_dossier(dossier_data: Dict[str, Any]) -> Dict[str, Any]:
     # Ensure clean, academic takeaways without meta-commentary
     dossier_data["takeaways"] = extract_academic_takeaways(dossier_data)
 
-    # Forensic Citation Linter & Integrity Enforcer (Pillars 5 & 6)
-    dossier_data = lint_and_enforce_citation_integrity(dossier_data)
+    # Forensic Citation Linter & Dangling Reference Check
+    dossier_data = check_dangling_references(dossier_data)
+
+    # Section 2 Empirical Purity Guard (holds only retrieved findings)
+    dossier_data = enforce_section2_empirical_purity(dossier_data)
 
     return dossier_data
 

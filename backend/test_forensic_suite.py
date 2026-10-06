@@ -7,7 +7,11 @@ from backend.agents.agent1_scraper import (
     sanitize_and_validate_paper_metadata,
     is_paper_semantically_relevant
 )
-from backend.post_processor import clean_monograph_text
+from backend.post_processor import (
+    clean_monograph_text,
+    check_dangling_references,
+    enforce_section2_empirical_purity
+)
 from backend.export import sanitize_author_display, filter_active_citations
 
 class TestForensicSuite(unittest.TestCase):
@@ -92,6 +96,81 @@ class TestForensicSuite(unittest.TestCase):
         active = filter_active_citations(dossier)
         self.assertEqual(len(active), 2)
         self.assertEqual([c["paper_idx"] for c in active], ["P1", "P2"])
+
+    def test_dangling_reference_check_in_code(self):
+        dossier = {
+            "executive_summary": "Recursive rollups achieve 2.5 ms verification [P1], while older systems require 50 ms [P9].",
+            "sections": [
+                {
+                    "sub_question": "Theoretical Foundations",
+                    "content_html": "<p>Protocol semantics follow [P1] and [REF-1]. However, external claims cite [P7] without indexing.</p>",
+                    "claims": []
+                },
+                {
+                    "sub_question": "Empirical Benchmarks",
+                    "content_html": "<p>Empirical runs confirm throughput from [P2].</p>",
+                    "claims": []
+                }
+            ],
+            "citations": [
+                {"ref_id": "REF-1", "paper_idx": "P1", "title": "Succinct Verifier", "authors": ["Alice"]},
+                {"ref_id": "REF-2", "paper_idx": "P2", "title": "Throughput Benchmarks", "authors": ["Bob"]},
+                {"ref_id": "REF-3", "paper_idx": "P3", "title": "Ghost Uncited Paper", "authors": ["Charlie"], "verified_claims_count": 0}
+            ]
+        }
+        processed = check_dangling_references(dossier)
+        # 1. P9 and P7 should be converted to citation-orphan spans
+        self.assertNotIn("[P9]", processed["executive_summary"])
+        self.assertIn("citation-orphan", processed["executive_summary"])
+        self.assertIn("[Unverified External Citation]", processed["executive_summary"])
+        self.assertNotIn("[P7]", processed["sections"][0]["content_html"])
+        self.assertIn("[Unverified External Citation]", processed["sections"][0]["content_html"])
+        # Legitimate [P1] should remain intact
+        self.assertIn("[P1]", processed["executive_summary"])
+
+        # 2. Ghost bibliography entry P3 should be purged
+        active_ids = [c["paper_idx"] for c in processed["citations"]]
+        self.assertIn("P1", active_ids)
+        self.assertIn("P2", active_ids)
+        self.assertNotIn("P3", active_ids)
+
+        # 3. Audit log verification
+        audit = processed.get("dangling_reference_check", {})
+        self.assertEqual(audit.get("status"), "corrected")
+        self.assertIn("P9", audit.get("dangling_pointers_sanitized", []))
+        self.assertIn("P7", audit.get("dangling_pointers_sanitized", []))
+        self.assertIn("P3", audit.get("ghost_references_purged", []))
+
+    def test_section2_empirical_purity_enforcement(self):
+        dossier = {
+            "sections": [
+                {
+                    "sub_question": "Foundations",
+                    "content_html": "<p>Theory of zero-knowledge proofs.</p>",
+                    "claims": [{"id": "c1", "text": "Theory", "paper": "P1"}]
+                },
+                {
+                    "sub_question": "Empirical Validation & Benchmark Delta",
+                    "content_html": (
+                        '<p>Empirical verification takes 2.5 ms <span class="claim-wrapper claim-tier-verified"><span class="claim-text">2.5 ms verification</span></span>. '
+                        'Furthermore, speculative dispute window is estimated <span class="claim-wrapper claim-tier-no_source"><span class="claim-text">dispute window 7 days without measurement</span></span>.</p>'
+                    ),
+                    "claims": [
+                        {"id": "c2", "text": "2.5 ms verification", "paper": "P1"},
+                        {"id": "c3", "text": "dispute window 7 days without measurement"}
+                    ]
+                }
+            ]
+        }
+        processed = enforce_section2_empirical_purity(dossier)
+        sec2_html = processed["sections"][1]["content_html"]
+        self.assertNotIn("claim-tier-no_source", sec2_html)
+        self.assertIn("empirical-gap-notice", sec2_html)
+        self.assertIn("[No empirical measurement reported in retrieved evidence: dispute window 7 days without measurement]", sec2_html)
+        # Claims array in Section 2 should filter out the claim without paper
+        sec2_claims = processed["sections"][1]["claims"]
+        self.assertEqual(len(sec2_claims), 1)
+        self.assertEqual(sec2_claims[0]["id"], "c2")
 
 if __name__ == "__main__":
     unittest.main()
