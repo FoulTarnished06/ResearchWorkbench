@@ -1,0 +1,186 @@
+
+==========================================================================================
+TOPIC: Neural Hawkes Processes vs Deep Transformers for LOB
+==========================================================================================
+
+--- SYSTEMA (Neural_Hawkes_processes_vs_deep_transformer_systemA.docx) ---
+Word count: 2011 | Paragraphs: 36 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '5. Comprehensive Academic Monograph', '6. Thematic Literature Synthesis & Analysis', '6.1 Queue-depletion targets, event-time formulation, and causal observables', '6.2 Neural Hawkes intensity models and excitation mechanisms']
+First 200 chars:
+Neural Hawkes processes vs deep transformer architectures for limit order book microstructure modeling and high-frequency queue depletion prediction Synthesized via AI Research Workbench v3.0 | Strict
+Mid paragraph excerpt:
+Evidence boundary: The supplied records do not establish empirical superiority for either model family in high-frequency queue depletion. The 2024 IJCNN item is identified as federated transformer Hawkes event-sequence prediction [P3]; the patient-ca
+
+--- SYSTEMB (Neural_Hawkes_processes_vs_deep_transformer_systemb.docx) ---
+Word count: 360 | Paragraphs: 19 | Tables: 0
+Citations count: 5 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '8. Peer-Reviewed Citations & Evidence Grounding']
+First 200 chars:
+Neural Hawkes processes vs deep transformer architectures for limit order book microstructure modeling and high-frequency queue depletion prediction Synthesized via AI Research Workbench v3.0 | Strict
+Mid paragraph excerpt:
+[1] CRAN: Contributed Packages (2026). transformer: Implementation of Transformer Deep Neural Network with Vignettes. CRAN: Contributed Packages. [Peer-Reviewed Literature] Available: https://doi.org/10.32614/cran.package.transformer
+
+--- SYSTEMC (Neural_Hawkes_processes_vs_deep_transformer_systemc.docx) ---
+Word count: 82 | Paragraphs: 8 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways']
+First 200 chars:
+Neural Hawkes processes vs deep transformer architectures for limit order book microstructure modeling and high-frequency queue depletion prediction Synthesized via AI Research Workbench v3.0 | Strict
+Mid paragraph excerpt:
+2. Core Empirical Findings & Takeaways
+
+==========================================================================================
+TOPIC: Recursive ZK-Rollup Proof Verification vs Optimistic Dispute Windows
+==========================================================================================
+
+--- SYSTEMA (Recursive_zero-knowledge_rollup_proof_ve_systema.docx) ---
+Word count: 1707 | Paragraphs: 39 | Tables: 1
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '3. Quantitative Comparative Benchmarks', '4. Dialectical Friction & Methodological Disagreements', '5. Comprehensive Academic Monograph', '6. Thematic Literature Synthesis & Analysis']
+First 200 chars:
+Recursive zero-knowledge rollup proof verification overhead vs optimistic fraud-proof dispute windows for cross-chain institutional financial settlement latency AI Research Workbench v3.0 | Strict Pee
+Mid paragraph excerpt:
+6.3 Cross-Chain Institutional Settlement and Operational Constraints
+
+--- SYSTEMB (Recursive_zero-knowledge_rollup_proof_ve_systemB.docx) ---
+Word count: 1573 | Paragraphs: 62 | Tables: 0
+Citations count: 26 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'Recursive Zero-Knowledge Verification versus Optimistic Fraud-Proof Windows in Cross-Chain Institutional Settlement', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+Recursive zero-knowledge rollup proof verification overhead vs optimistic fraud-proof dispute windows for cross-chain institutional financial settlement latency Conventional RAG Baseline | FastEmbed O
+Mid paragraph excerpt:
+$$ T_{\mathrm{opt}} = T_{\mathrm{execution}} + W_{\mathrm{challenge}} + T_{\mathrm{resolution}}, $$
+
+--- SYSTEMC (Recursive_zero-knowledge_rollup_proof_ve_systemC.docx) ---
+Word count: 1999 | Paragraphs: 59 | Tables: 0
+Citations count: 5 | References count: 1
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'Recursive Zero-Knowledge Verification Versus Optimistic Fraud-Proof Windows for Cross-Chain Institutional Settlement', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+Recursive zero-knowledge rollup proof verification overhead vs optimistic fraud-proof dispute windows for cross-chain institutional financial settlement latency Direct Single API Baseline | Zero-Shot 
+Mid paragraph excerpt:
+The L1 can then verify one aggregate proof instead of \(n\) independent proofs. If \(G_v\) is aggregate verification cost, \(G_d\) publication and data cost, and \(n\) is the number of covered transitions, the amortized L1 cost is
+
+==========================================================================================
+TOPIC: CBDC Two-Tier Architecture: Quantity Caps vs Wholesale Settlement
+==========================================================================================
+
+--- SYSTEMA (Central_bank_digital_currency_two-tier_a_systemA.docx) ---
+Word count: 1684 | Paragraphs: 32 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '5. Comprehensive Academic Monograph', '6. Thematic Literature Synthesis & Analysis', '6.1 Two-Tier Balance Sheets, Settlement Modes, and Run Mechanics', '6.2 Retail Holding Caps and Tiered Remuneration as Conversion Controls']
+First 200 chars:
+Central bank digital currency two-tier architectural design: interest-bearing quantity caps vs wholesale settlement rails in mitigating commercial bank run dynamics AI Research Workbench v3.0 | Strict
+Mid paragraph excerpt:
+Access boundary: A wholesale CBDC rail restricts direct access to eligible financial institutions rather than households. Its immediate function is settlement of interbank obligations; it does not create a retail CBDC balance into which a household c
+
+--- SYSTEMB (Central_bank_digital_currency_two-tier_a_systemB.docx) ---
+Word count: 2060 | Paragraphs: 65 | Tables: 0
+Citations count: 27 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'Two-Tier CBDC Architecture, Quantity Caps, and Wholesale Settlement: Evidence and Limits', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+Central bank digital currency two-tier architectural design: interest-bearing quantity caps vs wholesale settlement rails in mitigating commercial bank run dynamics Conventional RAG Baseline | FastEmb
+Mid paragraph excerpt:
+Let \(q_i(t)\) denote the deposit conversion requested by customers of bank \(i\) over interval \(t\), and \(L_i(t)\) its immediately available settlement liquidity. A simplified liquidity constraint is:
+
+--- SYSTEMC (Central_bank_digital_currency_two-tier_a_systemC.docx) ---
+Word count: 2187 | Paragraphs: 57 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations', 'Two-tier balance-sheet architecture']
+First 200 chars:
+Central bank digital currency two-tier architectural design: interest-bearing quantity caps vs wholesale settlement rails in mitigating commercial bank run dynamics Direct Single API Baseline | Zero-S
+Mid paragraph excerpt:
+A depositor’s conversion decision depends on expected bank-deposit returns, perceived bank risk, CBDC remuneration, payment convenience, conversion limits, and the expected cost of being unable to obtain funds. In simplified form, a household prefers
+
+==========================================================================================
+TOPIC: PROTAC Ternary Complex Thermodynamics vs Molecular Glues
+==========================================================================================
+
+--- SYSTEMA (PROTAC_ternary_complex_thermodynamic_sta_systemA.docx) ---
+Word count: 1584 | Paragraphs: 34 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '5. Comprehensive Academic Monograph', '6. Thematic Literature Synthesis & Analysis', '6.1 Ternary-complex thermodynamics and productive cooperativity', '6.2 PROTAC hook-effect kinetics and concentration dependence']
+First 200 chars:
+PROTAC ternary complex thermodynamic stability and hook effect kinetics vs molecular glues for degrading non-druggable oncogenic transcription factors AI Research Workbench v3.0 | Strict Peer-Reviewed
+Mid paragraph excerpt:
+6.4 Comparative evidence, translation limits, and design frontiers
+
+--- SYSTEMB (PROTAC_ternary_complex_thermodynamic_sta_systemB.docx) ---
+Word count: 1647 | Paragraphs: 53 | Tables: 0
+Citations count: 21 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'PROTAC Ternary-Complex Stability, Hook-Effect Kinetics, and Molecular-Glue Comparison', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+PROTAC ternary complex thermodynamic stability and hook effect kinetics vs molecular glues for degrading non-druggable oncogenic transcription factors Conventional RAG Baseline | FastEmbed ONNX Vector
+Mid paragraph excerpt:
+so a decrease in \([TDE]\) can lower degradation rate even as total degrader concentration rises. This mechanism is consistent with the review’s identification of the stoichiometric hook effect as a field challenge [4]. No retrieved excerpt supplies 
+
+--- SYSTEMC (PROTAC_ternary_complex_thermodynamic_sta_systemC.docx) ---
+Word count: 1887 | Paragraphs: 55 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'PROTAC Ternary-Complex Stability and Hook-Effect Kinetics versus Molecular Glues for Degrading Oncogenic Transcription Factors', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+PROTAC ternary complex thermodynamic stability and hook effect kinetics vs molecular glues for degrading non-druggable oncogenic transcription factors Direct Single API Baseline | Zero-Shot Parametric
+Mid paragraph excerpt:
+\[ [D]_{\mathrm{peak}} \approx \sqrt{K_{d,T}K_{d,E}}. \]
+
+==========================================================================================
+TOPIC: Direct Cu-Cu Hybrid Bonding vs Micro-Bump CoWoS Interposers
+==========================================================================================
+
+--- SYSTEMA (Direct_copper-to-copper_dielectric_hybri_systemA.docx) ---
+Word count: 1708 | Paragraphs: 32 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '5. Comprehensive Academic Monograph', '6. Thematic Literature Synthesis & Analysis', '6.1 Interconnect Geometry, Pitch Scaling, and the Meaning of Sub-Micron Density', '6.2 Hybrid-Bonding Process Physics and Interface Formation']
+First 200 chars:
+Direct copper-to-copper dielectric hybrid bonding vs micro-bump CoWoS interposers for sub-micron chiplet interconnect density and thermal dissipation AI Research Workbench v3.0 | Strict Peer-Reviewed 
+Mid paragraph excerpt:
+Architecture: CoWoS combines chiplets or dies with a silicon interposer and micro-bump connections; bumps provide vertical electrical and mechanical paths, while interposer wiring distributes signals laterally. This architecture differs from direct h
+
+--- SYSTEMB (Direct_copper-to-copper_dielectric_hybri_systemB.docx) ---
+Word count: 1460 | Paragraphs: 45 | Tables: 0
+Citations count: 16 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'Direct Cu–Dielectric Hybrid Bonding versus Micro-bump CoWoS Interposers', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+Direct copper-to-copper dielectric hybrid bonding vs micro-bump CoWoS interposers for sub-micron chiplet interconnect density and thermal dissipation Conventional RAG Baseline | FastEmbed ONNX Vector 
+Mid paragraph excerpt:
+where \(k\) is thermal conductivity and \(Q\) is heat flow. These relations identify relevant geometric and material variables, but the excerpts provide no measured interconnect dimensions, effective thermal conductivities, heat loads, or junction te
+
+--- SYSTEMC (Direct_copper-to-copper_dielectric_hybri_systemC.docx) ---
+Word count: 1788 | Paragraphs: 54 | Tables: 0
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'Direct Cu–Cu Dielectric Hybrid Bonding versus CoWoS Microbumps', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+Direct copper-to-copper dielectric hybrid bonding vs micro-bump CoWoS interposers for sub-micron chiplet interconnect density and thermal dissipation Direct Single API Baseline | Zero-Shot Parametric 
+Mid paragraph excerpt:
+For a first-order conductor, resistance follows
+
+==========================================================================================
+TOPIC: High-Temperature Solid Oxide Electrolysis vs PEM
+==========================================================================================
+
+--- SYSTEMA (High-temperature_solid_oxide_electrolysi_systemA.docx) ---
+Word count: 2353 | Paragraphs: 45 | Tables: 1
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '3. Quantitative Comparative Benchmarks', '4. Dialectical Friction & Methodological Disagreements', '5. Comprehensive Academic Monograph', '6. Thematic Literature Synthesis & Analysis']
+First 200 chars:
+High-temperature solid oxide electrolysis vs proton exchange membrane electrolysis: cell degradation mechanisms and thermodynamic coupling with industrial waste heat AI Research Workbench v3.0 | Stric
+Mid paragraph excerpt:
+Polymer-membrane and catalyst-layer aging: PEMWE degradation can involve membrane chemical attack by radical species, mechanical fatigue under pressure and hydration cycling, pinhole formation, catalyst dissolution or agglomeration, and loss of catal
+
+--- SYSTEMB (High-temperature_solid_oxide_electrolysi_systemB.docx) ---
+Word count: 1528 | Paragraphs: 43 | Tables: 0
+Citations count: 19 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '6. Monograph Output', 'High-Temperature Solid Oxide Electrolysis, PEM Electrolysis, and Industrial Waste Heat: Evidence-Bounded Synthesis', '1. Executive Synthesis & Core Direct Answer', '2. Theoretical & Mathematical Foundations']
+First 200 chars:
+High-temperature solid oxide electrolysis vs proton exchange membrane electrolysis: cell degradation mechanisms and thermodynamic coupling with industrial waste heat Conventional RAG Baseline | FastEm
+Mid paragraph excerpt:
+A meaningful degradation comparison would require, at minimum, a consistently defined rate such as voltage increase per operating time at stated current density and temperature, together with gas composition, cycling protocol, and cell configuration.
+
+--- SYSTEMC (High-temperature_solid_oxide_electrolysi_systemC.docx) ---
+Word count: 2353 | Paragraphs: 45 | Tables: 1
+Citations count: 0 | References count: 0
+Headings: ['1. Executive Quick Answer (Plain-English TL;DR)', '2. Core Empirical Findings & Takeaways', '3. Quantitative Comparative Benchmarks', '4. Dialectical Friction & Methodological Disagreements', '5. Comprehensive Academic Monograph', '6. Thematic Literature Synthesis & Analysis']
+First 200 chars:
+High-temperature solid oxide electrolysis vs proton exchange membrane electrolysis: cell degradation mechanisms and thermodynamic coupling with industrial waste heat AI Research Workbench v3.0 | Stric
+Mid paragraph excerpt:
+Polymer-membrane and catalyst-layer aging: PEMWE degradation can involve membrane chemical attack by radical species, mechanical fatigue under pressure and hydration cycling, pinhole formation, catalyst dissolution or agglomeration, and loss of catal

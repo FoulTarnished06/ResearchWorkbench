@@ -1,0 +1,124 @@
+
+================================================================================
+SYSTEM: systemA
+================================================================================
+
+--- Amine-functionalized_solid_sorbents_vs_a_systemA.docx ---
+Words: 1299 | Paras: 25 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Amine-functionalized solid sorbents vs aqueous potassium hydroxide contactors for direct air capture: parasitic thermal desorption energy and oxidative degradation rates AI Research Workbench v3.0 | Multi-Agent Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) The supplied evide...
+
+--- Central_bank_digital_currency_two-tier_a_systemA.docx ---
+Words: 1684 | Paras: 32 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Central bank digital currency two-tier architectural design: interest-bearing quantity caps vs wholesale settlement rails in mitigating commercial bank run dynamics AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) A household di...
+
+--- Deterministic_transactional_execution_en_systemA.docx ---
+Words: 1626 | Paras: 31 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': True, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Deterministic transactional execution engines vs multi-version timestamp ordering in geo-distributed ACID databases under high cross-datacenter write contention AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Deterministic engi...
+
+--- Dielectric_barrier_discharge_plasma_actu_systemA.docx ---
+Words: 1579 | Paras: 31 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Dielectric barrier discharge plasma actuators vs passive bleed systems for mitigating shock-wave boundary-layer interaction and inlet unstart in scramjets AI Research Workbench v3.0 | Multi-Agent Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Passive bleed removes low-energy ...
+
+--- Direct_copper-to-copper_dielectric_hybri_systemA.docx ---
+Words: 1708 | Paras: 32 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Direct copper-to-copper dielectric hybrid bonding vs micro-bump CoWoS interposers for sub-micron chiplet interconnect density and thermal dissipation AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Direct copper-to-copper bondi...
+
+--- High-temperature_solid_oxide_electrolysi_systemA.docx ---
+Words: 2353 | Paras: 45 | Citations: 0 | Refs: 0 | Tables: 1
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: High-temperature solid oxide electrolysis vs proton exchange membrane electrolysis: cell degradation mechanisms and thermodynamic coupling with industrial waste heat AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Solid oxide e...
+
+--- Neural_Hawkes_processes_vs_deep_transformer_systemA.docx ---
+Words: 2011 | Paras: 36 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': True, 'social_media': True, 'patient_care': True, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Neural Hawkes processes vs deep transformer architectures for limit order book microstructure modeling and high-frequency queue depletion prediction Synthesized via AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Neural Hawkes ...
+
+--- Neural_Hawkes_processes_vs_deep_transformer_systemA_2.docx ---
+Words: 1701 | Paras: 32 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': True, 'social_media': True, 'patient_care': True, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Neural Hawkes processes vs deep transformer architectures for limit order book microstructure modeling and high-frequency queue depletion prediction AI Research Workbench v3.0 | Multi-Agent Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Neural Hawkes models describe how one o...
+
+--- PROTAC_ternary_complex_thermodynamic_sta_systemA.docx ---
+Words: 1584 | Paras: 34 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: PROTAC ternary complex thermodynamic stability and hook effect kinetics vs molecular glues for degrading non-druggable oncogenic transcription factors AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) PROTACs bring a cancer-drivi...
+
+--- Recursive_zero-knowledge_rollup_proof_ve_systema.docx ---
+Words: 1707 | Paras: 39 | Citations: 0 | Refs: 0 | Tables: 1
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Recursive zero-knowledge rollup proof verification overhead vs optimistic fraud-proof dispute windows for cross-chain institutional financial settlement latency AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Zero-knowledge sys...
+
+================================================================================
+SYSTEM: systemB
+================================================================================
+
+--- Central_bank_digital_currency_two-tier_a_systemB.docx ---
+Words: 2060 | Paras: 65 | Citations: 27 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': True, 'collapsed_stub': False}
+Start: Central bank digital currency two-tier architectural design: interest-bearing quantity caps vs wholesale settlement rails in mitigating commercial bank run dynamics Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval 1. Executive Quick Answer (Plain-English TL;DR) Generated via System B: Con...
+
+--- Direct_copper-to-copper_dielectric_hybri_systemB.docx ---
+Words: 1460 | Paras: 45 | Citations: 16 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': True, 'collapsed_stub': False}
+Start: Direct copper-to-copper dielectric hybrid bonding vs micro-bump CoWoS interposers for sub-micron chiplet interconnect density and thermal dissipation Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval 1. Executive Quick Answer (Plain-English TL;DR) Generated via System B: Conventional RAG B...
+
+--- High-temperature_solid_oxide_electrolysi_systemB.docx ---
+Words: 1528 | Paras: 43 | Citations: 19 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': True, 'collapsed_stub': False}
+Start: High-temperature solid oxide electrolysis vs proton exchange membrane electrolysis: cell degradation mechanisms and thermodynamic coupling with industrial waste heat Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval 1. Executive Quick Answer (Plain-English TL;DR) Generated via System B: Co...
+
+--- Neural_Hawkes_processes_vs_deep_transformer_systemb.docx ---
+Words: 360 | Paras: 19 | Citations: 5 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': True, 'social_media': True, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': True, 'collapsed_stub': False}
+Start: Neural Hawkes processes vs deep transformer architectures for limit order book microstructure modeling and high-frequency queue depletion prediction Synthesized via AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Generated via ...
+
+--- PROTAC_ternary_complex_thermodynamic_sta_systemB.docx ---
+Words: 1647 | Paras: 53 | Citations: 21 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': True, 'collapsed_stub': False}
+Start: PROTAC ternary complex thermodynamic stability and hook effect kinetics vs molecular glues for degrading non-druggable oncogenic transcription factors Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval 1. Executive Quick Answer (Plain-English TL;DR) Generated via System B: Conventional RAG ...
+
+--- Recursive_zero-knowledge_rollup_proof_ve_systemB.docx ---
+Words: 1573 | Paras: 62 | Citations: 26 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': True, 'collapsed_stub': False}
+Start: Recursive zero-knowledge rollup proof verification overhead vs optimistic fraud-proof dispute windows for cross-chain institutional financial settlement latency Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval 1. Executive Quick Answer (Plain-English TL;DR) Generated via System B: Convent...
+
+================================================================================
+SYSTEM: systemc
+================================================================================
+
+--- Central_bank_digital_currency_two-tier_a_systemC.docx ---
+Words: 2187 | Paras: 57 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Central bank digital currency two-tier architectural design: interest-bearing quantity caps vs wholesale settlement rails in mitigating commercial bank run dynamics Direct Single API Baseline | Zero-Shot Parametric Memory 1. Executive Quick Answer (Plain-English TL;DR) Generated via System C: Direct...
+
+--- Direct_copper-to-copper_dielectric_hybri_systemC.docx ---
+Words: 1788 | Paras: 54 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Direct copper-to-copper dielectric hybrid bonding vs micro-bump CoWoS interposers for sub-micron chiplet interconnect density and thermal dissipation Direct Single API Baseline | Zero-Shot Parametric Memory 1. Executive Quick Answer (Plain-English TL;DR) Generated via System C: Direct Single API Bas...
+
+--- High-temperature_solid_oxide_electrolysi_systemC.docx ---
+Words: 2353 | Paras: 45 | Citations: 0 | Refs: 0 | Tables: 1
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: High-temperature solid oxide electrolysis vs proton exchange membrane electrolysis: cell degradation mechanisms and thermodynamic coupling with industrial waste heat AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Solid oxide e...
+
+--- Neural_Hawkes_processes_vs_deep_transformer_systemc.docx ---
+Words: 82 | Paras: 8 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': True}
+Start: Neural Hawkes processes vs deep transformer architectures for limit order book microstructure modeling and high-frequency queue depletion prediction Synthesized via AI Research Workbench v3.0 | Strict Peer-Reviewed Fact-Checked Synthesis 1. Executive Quick Answer (Plain-English TL;DR) Generated via ...
+
+--- PROTAC_ternary_complex_thermodynamic_sta_systemC.docx ---
+Words: 1887 | Paras: 55 | Citations: 0 | Refs: 0 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: PROTAC ternary complex thermodynamic stability and hook effect kinetics vs molecular glues for degrading non-druggable oncogenic transcription factors Direct Single API Baseline | Zero-Shot Parametric Memory 1. Executive Quick Answer (Plain-English TL;DR) Generated via System C: Direct Single API Ba...
+
+--- Recursive_zero-knowledge_rollup_proof_ve_systemC.docx ---
+Words: 1999 | Paras: 59 | Citations: 5 | Refs: 1 | Tables: 0
+Drift/Flags: {'parking': False, 'social_media': False, 'patient_care': False, 'fabricated_cbdc_crisis_data': False, 'phantom_citations': False, 'collapsed_stub': False}
+Start: Recursive zero-knowledge rollup proof verification overhead vs optimistic fraud-proof dispute windows for cross-chain institutional financial settlement latency Direct Single API Baseline | Zero-Shot Parametric Memory 1. Executive Quick Answer (Plain-English TL;DR) Generated via System C: Direct Sin...
+Sample Refs (1 total):
+  * 1. Jens Groth, “On the Size of Pairing-Based Non-interactive Arguments,” *EUROCRYPT 2016*. 2. Sean B

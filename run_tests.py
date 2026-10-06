@@ -47,6 +47,13 @@ assert tier == "preprint", f"Expected preprint, got {tier}"
 tier_p, _ = classify_paper_provenance({"venue": "Nature", "source_type": "Peer-Reviewed Paper"})
 assert tier_p == "peer_reviewed", f"Expected peer_reviewed, got {tier_p}"
 assert sanitize_and_validate_paper_metadata({"title": "Too short", "abstract": "Short"}) is None
-print("[PASS] Provenance classification & upstream gatekeeper test")
+# 7. Forensic Guardrail Suite test
+import unittest
+from backend.test_forensic_suite import TestForensicSuite
+suite = unittest.TestLoader().loadTestsFromTestCase(TestForensicSuite)
+runner = unittest.TextTestRunner(verbosity=0)
+res = runner.run(suite)
+assert res.wasSuccessful(), "Forensic guardrails unit test failed!"
+print("[PASS] 10-Point Forensic Guardrails Suite test (all 6 checks pass)")
 
-print("\nALL BEHAVIORAL TESTS PASSED PERFECTLY!")
+print("\nALL BEHAVIORAL AND FORENSIC TESTS PASSED PERFECTLY!")

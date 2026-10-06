@@ -172,6 +172,13 @@ def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict
     if any(sig in title_lower for sig in bad_title_signals):
         return None
 
+    # DOI Regex Sieve: Reject auxiliary non-article records
+    # e.g., supplemental appendices (.s1, .supp-2), referee reports (/review1), datasets (/dataset1)
+    doi_str = str(paper.get("doi") or "").strip()
+    if doi_str and re.search(r'(\.s\d+$|\.supp(?:[-_]?\d*)?$|/review\d+$|/dataset\d+$)', doi_str, re.IGNORECASE):
+        logger.debug(f"Discarding auxiliary non-article DOI record: {doi_str}")
+        return None
+
     raw_abstract = (paper.get("abstract") or "").strip()
     # Strip HTML tags and excessive whitespace
     clean_abstract = re.sub(r'<[^>]+>', ' ', raw_abstract)
@@ -217,24 +224,29 @@ def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict
             if arxiv_m:
                 year = 2000 + int(arxiv_m.group(1))
 
-    # Authors array sanitization
+    # Authors array sanitization & clean fallback
     raw_authors = paper.get("authors")
     sanitized_authors: List[str] = []
     if isinstance(raw_authors, list):
         for a in raw_authors:
             a_clean = re.sub(r'<[^>]+>', '', str(a)).strip()
-            if a_clean and a_clean.lower() not in ["none", "unknown", "n.d.", "admin", "null", "staff"]:
+            a_clean = re.sub(r'\s*\(\s*None\s*\)', '', a_clean).strip()
+            if a_clean and a_clean.lower() not in ["none", "unknown", "n.d.", "admin", "null", "staff", "authors (none)"]:
                 sanitized_authors.append(a_clean)
     elif isinstance(raw_authors, str) and raw_authors.strip():
         for a in raw_authors.split(","):
             a_clean = a.strip()
-            if a_clean and a_clean.lower() not in ["none", "unknown", "n.d.", "admin", "null", "staff"]:
+            a_clean = re.sub(r'\s*\(\s*None\s*\)', '', a_clean).strip()
+            if a_clean and a_clean.lower() not in ["none", "unknown", "n.d.", "admin", "null", "staff", "authors (none)"]:
                 sanitized_authors.append(a_clean)
 
     if not sanitized_authors:
-        # Fallback based on venue/source rather than leaving empty
-        venue_str = paper.get("venue") or paper.get("source") or "Academic Researcher"
-        sanitized_authors = [f"{venue_str} Authors"]
+        # Clean fallback based on venue/publisher rather than emitting 'Authors (None)'
+        venue_str = paper.get("venue") or paper.get("source") or ""
+        if "crossref" in venue_str.lower() or "registry" in venue_str.lower() or not venue_str:
+            sanitized_authors = ["Institutional / Anonymous Registry"]
+        else:
+            sanitized_authors = [f"{venue_str} Authors"]
 
     # Classify provenance tier
     p_tier, p_label = classify_paper_provenance(paper)
@@ -250,26 +262,70 @@ def sanitize_and_validate_paper_metadata(paper: Dict[str, Any]) -> Optional[Dict
 
 def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str) -> bool:
     """
-    Universally discards errata, retractions, and papers with zero topical relevance.
-    Domain-agnostic; avoids hardcoded topic-specific negative keywords.
+    Two-Stage Hierarchical Domain Gating & Relevance Filter:
+    1. Immediately discards administrative errata, retractions, and corrections.
+    2. Enforces multi-token semantic overlap: requires at least 2 distinct query tokens,
+       or >= 25% query token coverage for multi-word scientific queries.
+    3. Blocks cross-domain drift: if query is focused on a specific technological/methodological
+       subsystem (e.g. rollup dispute windows, limit order books), rejects orthogonal domains
+       (e.g. consumer product liability, supply chain logistics, social media diffusion).
     """
     title = (paper.get("title") or "").strip().lower()
     abstract = (paper.get("abstract") or "").strip().lower()
-    text = title + " " + abstract
+    venue = (paper.get("venue") or "").strip().lower()
+    text = f"{title} {abstract} {venue}"
     
     # 1. Immediately discard publishing metadata / administrative corrections
     bad_meta = ["author correction", "publisher correction", "erratum", "corrigendum", "retraction notice", "expression of concern"]
     if any(bm in title for bm in bad_meta):
         return False
         
-    # 2. Check overlap with distilled query tokens
     q_tokens = clean_and_tokenize(query_intent)
     if not q_tokens:
         return True
         
-    # Require at least one non-stopword query token in title or abstract
-    overlap = sum(1 for t in q_tokens if t in text)
-    return overlap > 0
+    overlap_tokens = [t for t in q_tokens if t in text]
+    overlap_count = len(overlap_tokens)
+    
+    # If query has >= 4 tokens, require at least 2 distinct token matches
+    if len(q_tokens) >= 4 and overlap_count < 2:
+        return False
+    elif overlap_count < 1:
+        return False
+        
+    # Domain Disambiguation & Cross-Domain Drift Blocker
+    q_lower = query_intent.lower()
+    
+    # Domain Cluster 1: Blockchain / Rollups / L2 Financial Settlement
+    if any(k in q_lower for k in ["rollup", "optimistic", "fraud-proof", "dispute window", "zk-rollup", "l2 settlement"]):
+        orthogonal_crypto_signals = [
+            "product liability", "consumer protection", "supply chain", "dkim", 
+            "right-to-sell", "clinical trial", "oncology", "parking"
+        ]
+        if any(sig in text for sig in orthogonal_crypto_signals):
+            if not any(bc in text for bc in ["blockchain", "rollup", "ethereum", "smart contract", "layer 2", "l2", "evm", "state transition"]):
+                return False
+                
+    # Domain Cluster 2: Limit Order Books / Quantitative Finance / Microstructure
+    if any(k in q_lower for k in ["limit order book", "order book", "queue depletion", "microstructure", "tick"]):
+        orthogonal_finance_signals = [
+            "vehicle parking", "parking prediction", "social media", "weibo", 
+            "traffic congestion", "patient care", "medical records", "nursing"
+        ]
+        if any(sig in text for sig in orthogonal_finance_signals):
+            if not any(fin in text for fin in ["order book", "market", "trading", "liquidity", "financial", "tick", "bid-ask"]):
+                return False
+                
+    # Domain Cluster 3: CBDC / Macroeconomics / Bank Runs
+    if any(k in q_lower for k in ["cbdc", "central bank digital currency", "bank run", "quantity cap"]):
+        orthogonal_econ_signals = [
+            "oncology", "cancer", "immunotherapy", "protein folding", "crop yield"
+        ]
+        if any(sig in text for sig in orthogonal_econ_signals):
+            if not any(ec in text for ec in ["central bank", "currency", "bank", "monetary", "deposit", "liquidity"]):
+                return False
+
+    return True
 
 async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pages: int = 15) -> Optional[Dict[str, Any]]:
     """

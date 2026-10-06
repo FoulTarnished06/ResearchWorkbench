@@ -73,7 +73,38 @@ def clean_monograph_text(text: str) -> str:
     # 6. Unwrap accidental quotes around entire assertion sentences (between tags only)
     text = re.sub(r'(?<=>)\s*["\u201c\u201d]([A-Z][^"\u201c\u201d<]{20,}\.?)["\u201c\u201d]\s*(?=<)', r'\1', text)
 
-    # 7. Clean up empty tags and extra whitespace
+    # 7. Forensic Fix: Scrub leaked internal pipeline/cache verification tags
+    # e.g., '[✓ cache • 7]', '[⚠ 7]', '[⚠ 5]', '[? preprint ? 2]', '[✓ preprint • 5]'
+    internal_tag_pattern = r'\[\s*(?:[✓⚠?]|cache|preprint)\s*(?:[•·\?]\s*|\s+)*(?:cache|preprint)?\s*(?:[•·\?]\s*|\s+)*\d+\s*\]'
+    text = re.sub(internal_tag_pattern, '', text)
+    # Clean up double spaces and stranded spaces before punctuation created by scrubbed tags
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    text = re.sub(r'\s+([,.;:])', r'\1', text)
+
+    # 8. Forensic Fix: Consecutive Sentence & Bullet Repetition Sieve
+    # Collapses identical consecutive sentences or bullet points (e.g., verbatim decoding loops)
+    lines = text.split('\n')
+    deduped_lines = []
+    prev_norm = ""
+    for line in lines:
+        stripped = line.strip()
+        norm = re.sub(r'[^\w\s]', '', stripped.lower())
+        if norm and norm == prev_norm:
+            continue
+        # Also check high word overlap (>85% Jaccard) for near-identical consecutive sentences
+        if norm and prev_norm:
+            w_curr = set(norm.split())
+            w_prev = set(prev_norm.split())
+            if len(w_curr) >= 5 and len(w_prev) >= 5:
+                jaccard = len(w_curr & w_prev) / len(w_curr | w_prev)
+                if jaccard > 0.85:
+                    continue
+        deduped_lines.append(line)
+        if norm:
+            prev_norm = norm
+    text = '\n'.join(deduped_lines)
+
+    # 9. Clean up empty tags and extra whitespace
     text = re.sub(r'<p>\s*</p>', '', text)
     if _USE_NH3:
         sanitized = nh3.clean(text.strip(), tags=_NH3_TAGS, attributes=_NH3_ATTRS)

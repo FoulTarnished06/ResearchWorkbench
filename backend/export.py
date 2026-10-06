@@ -72,6 +72,103 @@ def _normalize_epistemic_limitations(limitations_data: Any) -> List[str]:
         return [sanitize_xml(limitations_data)]
     return []
 
+def sanitize_author_display(raw_authors: Any, venue: str = "") -> str:
+    """Sanitizes author lists, preventing 'Authors (None)' or empty metadata artifacts."""
+    if not raw_authors:
+        return f"{venue} Authors" if venue else "Institutional / Anonymous Publication"
+    
+    def _clean_str(s: str) -> str:
+        s = strip_html_tags(s).strip()
+        s = re.sub(r'\s*\(\s*None\s*\)', '', s, flags=re.IGNORECASE).strip()
+        s = re.sub(r'\s+Authors\s*$', '', s, flags=re.IGNORECASE).strip()
+        return s
+
+    if isinstance(raw_authors, list):
+        clean_authors = []
+        for a in raw_authors:
+            s = _clean_str(str(a))
+            if s and s.lower() not in ["none", "unknown", "n.d.", "admin", "null", "staff"]:
+                clean_authors.append(s)
+        if clean_authors:
+            return ", ".join(clean_authors)
+        return f"{venue} Research Group" if venue else "Institutional Publication"
+        
+    s_raw = _clean_str(str(raw_authors))
+    if not s_raw or s_raw.lower() in ["none", "unknown", "n.d."]:
+        return f"{venue} Editorial Board" if venue else "Institutional Publication"
+    return s_raw
+
+def filter_active_citations(dossier_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Automated Post-Generation Citation Linter:
+    Scans monograph text for cited reference keys:
+    - Immutable semantic slugs: [cite:slug]
+    - Paper tags: [P1], [P2], etc.
+    - Ref tags: [REF-1], [REF-2], etc.
+    - Numeric brackets: [1], [2], etc.
+    Purges unreferenced ghost bibliography padding (0% orphan bibliography entries).
+    """
+    all_citations = dossier_data.get("citations", [])
+    if not all_citations:
+        return []
+    
+    text_chunks = [
+        str(dossier_data.get("quick_answer", "")),
+        str(dossier_data.get("executive_summary", "")),
+        str(dossier_data.get("monograph_html", "")),
+        str(dossier_data.get("output_text", ""))
+    ]
+    for t in dossier_data.get("takeaways", []):
+        text_chunks.append(str(t))
+    for s in dossier_data.get("sections", []):
+        if isinstance(s, dict):
+            text_chunks.append(str(s.get("sub_question", "")))
+            text_chunks.append(str(s.get("answer_html", "")))
+            for c in s.get("claims", []):
+                if isinstance(c, dict):
+                    text_chunks.append(str(c.get("text", "")))
+                    text_chunks.append(str(c.get("paper", "")))
+    
+    combined_body = " ".join(text_chunks)
+    
+    cited_p_tags = set(re.findall(r'\[P(\d+)\]', combined_body, re.IGNORECASE))
+    cited_ref_tags = set(re.findall(r'\[REF-(\d+)\]', combined_body, re.IGNORECASE))
+    cited_slugs = set(re.findall(r'\[cite:([a-zA-Z0-9_\-]+)\]', combined_body, re.IGNORECASE))
+    cited_numbers = set(re.findall(r'\[(\d+)\]', combined_body))
+    
+    has_explicit_markers = bool(cited_p_tags or cited_ref_tags or cited_slugs)
+    
+    active = []
+    for idx, cit in enumerate(all_citations, start=1):
+        ref_id = str(cit.get("ref_id", "")).strip()
+        ref_num_match = re.search(r'(\d+)', ref_id)
+        ref_num = ref_num_match.group(1) if ref_num_match else str(idx)
+        paper_idx = str(cit.get("paper_idx", "")).replace("P", "").strip()
+        slug = str(cit.get("cite_slug", "") or cit.get("slug", "")).strip()
+        
+        is_cited = False
+        if has_explicit_markers:
+            if paper_idx and paper_idx in cited_p_tags:
+                is_cited = True
+            elif ref_num in cited_ref_tags or str(idx) in cited_ref_tags:
+                is_cited = True
+            elif str(idx) in cited_p_tags:
+                is_cited = True
+            elif slug and slug in cited_slugs:
+                is_cited = True
+        else:
+            if str(idx) in cited_numbers:
+                is_cited = True
+            else:
+                title = (cit.get("title") or "").strip().lower()
+                if title and len(title) > 15 and title in combined_body.lower():
+                    is_cited = True
+                    
+        if is_cited:
+            active.append(cit)
+            
+    return active if active else all_citations
+
 def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     """
     Generates a professionally formatted Word document (.docx) from research dossier.
@@ -205,15 +302,13 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
             doc.add_paragraph(strip_html_tags(item), style='List Bullet')
 
     # 8. References & Bibliography
-    citations = dossier_data.get("citations", [])
+    citations = filter_active_citations(dossier_data)
     if citations:
         doc.add_heading(f"{sec_num}. Grounded Citations & Bibliographic Evidence", level=2)
         sec_num += 1
         for cit in citations:
             ref_id = strip_html_tags(cit.get("ref_id", "REF"))
-            raw_authors = cit.get("authors", "Unknown Authors")
-            authors = ", ".join(str(a) for a in raw_authors) if isinstance(raw_authors, list) else str(raw_authors)
-            authors = strip_html_tags(authors)
+            authors = sanitize_author_display(cit.get("authors"), cit.get("venue", ""))
             year = strip_html_tags(str(cit.get("year", "n.d.")))
             p_title = strip_html_tags(cit.get("title", "Untitled"))
             venue = strip_html_tags(cit.get("venue", "Academic Publication"))
@@ -387,14 +482,12 @@ def export_to_latex(dossier_data: Dict[str, Any]) -> str:
         latex.append("\\end{itemize}\n")
 
     # Citations
-    citations = dossier_data.get("citations", [])
+    citations = filter_active_citations(dossier_data)
     if citations:
         latex.append("\\section*{References}")
         latex.append("\\begin{enumerate}")
         for cit in citations:
-            raw_authors = cit.get("authors", "Unknown")
-            authors_str = ", ".join(str(a) for a in raw_authors) if isinstance(raw_authors, list) else str(raw_authors)
-            authors = escape_latex(authors_str)
+            authors = escape_latex(sanitize_author_display(cit.get("authors"), cit.get("venue", "")))
             year = escape_latex(str(cit.get("year") or "n.d."))
             title = escape_latex(cit.get("title", "Untitled"))
             venue = escape_latex(cit.get("venue", ""))
@@ -500,15 +593,13 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
         md.append("")
 
     # Citations
-    citations = dossier_data.get("citations", [])
+    citations = filter_active_citations(dossier_data)
     if citations:
         md.append(f"## {sec_num}. Grounded Citations & Bibliographic Evidence\n")
         sec_num += 1
         for cit in citations:
             ref_id = strip_html_tags(cit.get("ref_id", "REF"))
-            raw_authors = cit.get("authors", "Unknown Authors")
-            authors = ", ".join(str(a) for a in raw_authors) if isinstance(raw_authors, list) else str(raw_authors)
-            authors = strip_html_tags(authors)
+            authors = sanitize_author_display(cit.get("authors"), cit.get("venue", ""))
             year = strip_html_tags(str(cit.get("year", "n.d.")))
             p_title = strip_html_tags(cit.get("title", "Untitled"))
             venue = strip_html_tags(cit.get("venue", "Academic Publication"))
