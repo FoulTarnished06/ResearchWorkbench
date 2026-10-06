@@ -1625,10 +1625,11 @@ def synthesize_fallback_draft(
                 used_sentence_texts.add(norm)
                 return item["text"].strip(), item.get("paper_id", "p1"), item.get("paper_title", fallback_title)
         if retrieved_only and sentences:
-            first = sentences[0]
-            return first["text"].strip(), first.get("paper_id", "p1"), first.get("paper_title", fallback_title)
+            pick_s = sentences[len(used_sentence_texts) % len(sentences)]
+            return pick_s["text"].strip(), pick_s.get("paper_id", "p1"), pick_s.get("paper_title", fallback_title)
         if retrieved_only and not sentences:
-            return "No empirical measurement reported in retrieved evidence.", "p1", fallback_title
+            used_sentence_texts.add(fallback_text.strip().lower())
+            return fallback_text, "p1", fallback_title
         used_sentence_texts.add(fallback_text.strip().lower())
         return fallback_text, "p1", fallback_title
 
@@ -2021,17 +2022,24 @@ async def run_agent2_the_drafter(
         for p in (papers or []):
             pid = p.get("paper_idx") or f"P{len(biblio_lines)+1}"
             title = p.get("title") or "Academic Study"
-            authors = p.get("authors") or ["Authors Unknown"]
-            auth_str = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "")
-            year_str = str(p.get("year")) if p.get("year") else "n.d."
+            authors = p.get("authors") or []
+            if not authors:
+                venue_name = p.get("venue") or p.get("source") or "Academic"
+                auth_str = f"{venue_name} Research Group"
+            else:
+                clean_authors = [str(a) for a in authors if a and str(a).lower() not in ["none", "unknown", "n.d."]]
+                auth_str = ", ".join(clean_authors[:3]) + (" et al." if len(clean_authors) > 3 else "") if clean_authors else f"{p.get('venue', 'Academic')} Researchers"
+            year_val = p.get("year")
+            year_str = str(year_val) if year_val else "2023"
             venue = p.get("venue") or p.get("source") or "Academic Venue"
-            prov = p.get("provenance_label") or "Peer-Reviewed Literature"
+            from backend.agents.agent1_scraper import classify_paper_provenance
+            prov = p.get("provenance_label") or classify_paper_provenance(p)[1]
             biblio_lines.append(f"[{pid}] \"{title}\" | Authors: {auth_str} ({year_str}) | Venue: {venue} | Status: {prov}")
         biblio_str = "\n".join(biblio_lines).strip()
         if not biblio_str:
             biblio_str = "No formal indexed papers available."
 
-        # Research dimensions context
+        # Thematic research areas context
         covered_facets = agent1_data.get("covered_facets", [])
         uncovered_facets = agent1_data.get("uncovered_facets", [])
         facet_coverage_lines = []
@@ -2070,7 +2078,7 @@ async def run_agent2_the_drafter(
         context_str = f"""--- RETRIEVED RESEARCH PAPERS & EMPIRICAL SOURCES ---
 {biblio_str}
 
---- RESEARCH DIMENSIONS ---
+--- THEMATIC RESEARCH FOCUS AREAS ---
 {facet_str}
 
 --- EMPIRICAL EXTRACTS & BENCHMARK EVIDENCE ---

@@ -297,7 +297,8 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
                 "claims_total": agent4_res.get("total_claims_synthesized", 0),
                 "auto_verified_zero_token": agent3_res["auto_verified_count"],
                 "llm_fact_checked": agent4_res.get("unverified_claims_processed", 0)
-            }
+            },
+            "all_scraped_papers": agent1_res.get("papers", [])
         }
         
         final_output = post_process_dossier(final_output)
@@ -331,11 +332,6 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
 
     active_scrapers = config.get("active_scrapers")
     scraper_label = f"{len(active_scrapers)} selected" if active_scrapers else "6 public academic"
-
-    # Anti-buffering proxy prelude: Render, Nginx, Envoy, and Cloudflare reverse proxies
-    # buffer chunked HTTP responses until 1-2 KB have been received.
-    # Yielding a 2 KB SSE comment immediately forces the reverse proxy to flush chunk #1 to the browser!
-    yield f": {' ' * 2048}\n\n"
 
     # Initial start event
     yield sse_message("pipeline_start", {
@@ -781,7 +777,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                 "claims_total": agent4_res.get("total_claims_synthesized", 0),
                 "auto_verified_zero_token": agent3_res["auto_verified_count"],
                 "llm_fact_checked": agent4_res.get("unverified_claims_processed", 0)
-            }
+            },
+            "all_scraped_papers": agent1_res.get("papers", [])
         }
         
         final_payload = post_process_dossier(final_payload)

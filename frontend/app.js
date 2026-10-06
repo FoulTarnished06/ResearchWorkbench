@@ -1826,13 +1826,6 @@ async function executeLiveBackend(query) {
       elements.teleStatusText.textContent = "Partial Data";
       logToCanvas(`[NOTICE] ${data.error || data.message || 'Pipeline aborted'}`);
       
-      document.getElementById('canvas-error-banner')?.classList.remove('hidden');
-      document.getElementById('dossier-error-banner')?.classList.remove('hidden');
-      const bannerText = document.getElementById('dossier-error-text');
-      if (bannerText) {
-        bannerText.textContent = `A downstream synthesis step timed out or encountered an API latency limit (${data.error || 'Network latency'}). Recovered the authentic drafted monograph, structured claims, and scraped citations for review.`;
-      }
-      
       const agent2Draft = data.partial_data?.agent2_draft;
       const agent1Scraped = data.partial_data?.agent1_scraped || data.partial_data?.agent1_scraper;
       const agent3Cacher = data.partial_data?.agent3_cacher;

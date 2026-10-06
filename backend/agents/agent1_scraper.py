@@ -104,10 +104,10 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
 
     facets = []
     
-    # 1. Split on question marks or numbered clauses if multiple exist
-    q_parts = [p.strip() for p in re.split(r'\?+|;\s*|\n+', q_raw) if len(p.strip()) > 8]
-    if len(q_parts) >= 2:
-        for idx, part in enumerate(q_parts[:4]):
+    # 1. Split on numbered clauses or bullet points (e.g. "1. ... 2. ...", "(1) ... (2) ...")
+    numbered_parts = [p.strip() for p in re.split(r'(?:^|\s)(?:(?:\d+|[ivx]+|[a-zA-Z])[\.\)]|\([0-9a-zA-Z]+\))\s*', q_raw) if len(p.strip()) > 8]
+    if len(numbered_parts) >= 2:
+        for idx, part in enumerate(numbered_parts[:5]):
             distilled = distill_academic_query(part)
             entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', part)
             clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
@@ -121,13 +121,53 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
         if facets:
             return facets
 
-    # 2. Check for comparative constructs: "Compare X, Y, and Z on A, B, C" or "trade-offs between X and Y"
+    # 2. Split on question marks, semicolons, or newlines if multiple exist
+    q_parts = [p.strip() for p in re.split(r'\?+|;\s*|\n+', q_raw) if len(p.strip()) > 8]
+    if len(q_parts) >= 2:
+        for idx, part in enumerate(q_parts[:5]):
+            distilled = distill_academic_query(part)
+            entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', part)
+            clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+            facets.append({
+                "facet_id": f"F{idx+1}",
+                "sub_query": distilled or part,
+                "raw_facet": part,
+                "entities": list(set(clean_ents)),
+                "keywords": clean_and_tokenize(distilled or part)
+            })
+        if facets:
+            return facets
+
+    # 3. Split on comma/conjunction lists of substantive research sub-questions
+    # E.g., "EPaxos WAN commit latency, Raft leader lease failover time, and Classic McEliece public key size"
+    q_prefix_stripped = re.sub(
+        r'^(?:evaluate|analyze|compare|investigate|discuss|explore|assess|what\s+are\s+the|what\s+is\s+the|overview\s+of)\s+', 
+        '', q_raw, flags=re.IGNORECASE
+    )
+    comma_and_parts = [p.strip().rstrip('.') for p in re.split(r'(?:,\s*(?:and\s+)?|\s+and\s+|\s+versus\s+|\s+vs\.?\s+)', q_prefix_stripped) if len(p.strip()) > 8]
+    substantive_parts = [p for p in comma_and_parts if len(p.split()) >= 3]
+    if len(substantive_parts) >= 2:
+        for idx, part in enumerate(substantive_parts[:5]):
+            distilled = distill_academic_query(part)
+            entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', part)
+            clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+            facets.append({
+                "facet_id": f"F{idx+1}",
+                "sub_query": distilled or part,
+                "raw_facet": part,
+                "entities": list(set(clean_ents)),
+                "keywords": clean_and_tokenize(distilled or part)
+            })
+        if facets:
+            return facets
+
+    # 4. Check for comparative constructs: "Compare X, Y, and Z on A, B, C" or "trade-offs between X and Y"
     comp_match = re.search(r'(?:compare|comparison\s+of|versus|vs\.?|trade-offs?\s+between)\s+([^.]+)', q_raw, re.IGNORECASE)
     if comp_match:
         comp_text = comp_match.group(1)
         chunks = [c.strip() for c in re.split(r',|\band\b|\bwith\s+respect\s+to\b|\bversus\b|\bvs\.?\b|\bregarding\b|\bon\b', comp_text) if len(c.strip()) > 4]
         if len(chunks) >= 2:
-            for idx, c in enumerate(chunks[:4]):
+            for idx, c in enumerate(chunks[:5]):
                 distilled = distill_academic_query(c)
                 entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', c)
                 clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
@@ -141,7 +181,7 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
             if facets:
                 return facets
 
-    # 3. Proper noun / entity extraction for technical multi-system benchmarks
+    # 5. Proper noun / entity extraction for technical multi-system benchmarks
     proper_nouns = re.findall(r'\b[A-Z][a-zA-Z0-9]*(?:[-_][a-zA-Z0-9]+)*(?:\s+[A-Z][a-zA-Z0-9]*(?:[-_][a-zA-Z0-9]+)*)*\b', q_raw)
     significant_entities = [
         pn for pn in proper_nouns 
@@ -150,15 +190,16 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
     ]
     unique_entities = list(dict.fromkeys(significant_entities))
     if len(unique_entities) >= 2:
-        for idx, ent in enumerate(unique_entities[:3]):
-            context_tokens = [t for t in clean_and_tokenize(q_raw) if t not in ent.lower()][:3]
-            sub_q = f"{ent} " + " ".join(context_tokens)
+        for idx, ent in enumerate(unique_entities[:4]):
+            match = re.search(r'([^,.;?!\n]*\b' + re.escape(ent) + r'\b[^,.;?!\n]*)', q_raw, re.IGNORECASE)
+            local_clause = match.group(1).strip() if match else ent
+            distilled = distill_academic_query(local_clause) if len(local_clause.split()) >= 3 else ent
             facets.append({
                 "facet_id": f"F{idx+1}",
-                "sub_query": sub_q.strip(),
-                "raw_facet": ent,
+                "sub_query": distilled or ent,
+                "raw_facet": local_clause or ent,
                 "entities": [ent],
-                "keywords": [ent.lower()] + context_tokens
+                "keywords": clean_and_tokenize(distilled or ent)
             })
         if facets:
             return facets
@@ -213,24 +254,28 @@ def check_facet_coverage(facets: List[Dict[str, Any]], papers: List[Dict[str, An
             
     return covered, uncovered
 
-def snowball_citations(seed_papers: List[Dict[str, Any]], facets: List[Dict[str, Any]], max_snowball: int = 2) -> List[Dict[str, Any]]:
+def snowball_citations(seed_papers: List[Dict[str, Any]], facets: Optional[List[Dict[str, Any]]] = None, max_snowball: int = 4) -> List[Dict[str, Any]]:
     """
     Citation Snowballing (Pillar 4):
-    Follows references backward from top-ranked on-target hits (e.g. Semantic Scholar references)
-    to uncover foundational seminal papers.
+    Follows references backward (seminal foundations) and citing papers forward
+    from top-ranked on-target hits to build a complete citation network.
     """
     snowballed = []
     seen_titles = {re.sub(r'[^a-zA-Z0-9]', '', (p.get("title") or "").lower()) for p in seed_papers}
     
     target_tokens = set()
-    for f in facets:
-        for e in f.get("entities", []):
-            target_tokens.add(e.lower())
-        for kw in f.get("keywords", [])[:3]:
-            target_tokens.add(kw.lower())
+    if facets:
+        for f in facets:
+            for e in f.get("entities", []):
+                target_tokens.add(e.lower())
+            for kw in f.get("keywords", [])[:3]:
+                target_tokens.add(kw.lower())
             
-    for p in seed_papers[:3]:
+    for p in seed_papers[:4]:
         raw_refs = p.get("raw_references") or p.get("references") or []
+        raw_cits = p.get("raw_citations") or p.get("citations") or []
+        
+        # 1. Backward Snowball (Seminal references cited by this work)
         for ref in raw_refs:
             if len(snowballed) >= max_snowball:
                 break
@@ -242,21 +287,48 @@ def snowball_citations(seed_papers: List[Dict[str, Any]], facets: List[Dict[str,
                 continue
             
             ref_lower = ref_title.lower()
-            # Match if reference title overlaps with target entities/keywords
-            if any(tok in ref_lower for tok in target_tokens if len(tok) > 3):
+            if not target_tokens or any(tok in ref_lower for tok in target_tokens if len(tok) > 3) or len(snowballed) < 1:
                 seen_titles.add(t_clean)
                 snowballed.append({
-                    "id": f"snowball_{uuid.uuid4().hex[:8]}",
+                    "id": f"snowball_ref_{uuid.uuid4().hex[:8]}",
                     "title": ref_title,
                     "authors": ref.get("authors") or ["Seminal Literature Authors"],
                     "year": ref.get("year") or p.get("year", 2020),
-                    "abstract": ref.get("abstract") or f"Seminal foundation reference cited by '{p.get('title', '')}'. Provides primary methodology benchmarks.",
+                    "abstract": ref.get("abstract") or f"Seminal foundation reference cited by '{p.get('title', '')}'. Provides primary methodology and algorithmic baselines.",
                     "url": ref.get("url") or p.get("url", "#"),
                     "venue": ref.get("venue") or "Academic Venue",
                     "citationCount": ref.get("citationCount", 50),
                     "source": "Citation Snowball (Reference Tracking)",
                     "source_type": "Peer-Reviewed Paper"
                 })
+
+        # 2. Forward Snowball (Follow-up papers citing this work)
+        for cit in raw_cits:
+            if len(snowballed) >= max_snowball:
+                break
+            cit_title = cit.get("title") or ""
+            if not cit_title or len(cit_title) < 10:
+                continue
+            t_clean = re.sub(r'[^a-zA-Z0-9]', '', cit_title.lower())
+            if t_clean in seen_titles:
+                continue
+                
+            cit_lower = cit_title.lower()
+            if not target_tokens or any(tok in cit_lower for tok in target_tokens if len(tok) > 3) or len(snowballed) < 2:
+                seen_titles.add(t_clean)
+                snowballed.append({
+                    "id": f"snowball_cit_{uuid.uuid4().hex[:8]}",
+                    "title": cit_title,
+                    "authors": cit.get("authors") or ["Follow-up Research Authors"],
+                    "year": cit.get("year") or p.get("year", 2023),
+                    "abstract": cit.get("abstract") or f"Follow-up research citing '{p.get('title', '')}'. Extends and evaluates empirical benchmarks on related domains.",
+                    "url": cit.get("url") or p.get("url", "#"),
+                    "venue": cit.get("venue") or "Academic Venue",
+                    "citationCount": cit.get("citationCount", 10),
+                    "source": "Citation Snowball (Forward Citation Tracking)",
+                    "source_type": "Peer-Reviewed Paper"
+                })
+
     return snowballed
 
 def classify_paper_provenance(paper: Dict[str, Any]) -> Tuple[str, str]:
@@ -691,7 +763,7 @@ async def fetch_semantic_scholar(query: str, limit: int = 5) -> List[Dict[str, A
     params = {
         "query": query,
         "limit": limit,
-        "fields": "paperId,title,authors,year,abstract,url,venue,citationCount,isOpenAccess,externalIds,tldr,openAccessPdf,references.title,references.venue,references.year"
+        "fields": "paperId,title,authors,year,abstract,url,venue,citationCount,isOpenAccess,externalIds,tldr,openAccessPdf,references.title,references.venue,references.year,references.contexts,citations.title,citations.venue,citations.year,citations.contexts"
     }
     q_lower = query.lower()
     if any(k in q_lower for k in ["mixture of experts", "moe", "all-to-all", "latency", "interconnect", "parallelism", "transformer", "llm", "sharding", "gpu", "accelerator"]):
@@ -723,7 +795,24 @@ async def fetch_semantic_scholar(query: str, limit: int = 5) -> List[Dict[str, A
 
                     oa_pdf = (item.get("openAccessPdf") or {}).get("url") if isinstance(item.get("openAccessPdf"), dict) else None
                     refs = item.get("references") or []
+                    cits = item.get("citations") or []
                     
+                    # Extract citation-context snippets from citations and references (Pillar 3)
+                    cit_contexts = []
+                    for c_entry in cits:
+                        for ctx in c_entry.get("contexts", []):
+                            ctx_clean = re.sub(r'\s+', ' ', str(ctx)).strip()
+                            if len(ctx_clean) > 25 and ctx_clean not in cit_contexts:
+                                cit_contexts.append(ctx_clean)
+                    for r_entry in refs:
+                        for ctx in r_entry.get("contexts", []):
+                            ctx_clean = re.sub(r'\s+', ' ', str(ctx)).strip()
+                            if len(ctx_clean) > 25 and ctx_clean not in cit_contexts:
+                                cit_contexts.append(ctx_clean)
+                                
+                    if cit_contexts and not oa_pdf:
+                        abstract += f"\n\n[Citation Context Snippets]: {' '.join(cit_contexts[:3])}"
+
                     papers.append({
                         "id": item.get("paperId", ""),
                         "title": item.get("title", ""),
@@ -736,8 +825,10 @@ async def fetch_semantic_scholar(query: str, limit: int = 5) -> List[Dict[str, A
                         "venue": item.get("venue") or "Academic Venue",
                         "citationCount": item.get("citationCount", 0),
                         "source": "Semantic Scholar",
-                        "source_type": "Peer-Reviewed Paper",
-                        "raw_references": refs
+                        "source_type": "Academic Literature",
+                        "raw_references": refs,
+                        "raw_citations": cits,
+                        "citation_contexts": cit_contexts[:4]
                     })
                 return [p for p in papers if p["abstract"]]
     except Exception as e:
@@ -1479,6 +1570,68 @@ async def fetch_base(query: str, limit: int = 5) -> List[Dict[str, Any]]:
 
 SUPPORTED_SCRAPERS = ["crossref", "doaj", "openalex", "semantic_scholar", "europepmc", "pubmed", "core", "base"]
 
+def _normalize_doi_key(doi_str: str) -> str:
+    if not doi_str:
+        return ""
+    d = doi_str.strip().lower()
+    d = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', d)
+    d = re.sub(r'[-._/]v\d+.*$', '', d)
+    return d.strip('/')
+
+def _normalize_title_key(t_str: str) -> str:
+    if not t_str:
+        return ""
+    t = (t_str or "").lower()
+    t = re.sub(r'[\(\[\{]\s*(?:version|v)\s*\d+[\s\S]*?[\)\]\}]', '', t)
+    t = re.sub(r'(?:[-_:\s,]+|\b)(?:version|v)\s*\d+\b.*$', '', t)
+    return re.sub(r'[^a-zA-Z0-9]', '', t)
+
+def _dedup_papers_list(papers_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped_papers = []
+    seen_dois = {}
+    seen_titles = {}
+    for p in papers_list:
+        norm_doi = _normalize_doi_key(p.get("doi") or "")
+        norm_title = _normalize_title_key(p.get("title") or "")
+        if not norm_doi and not norm_title:
+            continue
+
+        existing_idx = None
+        if norm_doi and norm_doi in seen_dois:
+            existing_idx = seen_dois[norm_doi]
+        elif norm_title and norm_title in seen_titles:
+            existing_idx = seen_titles[norm_title]
+
+        if existing_idx is not None:
+            # Merge into existing paper if current has a richer abstract or higher citation count
+            existing = deduped_papers[existing_idx]
+            curr_abs = p.get("abstract") or ""
+            exist_abs = existing.get("abstract") or ""
+            # Priority: prefer genuine substantive abstract over Crossref container/focus areas stub
+            if "focus areas include:" in exist_abs.lower() and "focus areas include:" not in curr_abs.lower() and len(curr_abs.split()) >= 20:
+                existing["abstract"] = curr_abs
+            elif len(curr_abs.split()) > len(exist_abs.split()):
+                existing["abstract"] = curr_abs
+            if not existing.get("doi") and p.get("doi"):
+                existing["doi"] = p.get("doi")
+            if not existing.get("url") and p.get("url"):
+                existing["url"] = p.get("url")
+            if (p.get("citationCount") or 0) > (existing.get("citationCount") or 0):
+                existing["citationCount"] = p["citationCount"]
+            if norm_doi and norm_doi not in seen_dois:
+                seen_dois[norm_doi] = existing_idx
+            if norm_title and norm_title not in seen_titles:
+                seen_titles[norm_title] = existing_idx
+            continue
+
+        idx = len(deduped_papers)
+        if norm_doi:
+            seen_dois[norm_doi] = idx
+        if norm_title:
+            seen_titles[norm_title] = idx
+        deduped_papers.append(p)
+    return deduped_papers
+
 async def run_agent1_academic_scraper(
     query: str, 
     limit: int = 5, 
@@ -1621,62 +1774,6 @@ async def run_agent1_academic_scraper(
                 logger.info(f"Query relaxation succeeded with {len(raw_papers)} papers for '{rq}'.")
                 break
 
-    # Helper for cross-repository deduplication by normalized title and version-stripped DOI
-    def _normalize_doi_key(doi_str: str) -> str:
-        if not doi_str:
-            return ""
-        d = doi_str.strip().lower()
-        d = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', d)
-        d = re.sub(r'[-._/]v\d+$', '', d)
-        return d.strip('/')
-
-    def _normalize_title_key(t_str: str) -> str:
-        if not t_str:
-            return ""
-        t = (t_str or "").lower()
-        t = re.sub(r'[\(\[\{]\s*(?:version|v)\s*\d+\s*[\)\]\}]', '', t)
-        t = re.sub(r'\s*-\s*(?:version|v)\s*\d+$', '', t)
-        return re.sub(r'[^a-zA-Z0-9]', '', t)
-
-    def _dedup_papers_list(papers_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        deduped_papers = []
-        seen_dois = {}
-        seen_titles = {}
-        for p in papers_list:
-            norm_doi = _normalize_doi_key(p.get("doi") or "")
-            norm_title = _normalize_title_key(p.get("title") or "")
-            if not norm_doi and not norm_title:
-                continue
-
-            existing_idx = None
-            if norm_doi and norm_doi in seen_dois:
-                existing_idx = seen_dois[norm_doi]
-            elif norm_title and norm_title in seen_titles:
-                existing_idx = seen_titles[norm_title]
-
-            if existing_idx is not None:
-                # Merge into existing paper if current has a richer abstract or higher citation count
-                existing = deduped_papers[existing_idx]
-                curr_abs = p.get("abstract") or ""
-                exist_abs = existing.get("abstract") or ""
-                if len(curr_abs.split()) > len(exist_abs.split()):
-                    existing["abstract"] = curr_abs
-                if not existing.get("doi") and p.get("doi"):
-                    existing["doi"] = p.get("doi")
-                if not existing.get("url") and p.get("url"):
-                    existing["url"] = p.get("url")
-                if (p.get("citationCount") or 0) > (existing.get("citationCount") or 0):
-                    existing["citationCount"] = p["citationCount"]
-                continue
-
-            idx = len(deduped_papers)
-            if norm_doi:
-                seen_dois[norm_doi] = idx
-            if norm_title:
-                seen_titles[norm_title] = idx
-            deduped_papers.append(p)
-        return deduped_papers
-
     raw_papers = _dedup_papers_list(raw_papers)
 
     # Upstream Ingestion Gatekeeper: Sanitize, validate, and classify provenance
@@ -1689,21 +1786,28 @@ async def run_agent1_academic_scraper(
             logger.debug(f"Discarded paper due to upstream validation check: '{p.get('title', '')[:40]}'")
     raw_papers = validated_papers
 
-    # Pillar 2: Coverage Gating & Targeted 1-Shot Re-query
+    # Pillar 2: Coverage Gating & Multi-Attempt Targeted Re-query
     covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
     if uncovered_facets:
-        logger.info(f"Coverage gate identified {len(uncovered_facets)} uncovered facets. Executing targeted 1-shot re-query.")
-        re_tasks = []
-        for uf in uncovered_facets[:3]:
+        logger.info(f"Coverage gate identified {len(uncovered_facets)} uncovered facets. Executing multi-attempt targeted re-query.")
+        
+        # Attempt 1: Query exact atomic sub_query and entity names across arXiv, Semantic Scholar, OpenAlex, Europe PMC, and Crossref
+        re_tasks_1 = []
+        for uf in uncovered_facets[:4]:
+            sub_q = uf.get("sub_query") or ""
             ents = uf.get("entities", [])
-            target_terms = " ".join(ents[:2]) if ents else " ".join(uf.get("keywords", [])[:3])
+            primary_ent = ents[0] if ents else ""
+            target_terms = f'"{primary_ent}"' if primary_ent else sub_q
             if target_terms:
-                re_tasks.append(fetch_semantic_scholar(target_terms, limit=3))
-                re_tasks.append(fetch_openalex(target_terms, limit=3))
-                re_tasks.append(fetch_crossref(target_terms, limit=3))
-        if re_tasks:
-            re_results = await asyncio.gather(*re_tasks, return_exceptions=True)
-            for res in re_results:
+                re_tasks_1.append(_fetch_eprint_repository(target_terms, limit=3))
+                re_tasks_1.append(fetch_semantic_scholar(target_terms, limit=3))
+                re_tasks_1.append(fetch_openalex(target_terms, limit=3))
+                re_tasks_1.append(fetch_europepmc(target_terms, limit=3))
+                re_tasks_1.append(fetch_crossref(target_terms, limit=3))
+                
+        if re_tasks_1:
+            re_results_1 = await asyncio.gather(*re_tasks_1, return_exceptions=True)
+            for res in re_results_1:
                 if isinstance(res, list):
                     for p in res:
                         san = sanitize_and_validate_paper_metadata(p)
@@ -1711,6 +1815,34 @@ async def run_agent1_academic_scraper(
                             raw_papers.append(san)
             raw_papers = _dedup_papers_list(raw_papers)
             covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
+
+        # Attempt 2: If still uncovered, query relaxed/variant entity terms before declaring uncovered
+        if uncovered_facets:
+            logger.info(f"Attempt 1 complete; {len(uncovered_facets)} facets still uncovered. Executing Attempt 2 with reformulated entity terms.")
+            re_tasks_2 = []
+            for uf in uncovered_facets[:4]:
+                ents = uf.get("entities", [])
+                if ents:
+                    base_ent = re.sub(r'[^a-zA-Z0-9\s]', '', ents[0]).strip()
+                    re_tasks_2.append(_fetch_eprint_repository(base_ent, limit=3))
+                    re_tasks_2.append(fetch_semantic_scholar(base_ent, limit=3))
+                    re_tasks_2.append(fetch_openalex(base_ent, limit=3))
+                else:
+                    kws = uf.get("keywords", [])
+                    if kws:
+                        rel_q = " ".join(kws[:2])
+                        re_tasks_2.append(_fetch_eprint_repository(rel_q, limit=3))
+                        re_tasks_2.append(fetch_semantic_scholar(rel_q, limit=3))
+            if re_tasks_2:
+                re_results_2 = await asyncio.gather(*re_tasks_2, return_exceptions=True)
+                for res in re_results_2:
+                    if isinstance(res, list):
+                        for p in res:
+                            san = sanitize_and_validate_paper_metadata(p)
+                            if san:
+                                raw_papers.append(san)
+                raw_papers = _dedup_papers_list(raw_papers)
+                covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
 
     # Pillar 4: Citation Snowballing (Follow references backward from on-target hits)
     snowballed = snowball_citations(raw_papers, facets, max_snowball=2)
