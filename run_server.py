@@ -11,7 +11,7 @@ if __name__ == "__main__":
     reload = os.environ.get("RELOAD", "false").lower() in ("true", "1", "yes")
 
     print("==================================================================")
-    print("  AI Research Workbench v3.0 - Server Starting")
+    print("  AI Research Workbench v4.0 - Server Starting")
     print("  Strict 2-LLM Budget Multi-Agent Autonomous Research Pipeline")
     print("==================================================================")
     print(f"  Access the Workbench in your browser at: http://{host}:{port}")
