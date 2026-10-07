@@ -1,15 +1,17 @@
-# AI Research Workbench
+# AI Research Workbench v4.0
 
 > **Autonomous Multi-Agent Academic Literature Synthesis & Multimodal PDF Document Workstation**
 
+[![Version: 4.0.0](https://img.shields.io/badge/version-4.0.0-emerald.svg)](https://github.com/FoulTarnished06/ResearchWorkbench/releases/tag/v4.0.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20%7C%20SQLite-003B57.svg)](https://www.postgresql.org/)
 [![FastEmbed ONNX](https://img.shields.io/badge/embeddings-FastEmbed%20ONNX-blueviolet.svg)](https://github.com/qdrant/fastembed)
 [![PyMuPDF](https://img.shields.io/badge/pdf-PyMuPDF4LLM-FF6F00.svg)](https://pymupdf.readthedocs.io/)
+[![Forensic Suite](https://img.shields.io/badge/tests-40%2F40%20passing-brightgreen.svg)](run_tests.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An academic research workstation engineered to minimize hallucinations, prevent runaway API token costs, and provide verifiable literature citations. Operates across two complementary workflows:
+An academic research workstation engineered to eliminate hallucinations, enforce zero offline mock fallbacks, and provide verifiable literature citations with strict factual auditing. Operates across two complementary workflows:
 
 1. **Mode A (Fact-Checked Multi-Agent Web Synthesis):** Enforces a **strict 2-call LLM ceiling** using a sequential 4-agent pipeline with deterministic open-access scraping (**Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed**) and local neural FastEmbed ONNX sentence vector pre-filtering (auto-verifying claims $\ge 0.80$ cosine similarity against retrieved literature with zero LLM tokens).
 2. **Mode B (Multimodal PDF Document Analysis):** Provides zero-token local PDF text extraction, layout preservation via Markdown, high-resolution diagram/figure extraction, automated bibliography parsing with force-directed citation network graphs, and grounded multi-turn Q&A with display KaTeX math and inline page citations (`[p.X]`).
@@ -41,7 +43,8 @@ An academic research workstation engineered to minimize hallucinations, prevent 
 - **Strict Two-Call LLM Ceiling:** Hard cap of at most 2 LLM calls per web research inquiry, keeping API token consumption predictable and contained.
 - **FastEmbed ONNX Dense Vector Caching:** Automatically deconstructs scraped literature into individual sentences and indexes dense neural embeddings (`BAAI/bge-small-en-v1.5`) locally on CPU.
 - **Automated Claim Cross-Examination:** Every factual assertion generated in Agent 2's initial draft is isolated into an atomic claim tag and independently audited against scraped open-access evidence before final compilation.
-- **Multi-Provider LLM Integration:** Full native support for **Google Gemini** (Gemini 3.8 Flash, 3.6 Flash, 3.5 Flash, 3.1 Pro), **Anthropic Claude** (Claude 3.7 Sonnet, 3.5 Sonnet, Haiku, Opus), and **OpenAI** (GPT-6, GPT-5, GPT-4o) via asynchronous HTTP streaming.
+- **Multi-Provider LLM Integration:** Full native support for **Google Gemini** (Gemini 2.5 Flash, 2.5 Pro, 2.0 Flash), **Anthropic Claude** (Claude 3.7 Sonnet, 3.5 Sonnet, Haiku), and **OpenAI** (`gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-5.5`, `gpt-4o`) via asynchronous HTTP streaming.
+- **Strict Zero-Mock / Zero-Fallback Policy:** Eliminates silent fake responses. When API credentials are missing, system halts with a descriptive `RuntimeError` requiring explicit configuration.
 - **Dual-Engine Persistence:** High-performance WAL-mode SQLite for local development, seamlessly upgradable to serverless **PostgreSQL (Neon, Supabase, Render, Aiven)** via standard `DATABASE_URL`.
 - **Multimodal Figure Extraction:** Automatically extracts diagrams, charts, and plots from PDFs and displays them in an interactive Figure Gallery.
 - **Interactive Citation Network:** Resolves bibliography citations against Semantic Scholar and OpenAlex to render a Verlet force-directed physics graph.
