@@ -44,9 +44,74 @@ export function handleQuerySubmit() {
 }
 
 // =========================================================
-// PIPELINE EXECUTION (LIVE SSE)
+// PIPELINE EXECUTION & FAILURE SCREEN
 // =========================================================
+export function showPipelineFailureScreen({ error, details, query }) {
+  stopElapsedTimer();
+  UIState.isRunning = false;
+  if (elements.btnAbortPipeline) elements.btnAbortPipeline.style.display = 'none';
+  elements.teleStatusDot.className = "pulse-indicator status-red";
+  elements.teleStatusText.textContent = "Pipeline Failed";
+
+  // Remove existing failure overlay if any
+  document.getElementById('pipeline-failure-overlay')?.remove();
+
+  const canvasWrapper = document.getElementById('canvas-wrapper') || document.body;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pipeline-failure-overlay';
+  overlay.className = 'pipeline-failure-overlay';
+  overlay.innerHTML = `
+    <div class="pipeline-failure-card" role="alertdialog" aria-modal="true" aria-labelledby="pipeline-failure-title">
+      <div class="pipeline-failure-header">
+        <div class="pipeline-failure-icon">⚠️</div>
+        <div>
+          <h3 class="pipeline-failure-title" id="pipeline-failure-title">Synthesis Stream Interrupted</h3>
+          <p class="pipeline-failure-sub">The multi-agent research pipeline did not complete.</p>
+        </div>
+      </div>
+      <div class="pipeline-failure-body">
+        <p class="pipeline-failure-msg">
+          Offline fallbacks have been completely eliminated across the platform. Research dossiers are not presented with unverified claims when grounding (Agents 3 &amp; 4) fails or is severed.
+        </p>
+        <div class="pipeline-failure-trace">${escapeHTML(details || error || 'Connection severed prior to synthesis completion.')}</div>
+        <div class="pipeline-failure-notice">
+          <strong>Troubleshooting:</strong> Verify your API credentials in Model Settings (OpenAI, Gemini, or Claude). For OpenAI, only <code>gpt-6-luna</code>, <code>gpt-6.1-sol</code>, <code>gpt-6-astra</code>, and <code>gpt-5.5</code> are accepted.
+        </div>
+      </div>
+      <div class="pipeline-failure-actions">
+        <button type="button" class="btn btn-secondary" id="btn-pipeline-failure-dismiss">Dismiss</button>
+        <button type="button" class="btn btn-secondary" id="btn-pipeline-failure-config">Configure API Keys</button>
+        <button type="button" class="btn btn-primary" id="btn-pipeline-failure-retry">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+          Retry Pipeline
+        </button>
+      </div>
+    </div>
+  `;
+
+  canvasWrapper.appendChild(overlay);
+
+  document.getElementById('btn-pipeline-failure-dismiss')?.addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  document.getElementById('btn-pipeline-failure-config')?.addEventListener('click', () => {
+    overlay.remove();
+    document.getElementById('nav-settings')?.click();
+  });
+
+  document.getElementById('btn-pipeline-failure-retry')?.addEventListener('click', () => {
+    overlay.remove();
+    const retryQuery = query || UIState.activeQuery;
+    if (retryQuery) {
+      executePipeline(retryQuery);
+    }
+  });
+}
+
 export function executePipeline(query) {
+  document.getElementById('pipeline-failure-overlay')?.remove();
   UIState.isRunning = true;
   UIState.elapsedSeconds = 0.0;
   UIState.totalTokens = 0;
@@ -344,130 +409,23 @@ export async function executeLiveBackend(query) {
       triggerPulse(data.agent_id);
     },
     pipeline_error: (e) => {
-      const data = JSON.parse(e.data);
+      let data = {};
+      try { data = JSON.parse(e.data); } catch (_) {}
       UIState.activeAbortController = null;
       if (elements.btnAbortPipeline) elements.btnAbortPipeline.style.display = 'none';
       stopElapsedTimer();
       UIState.isRunning = false;
-      elements.teleStatusDot.className = "pulse-indicator status-amber";
-      elements.teleStatusText.textContent = "Partial Data";
-      logToCanvas(`[NOTICE] ${data.error || data.message || 'Pipeline aborted'}`);
+      elements.teleStatusDot.className = "pulse-indicator status-red";
+      elements.teleStatusText.textContent = "Pipeline Failed";
       
-      const agent2Draft = data.partial_data?.agent2_draft || accumulatedPartial.agent2_draft;
-      const agent1Scraped = data.partial_data?.agent1_scraped || data.partial_data?.agent1_scraper || accumulatedPartial.agent1_scraped;
-      const agent3Cacher = data.partial_data?.agent3_cacher || accumulatedPartial.agent3_cacher;
+      const errMsg = data.error || data.message || 'Pipeline stream failed.';
+      logToCanvas(`[ERROR] ${errMsg}`);
+      showToast(`Pipeline execution failed: ${errMsg}`);
 
-      // Extract verified and pending claims from Agent 3 if present
-      const verifiedMap = {};
-      if (agent3Cacher) {
-        (agent3Cacher.verified_claims || []).forEach(c => {
-          if (c.claim_id) verifiedMap[c.claim_id] = c;
-        });
-        (agent3Cacher.unverified_claims || []).forEach(c => {
-          if (c.claim_id && !verifiedMap[c.claim_id]) verifiedMap[c.claim_id] = c;
-        });
-      }
-
-      function formatPartialClaimTags(htmlContent) {
-        if (!htmlContent) return '';
-        return htmlContent.replace(/<claim\s+id="([^"]+)"(?:\s+paper="([^"]+)")?>([\s\S]*?)<\/claim>/gi, (match, claimId, paperTag, innerText) => {
-          const evalClaim = verifiedMap[claimId];
-          const isAutoVerified = evalClaim && evalClaim.status === 'verified_by_cache';
-          const score = isAutoVerified ? (evalClaim.confidence_score || 0.92) : 0.50;
-          const scoreAttr = score.toFixed(2);
-          const tier = isAutoVerified ? 'auto_cache' : 'no_source';
-          const status = isAutoVerified ? 'verified_by_cache' : 'unverified';
-          const caveat = isAutoVerified 
-            ? 'Locally verified via high-confidence n-gram overlap in SQLite cache.' 
-            : 'Theoretical assertion awaiting secondary peer-review validation.';
-          const rationale = isAutoVerified 
-            ? (evalClaim.matched_sentence ? `Corroborated in literature: "${evalClaim.matched_sentence.substring(0, 100)}..."` : 'Corroborated by scraped literature sample.')
-            : 'No direct empirical match identified in retrieved corpus.';
-          const statusClass = isAutoVerified ? '' : ' claim-unverified-text';
-          const badgeClass = isAutoVerified ? 'tier-cache-badge' : 'tier-no-source-badge';
-          const badgeLabel = isAutoVerified ? '[✓ cache]' : '[⚠ ungrounded]';
-
-          return `<span class="claim-wrapper claim-tier-${tier}${statusClass}" data-claim-id="${escapeHTML(claimId)}" data-score="${scoreAttr}" data-status="${status}" data-tier="${tier}" data-caveat="${escapeHTML(caveat)}" data-rationale="${escapeHTML(rationale)}"><span class="claim-text">${escapeHTML(innerText)}</span><sup class="citation-anchor ${badgeClass}">${badgeLabel}</sup></span>`;
-        });
-      }
-
-      let p_sections = [];
-      let p_citations = [];
-      let p_exec_summary = '';
-
-      if (agent2Draft) {
-        const rawSections = agent2Draft.dossier_sections || agent2Draft.sections || [];
-        p_sections = rawSections.map((s, idx) => ({
-          sub_question: s.sub_question || `Drafted Section ${idx + 1}`,
-          answer_html: formatPartialClaimTags(s.answer_html || s.content_html || '<p>Draft section content recovered.</p>')
-        }));
-        p_exec_summary = formatPartialClaimTags(agent2Draft.executive_summary || '');
-      }
-
-      if (agent1Scraped && Array.isArray(agent1Scraped.papers)) {
-        const draftCorpus = ((p_exec_summary || '') + ' ' + p_sections.map(s => s.answer_html || '').join(' ')).toLowerCase();
-        const citedPMatches = new Set([...draftCorpus.matchAll(/\[p(\d+)\]/gi)].map(m => parseInt(m[1], 10)));
-        const citedRefMatches = new Set([...draftCorpus.matchAll(/\[ref-(\d+)\]/gi)].map(m => parseInt(m[1], 10)));
-
-        const mappedCitations = agent1Scraped.papers.map((p, i) => {
-          const authorStr = Array.isArray(p.authors) ? (p.authors.slice(0, 3).join(', ') + (p.authors.length > 3 ? ' et al.' : '')) : (p.authors || 'Author Unknown');
-          let snippet = (p.abstract && p.abstract.trim())
-            ? (p.abstract.length > 280 ? p.abstract.substring(0, 280) + '...' : p.abstract)
-            : (p.snippet || p.tldr || 'Corroborating text stored in SQLite cache.');
-          
-          const isPreprint = p.is_preprint || (p.doi && (p.doi.startsWith('10.26434') || p.doi.startsWith('10.48550') || p.doi.startsWith('10.1101') || p.doi.startsWith('10.21203'))) || (p.venue && /chemrxiv|arxiv|biorxiv|research square/i.test(p.venue));
-          const provLabel = isPreprint ? 'Unrefereed Preprint' : (p.provenance_label || 'Peer-Reviewed Literature');
-
-          return {
-            ref_id: `REF-${i+1}`,
-            paper_idx: `P${i+1}`,
-            paper_id: p.id,
-            title: p.title || 'Untitled Research Publication',
-            authors: authorStr,
-            year: p.year || 'n.d.',
-            venue: p.venue || 'Academic Repository',
-            provenance_label: provLabel,
-            provenance_tier: isPreprint ? 'preprint' : 'peer_reviewed',
-            url: p.url || '#',
-            citation_count: p.citationCount || p.citation_count || 0,
-            evidence: snippet,
-            supporting_snippets: [snippet]
-          };
-        });
-
-        // Retain only citations that are cited in text; otherwise keep the first 3
-        const activeOnly = mappedCitations.filter((c, i) => {
-          const idx = i + 1;
-          if (citedPMatches.has(idx) || citedRefMatches.has(idx)) return true;
-          const cleanTitle = (c.title || '').toLowerCase();
-          if (cleanTitle.length > 15 && draftCorpus.includes(cleanTitle)) return true;
-          return false;
-        });
-
-        p_citations = activeOnly.length > 0 ? activeOnly : mappedCitations.slice(0, 3);
-      }
-
-      const p_evaluated_claims = Object.values(verifiedMap);
-      const cleanFallbackTakeaways = extractAcademicTakeaways({
-        evaluated_claims: p_evaluated_claims,
-        dossier_sections: p_sections,
-        executive_summary: p_exec_summary,
-        citations: p_citations
-      });
-
-      finishPipeline({
-        query: query,
-        quick_answer: data.partial_data?.quick_answer || agent2Draft?.quick_answer || "Partial research monograph recovered after network latency.",
-        elapsed: UIState.elapsedSeconds,
-        tokens: UIState.totalTokens,
-        executive_summary: p_exec_summary || "Pipeline interrupted. Partial execution recovered. Unverified draft shown below.",
-        takeaways: cleanFallbackTakeaways,
-        comparison_table: agent2Draft?.comparison_table || {},
-        dialectical_friction: agent2Draft?.dialectical_friction || [],
-        epistemic_limitations: agent2Draft?.epistemic_limitations || [],
-        sections: p_sections,
-        citations: p_citations,
-        evaluated_claims: p_evaluated_claims
+      showPipelineFailureScreen({
+        error: errMsg,
+        details: data.details || errMsg,
+        query: query
       });
     },
     pipeline_complete: (e) => {
@@ -526,20 +484,6 @@ export async function executeLiveBackend(query) {
     },
     pipeline_error: (e) => {
       streamCompleted = true;
-      let parsed = {};
-      try { parsed = JSON.parse(e.data); } catch (_) {}
-      if (parsed.partial_data) {
-        if (!parsed.partial_data.agent1_scraped && accumulatedPartial.agent1_scraped) {
-          parsed.partial_data.agent1_scraped = accumulatedPartial.agent1_scraped;
-        }
-        if (!parsed.partial_data.agent2_draft && accumulatedPartial.agent2_draft) {
-          parsed.partial_data.agent2_draft = accumulatedPartial.agent2_draft;
-        }
-        if (!parsed.partial_data.agent3_cacher && accumulatedPartial.agent3_cacher) {
-          parsed.partial_data.agent3_cacher = accumulatedPartial.agent3_cacher;
-        }
-        e = { data: JSON.stringify(parsed) };
-      }
       eventHandlers.pipeline_error(e);
     }
   };
@@ -550,16 +494,13 @@ export async function executeLiveBackend(query) {
       if (elements.btnAbortPipeline) elements.btnAbortPipeline.style.display = 'none';
       stopElapsedTimer();
       UIState.isRunning = false;
-      logToCanvas("[WARN] Stream closed before completion event; recovering partial dossier...");
-      eventHandlers.pipeline_error({
-        data: JSON.stringify({
-          error: "Pipeline stream closed unexpectedly before completion.",
-          partial_data: {
-            agent1_scraped: accumulatedPartial.agent1_scraped || { papers: [], papers_found: 0 },
-            agent2_draft: accumulatedPartial.agent2_draft || { sections: [], sub_questions: [], claims: [] },
-            agent3_cacher: accumulatedPartial.agent3_cacher || null
-          }
-        })
+      elements.teleStatusDot.className = "pulse-indicator status-red";
+      elements.teleStatusText.textContent = "Pipeline Interrupted";
+      logToCanvas("[ERROR] Stream disconnected before completion event. Offline fallback disabled.");
+      showPipelineFailureScreen({
+        error: "Pipeline stream disconnected before completion.",
+        details: "The SSE stream severed prior to synthesis and fact-checking completion. Offline fallback has been eliminated.",
+        query: query
       });
     }
   } catch (err) {
@@ -573,17 +514,15 @@ export async function executeLiveBackend(query) {
     if (elements.btnAbortPipeline) elements.btnAbortPipeline.style.display = 'none';
     stopElapsedTimer();
     UIState.isRunning = false;
-    if (disableFallback) {
-      elements.teleStatusDot.className = "pulse-indicator status-rose";
-      elements.teleStatusText.textContent = "Connection Error";
-      logToCanvas(`[ERROR] Backend connection failed: ${err.message}`);
-      showToast("Backend connection failed.");
-      return;
-    }
-    elements.teleStatusDot.className = "pulse-indicator status-rose";
-    elements.teleStatusText.textContent = "Error";
+    elements.teleStatusDot.className = "pulse-indicator status-red";
+    elements.teleStatusText.textContent = "Connection Error";
     logToCanvas(`\n[ERROR] Research pipeline stream failed: ${err.message}`);
     showToast(`Pipeline execution failed: ${err.message}`);
+    showPipelineFailureScreen({
+      error: "Connection or stream error",
+      details: err.message || "Failed to establish or maintain connection with server.",
+      query: query
+    });
   }
 }
 
@@ -640,7 +579,7 @@ export async function executeConventionalRAGBaseline(query) {
   }, 600);
   UIState.activeTimeouts.push(t1);
 
-  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash';
+  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gpt-6.1-sol';
   const apiKey = getSystemApiKey('b');
   const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
   const headers = { 'Content-Type': 'application/json' };
@@ -791,7 +730,7 @@ export async function executeDirectAPIBaseline(query) {
   activateNode(2);
   logToCanvas("[SYSTEM C] Dispatching direct single zero-shot LLM API call (Zero retrieval / Zero verification)...");
 
-  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash';
+  const model = elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gpt-6.1-sol';
   const apiKey = getSystemApiKey('c');
   const token = localStorage.getItem('workbench_auth_token') || sessionStorage.getItem('workbench_auth_token') || '';
   const headers = { 'Content-Type': 'application/json' };

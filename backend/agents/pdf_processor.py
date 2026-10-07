@@ -90,14 +90,18 @@ def extract_pdf_figures(file_path: str, output_dir: str, session_id: str, file_i
 
                 caption = f"Figure on page {page_num + 1}"
                 caption_matches = re.findall(
-                    rf"(?:Fig(?:ure|\.)\s*{fig_idx}[:.\s].{{10,140}}?[.\n])",
+                    rf"(?:Fig(?:ure|\.)\s*{fig_idx}[:.\s][^\n.]{{5,140}}(?:\.|\n|$))",
                     page_text,
-                    re.IGNORECASE | re.DOTALL
+                    re.IGNORECASE
                 )
                 if caption_matches:
                     caption = caption_matches[0].strip().replace("\n", " ")
                 else:
-                    generic_matches = re.findall(r"(?:Fig(?:ure|\.)\s*\d+[:.\s].{10,120}?(?=[.\n]|$))", page_text, re.IGNORECASE | re.DOTALL)
+                    generic_matches = re.findall(
+                        r"(?:Fig(?:ure|\.)\s*\d+[:.\s][^\n.]{{5,120}}(?:\.|\n|$))",
+                        page_text,
+                        re.IGNORECASE
+                    )
                     if generic_matches:
                         caption = generic_matches[min(len(generic_matches)-1, fig_idx-1)].strip()
 

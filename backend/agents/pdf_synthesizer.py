@@ -36,7 +36,7 @@ async def run_pdf_summarize(
     api_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
     openai_key: Optional[str] = None,
-    disable_fallback: bool = False
+    disable_fallback: bool = True
 ) -> Dict[str, Any]:
     """
     Summarizes uploaded PDF documents into an authoritative executive monograph.
@@ -48,12 +48,8 @@ async def run_pdf_summarize(
     is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
     is_claude = not is_openai and (("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key)))
 
-    # STRICT API CALL ENFORCEMENT: Fail-closed if keys are missing
-    if disable_fallback and not (active_gemini_key or active_anthropic_key or active_openai_key):
-        raise RuntimeError(
-            "Strict API Mode is active: No Google Gemini, Anthropic Claude, or OpenAI API key was provided. "
-            "Please configure your API key in Workbench Settings (Settings Drawer) or disable Strict Mode."
-        )
+    if not (active_gemini_key or active_anthropic_key or active_openai_key):
+        raise RuntimeError("No API key available for live PDF synthesis. Offline fallback has been completely removed.")
 
     title = metadata.get("title", "Uploaded Research Document")
     authors = metadata.get("authors", "Author(s) Unknown")
@@ -137,43 +133,49 @@ STRICT SCIENTIFIC GUIDELINES:
 
     if is_openai and active_openai_key:
         try:
+            allowed_openai = ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.5")
+            model_target = provider if provider in allowed_openai else "gpt-6.1-sol"
             pdf_sys = "You are an expert academic paper reviewer. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary."
-            raw_text, tokens = await call_openai_api(prompt, active_openai_key, provider, system_instruction=pdf_sys)
+            raw_text, tokens = await call_openai_api(prompt, active_openai_key, model_target, system_instruction=pdf_sys)
             parsed = safe_parse_json(raw_text)
             if parsed:
-                return _format_pdf_output("summarize", parsed, tokens, provider, metadata, chunks)
+                return _format_pdf_output("summarize", parsed, tokens, model_target, metadata, chunks)
+            raise ValueError(f"Could not parse JSON response from OpenAI: {raw_text[:200]}")
         except Exception as e:
-            print(f"[PDF Synthesizer] OpenAI summarize failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (OpenAI): {e}")
+            logger.error(f"[PDF Synthesizer] OpenAI summarize failed: {e}")
+            raise RuntimeError(f"Live PDF summarize failed (OpenAI): {e}") from e
 
     elif is_claude and active_anthropic_key:
         try:
+            if "opus" in provider.lower():
+                model_target = "claude-3-opus-20240229"
+            elif "haiku" in provider.lower():
+                model_target = "claude-3-5-haiku-20241022"
+            else:
+                model_target = "claude-3-7-sonnet-20250219" if "3-7" in provider.lower() else "claude-3-5-sonnet-20241022"
             pdf_sys = "You are an expert academic paper reviewer. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary."
-            raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, provider, system_instruction=pdf_sys)
+            raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, model_target, system_instruction=pdf_sys)
             parsed = safe_parse_json(raw_text)
             if parsed:
-                return _format_pdf_output("summarize", parsed, tokens, provider, metadata, chunks)
+                return _format_pdf_output("summarize", parsed, tokens, model_target, metadata, chunks)
+            raise ValueError(f"Could not parse JSON response from Claude: {raw_text[:200]}")
         except Exception as e:
-            print(f"[PDF Synthesizer] Claude summarize failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (Claude): {e}")
+            logger.error(f"[PDF Synthesizer] Claude summarize failed: {e}")
+            raise RuntimeError(f"Live PDF summarize failed (Claude): {e}") from e
 
     elif active_gemini_key:
         try:
-            raw_text, tokens = await call_gemini_api(prompt, active_gemini_key, provider)
+            model_target = "gemini-2.5-pro" if "pro" in provider.lower() else "gemini-2.5-flash"
+            raw_text, tokens = await call_gemini_api(prompt, active_gemini_key, model_target)
             parsed = safe_parse_json(raw_text)
             if parsed:
-                return _format_pdf_output("summarize", parsed, tokens, provider, metadata, chunks)
+                return _format_pdf_output("summarize", parsed, tokens, model_target, metadata, chunks)
+            raise ValueError(f"Could not parse JSON response from Gemini: {raw_text[:200]}")
         except Exception as e:
-            print(f"[PDF Synthesizer] Gemini summarize failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (Gemini): {e}")
+            logger.error(f"[PDF Synthesizer] Gemini summarize failed: {e}")
+            raise RuntimeError(f"Live PDF summarize failed (Gemini): {e}") from e
 
-    if disable_fallback:
-        raise RuntimeError("Strict API Mode Error: Live model call did not return a valid response.")
-
-    return _synthesize_pdf_fallback("summarize", metadata, chunks, figures)
+    raise RuntimeError("Live PDF summarize failed: No response from model. Offline fallback has been completely removed.")
 
 
 # =========================================================
@@ -190,7 +192,7 @@ async def run_pdf_qa(
     api_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
     openai_key: Optional[str] = None,
-    disable_fallback: bool = False
+    disable_fallback: bool = True
 ) -> Dict[str, Any]:
     """
     RAG-powered conversational Q&A over document chunks.
@@ -205,12 +207,8 @@ async def run_pdf_qa(
     is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
     is_claude = not is_openai and (("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key)))
 
-    # STRICT API CALL ENFORCEMENT: Fail-closed if keys are missing
-    if disable_fallback and not (active_gemini_key or active_anthropic_key or active_openai_key):
-        raise RuntimeError(
-            "Strict API Mode is active: No Google Gemini, Anthropic Claude, or OpenAI API key was provided. "
-            "Please configure your API key in Workbench Settings (Settings Drawer) or disable Strict Mode."
-        )
+    if not (active_gemini_key or active_anthropic_key or active_openai_key):
+        raise RuntimeError("No API key available for live PDF Q&A. Offline fallback has been completely removed.")
 
     clean_chunks = [c for c in relevant_chunks if not c.get("is_boilerplate")] or relevant_chunks
     context_str = "\n\n".join([
@@ -265,8 +263,10 @@ INSTRUCTIONS:
 
     if is_openai and active_openai_key:
         try:
+            allowed_openai = ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.5")
+            model_target = provider if provider in allowed_openai else "gpt-6.1-sol"
             pdf_sys = "You are an academic document Q&A assistant. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Ground all assertions with [p.X] page citations."
-            raw_text, tokens = await call_openai_api(prompt, active_openai_key, provider, system_instruction=pdf_sys)
+            raw_text, tokens = await call_openai_api(prompt, active_openai_key, model_target, system_instruction=pdf_sys)
             parsed = safe_parse_json(raw_text)
             if parsed:
                 p_tok = getattr(tokens, "prompt_tokens", 0) or round(int(tokens) * 0.6)
@@ -284,15 +284,21 @@ INSTRUCTIONS:
                     "confidence_score": parsed.get("confidence_score", 0.92),
                     "source_chunks": clean_chunks[:4]
                 }
+            raise ValueError(f"Could not parse JSON response from OpenAI: {raw_text[:200]}")
         except Exception as e:
             logger.error(f"[PDF Q&A] OpenAI call failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (OpenAI): {e}")
+            raise RuntimeError(f"Live PDF Q&A failed (OpenAI): {e}") from e
 
     elif is_claude and active_anthropic_key:
         try:
+            if "opus" in provider.lower():
+                model_target = "claude-3-opus-20240229"
+            elif "haiku" in provider.lower():
+                model_target = "claude-3-5-haiku-20241022"
+            else:
+                model_target = "claude-3-7-sonnet-20250219" if "3-7" in provider.lower() else "claude-3-5-sonnet-20241022"
             pdf_sys = "You are an academic document Q&A assistant. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Ground all assertions with [p.X] page citations."
-            raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, provider, system_instruction=pdf_sys)
+            raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, model_target, system_instruction=pdf_sys)
             parsed = safe_parse_json(raw_text)
             if parsed:
                 p_tok = getattr(tokens, "prompt_tokens", 0) or round(int(tokens) * 0.6)
@@ -310,14 +316,15 @@ INSTRUCTIONS:
                     "confidence_score": parsed.get("confidence_score", 0.92),
                     "source_chunks": clean_chunks[:4]
                 }
+            raise ValueError(f"Could not parse JSON response from Claude: {raw_text[:200]}")
         except Exception as e:
             logger.error(f"[PDF Q&A] Claude call failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (Claude): {e}")
+            raise RuntimeError(f"Live PDF Q&A failed (Claude): {e}") from e
 
     elif active_gemini_key:
         try:
-            raw_text, tokens = await call_gemini_api(prompt, active_gemini_key, provider)
+            model_target = "gemini-2.5-pro" if "pro" in provider.lower() else "gemini-2.5-flash"
+            raw_text, tokens = await call_gemini_api(prompt, active_gemini_key, model_target)
             parsed = safe_parse_json(raw_text)
             if parsed:
                 p_tok = getattr(tokens, "prompt_tokens", 0) or round(int(tokens) * 0.6)
@@ -335,32 +342,12 @@ INSTRUCTIONS:
                     "confidence_score": parsed.get("confidence_score", 0.92),
                     "source_chunks": clean_chunks[:4]
                 }
+            raise ValueError(f"Could not parse JSON response from Gemini: {raw_text[:200]}")
         except Exception as e:
             logger.error(f"[PDF Q&A] Gemini call failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (Gemini): {e}")
+            raise RuntimeError(f"Live PDF Q&A failed (Gemini): {e}") from e
 
-    if disable_fallback:
-        raise RuntimeError("Strict API Mode Error: Live Q&A call did not produce a valid response.")
-
-    # High-quality sanitized fallback Q&A
-    top_clean = clean_chunks[0] if clean_chunks else {"chunk_text": "No matching document excerpts found.", "start_page": 1}
-    cleaned_prose = _clean_chunk_prose(top_clean.get("chunk_text", ""))
-    p_num = top_clean.get("start_page", 1)
-    fallback_html = f"<p><strong>Document Evidence [p.{p_num}]:</strong> {cleaned_prose}</p>"
-
-    return {
-        "action": "qa",
-        "query": query,
-        "tokens_used": 0,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "answer_html": fallback_html,
-        "referenced_pages": [p_num],
-        "referenced_figures": [],
-        "confidence_score": 0.85,
-        "source_chunks": clean_chunks[:4]
-    }
+    raise RuntimeError("Live PDF Q&A call failed: No response from model. Offline fallback has been completely removed.")
 
 
 # =========================================================
@@ -378,7 +365,7 @@ async def run_pdf_deep_analysis(
     api_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
     openai_key: Optional[str] = None,
-    disable_fallback: bool = False
+    disable_fallback: bool = True
 ) -> Dict[str, Any]:
     """
     Executes deep academic analysis (methodology critique, findings extraction, or peer review).
@@ -390,12 +377,8 @@ async def run_pdf_deep_analysis(
     is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
     is_claude = not is_openai and (("claude" in provider.lower()) or (not active_gemini_key and bool(active_anthropic_key)))
 
-    # STRICT API CALL ENFORCEMENT: Fail-closed if keys are missing
-    if disable_fallback and not (active_gemini_key or active_anthropic_key or active_openai_key):
-        raise RuntimeError(
-            "Strict API Mode is active: No Google Gemini, Anthropic Claude, or OpenAI API key was provided. "
-            "Please configure your API key in Workbench Settings (Settings Drawer) or disable Strict Mode."
-        )
+    if not (active_gemini_key or active_anthropic_key or active_openai_key):
+        raise RuntimeError("No API key available for live PDF deep analysis. Offline fallback has been completely removed.")
 
     analysis_prompts = {
         "methodology": "Extract and critically evaluate the research methodology, experimental protocols, controls, and mathematical formulations.",
@@ -449,44 +432,49 @@ INSTRUCTIONS:
 
     if is_openai and active_openai_key:
         try:
+            allowed_openai = ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.5")
+            model_target = provider if provider in allowed_openai else "gpt-6.1-sol"
             pdf_sys = "You are a senior academic reviewer conducting an in-depth analysis of an uploaded research paper. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Cite page numbers accurately using [p.X] throughout."
-            raw_text, tokens = await call_openai_api(prompt, active_openai_key, provider, system_instruction=pdf_sys)
+            raw_text, tokens = await call_openai_api(prompt, active_openai_key, model_target, system_instruction=pdf_sys)
             parsed = safe_parse_json(raw_text)
             if parsed:
-                return _format_pdf_output(analysis_type, parsed, tokens, provider, metadata, clean_chunks)
+                return _format_pdf_output(analysis_type, parsed, tokens, model_target, metadata, clean_chunks)
+            raise ValueError(f"Could not parse JSON response from OpenAI: {raw_text[:200]}")
         except Exception as e:
             logger.error(f"[PDF Deep Analysis] OpenAI call failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (OpenAI): {e}")
+            raise RuntimeError(f"Live PDF deep analysis failed (OpenAI): {e}") from e
 
     elif is_claude and active_anthropic_key:
         try:
+            if "opus" in provider.lower():
+                model_target = "claude-3-opus-20240229"
+            elif "haiku" in provider.lower():
+                model_target = "claude-3-5-haiku-20241022"
+            else:
+                model_target = "claude-3-7-sonnet-20250219" if "3-7" in provider.lower() else "claude-3-5-sonnet-20241022"
             pdf_sys = "You are a senior academic reviewer conducting an in-depth analysis of an uploaded research paper. Return strictly valid JSON conforming exactly to the requested schema without markdown fences or commentary. Cite page numbers accurately using [p.X] throughout."
-            raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, provider, system_instruction=pdf_sys)
+            raw_text, tokens = await call_anthropic_api(prompt, active_anthropic_key, model_target, system_instruction=pdf_sys)
             parsed = safe_parse_json(raw_text)
             if parsed:
-                return _format_pdf_output(analysis_type, parsed, tokens, provider, metadata, clean_chunks)
+                return _format_pdf_output(analysis_type, parsed, tokens, model_target, metadata, clean_chunks)
+            raise ValueError(f"Could not parse JSON response from Claude: {raw_text[:200]}")
         except Exception as e:
             logger.error(f"[PDF Deep Analysis] Claude call failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (Claude): {e}")
+            raise RuntimeError(f"Live PDF deep analysis failed (Claude): {e}") from e
 
     elif active_gemini_key:
         try:
-            raw_text, tokens = await call_gemini_api(prompt, active_gemini_key, provider)
+            model_target = "gemini-2.5-pro" if "pro" in provider.lower() else "gemini-2.5-flash"
+            raw_text, tokens = await call_gemini_api(prompt, active_gemini_key, model_target)
             parsed = safe_parse_json(raw_text)
             if parsed:
-                return _format_pdf_output(analysis_type, parsed, tokens, provider, metadata, clean_chunks)
+                return _format_pdf_output(analysis_type, parsed, tokens, model_target, metadata, clean_chunks)
+            raise ValueError(f"Could not parse JSON response from Gemini: {raw_text[:200]}")
         except Exception as e:
             logger.error(f"[PDF Deep Analysis] Gemini call failed: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Strict API Mode Error (Gemini): {e}")
+            raise RuntimeError(f"Live PDF deep analysis failed (Gemini): {e}") from e
 
-    if disable_fallback:
-        raise RuntimeError("Strict API Mode Error: Live analysis call failed to produce valid output.")
-
-    # High-quality sanitized fallback
-    return _synthesize_pdf_fallback(analysis_type, metadata, clean_chunks)
+    raise RuntimeError("Live PDF deep analysis failed: No response from model. Offline fallback has been completely removed.")
 
 
 # =========================================================
@@ -564,85 +552,8 @@ def _synthesize_pdf_fallback(
     chunks: List[Dict[str, Any]],
     figures: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
-    """Sanitized fallback when live AI is unavailable and strict mode is off."""
-    title = metadata.get("title", "Uploaded Document")
-    clean_chunks = [c for c in chunks if not c.get("is_boilerplate")] or chunks
-
-    c1 = _clean_chunk_prose(clean_chunks[0].get("chunk_text", ""))[:320] if clean_chunks else "Academic synthesis of document."
-    c2 = _clean_chunk_prose(clean_chunks[1].get("chunk_text", ""))[:320] if len(clean_chunks) > 1 else c1
-    c3 = _clean_chunk_prose(clean_chunks[2].get("chunk_text", ""))[:320] if len(clean_chunks) > 2 else c1
-
-    p1 = clean_chunks[0].get("start_page", 1) if clean_chunks else 1
-    p2 = clean_chunks[1].get("start_page", 2) if len(clean_chunks) > 1 else p1
-    p3 = clean_chunks[2].get("start_page", 3) if len(clean_chunks) > 2 else p1
-
-    exec_summary = (
-        f"<p><strong>Document Overview & Architectural Thesis:</strong> Synthesized analysis of <em>{title}</em>. "
-        f"{c1} [p.{p1}]</p>"
-        f"<p><strong>Empirical Benchmarks & Observations:</strong> {c2} [p.{p2}]</p>"
-        f"<p><strong>Systemic Trade-offs & Production Frontiers:</strong> {c3} [p.{p3}]</p>"
+    """Offline fallback has been completely removed."""
+    raise RuntimeError(
+        "Live PDF analysis failed: No live model response received and offline fallback has been completely removed. "
+        "Please provide a valid API key (Gemini, Claude, or OpenAI)."
     )
-
-    sections = [
-        {
-            "sub_question": "Theoretical & Methodological Primitives",
-            "content_html": f"<p><strong>Foundational Principles:</strong> {c1} [p.{p1}]</p>",
-            "claims": [{"id": "c1", "text": c1[:90]}]
-        },
-        {
-            "sub_question": "Quantitative Characterization & Benchmarks",
-            "content_html": f"<p><strong>Empirical Measurements:</strong> {c2} [p.{p2}]</p>",
-            "claims": [{"id": "c2", "text": c2[:90]}]
-        },
-        {
-            "sub_question": "Systemic Frontiers & Operational Bounds",
-            "content_html": f"<p><strong>Scaling Boundaries:</strong> {c3} [p.{p3}]</p>",
-            "claims": [{"id": "c3", "text": c3[:90]}]
-        }
-    ]
-
-    citations = [
-        {
-            "ref_id": f"P-{clean_chunks[i].get('start_page', i+1)}",
-            "paper_id": f"page_{clean_chunks[i].get('start_page', i+1)}",
-            "title": f"{title} (Section {i+1})",
-            "authors": metadata.get("authors", "Author(s)"),
-            "year": 2024,
-            "venue": "Uploaded PDF",
-            "url": "#",
-            "citation_count": 0,
-            "evidence": _clean_chunk_prose(clean_chunks[i].get("chunk_text", ""))[:150]
-        }
-        for i in range(min(3, len(clean_chunks)))
-    ]
-
-    return {
-        "action": action,
-        "query": title,
-        "tokens_used": 0,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "quick_answer": f"Analysis of {title} indicates key foundational principles across theoretical framing and empirical observations, with systemic trade-offs noted across operations.",
-        "executive_summary": exec_summary,
-        "dossier_sections": sections,
-        "citations": citations,
-        "evaluated_claims": [{"id": "c1", "text": c1[:90]}],
-        "comparison_table": [
-            {
-                "technique": (title[:32] if title else "Evaluated Method"),
-                "governing_metric": "Document Extracted Baseline",
-                "measured_value": "Empirically Verified in Manuscript",
-                "baseline": "Historical Controls",
-                "limitations": "Constrained by uploaded manuscript context sample"
-            }
-        ],
-        "dialectical_friction": {
-            "disagreements": "Tension between foundational methodological assumptions and empirical operational limits.",
-            "pareto_tradeoffs": "Trade-off between theoretical completeness and real-world execution latency."
-        },
-        "epistemic_limitations": [
-            "Analysis grounded strictly in uploaded document text; findings subject to primary authors' experimental validity.",
-            "Generalization to external hardware platforms or broader parameter regimes requires independent replication."
-        ],
-        "provider_used": "Deterministic PDF Synthesizer (Fallback)"
-    }

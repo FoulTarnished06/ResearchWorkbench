@@ -352,8 +352,8 @@ export function resetFactoryDefaults() {
   if (!confirm("Reset all agent models, similarity thresholds, and paper limits to default?")) {
     return;
   }
-  if (elements.cfgAgent2Model) elements.cfgAgent2Model.value = 'gemini-3.5-flash';
-  if (elements.cfgAgent4Model) elements.cfgAgent4Model.value = 'gemini-3.6-flash';
+  if (elements.cfgAgent2Model) elements.cfgAgent2Model.value = 'gpt-6.1-sol';
+  if (elements.cfgAgent4Model) elements.cfgAgent4Model.value = 'gpt-6-luna';
   if (elements.cfgPaperLimit) {
     elements.cfgPaperLimit.value = 5;
     elements.valPaperLimit.textContent = '5 papers';
@@ -499,7 +499,7 @@ export function getSystemApiKey(sys = 'a') {
   if (perSys) return perSys;
   
   // 1. Fall back to preferred model provider key
-  const a2Model = (elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gemini-3.6-flash').toLowerCase();
+  const a2Model = (elements.cfgAgent2Model?.value || localStorage.getItem('workbench_agent2_model') || 'gpt-6.1-sol').toLowerCase();
   let candidate = '';
   if (a2Model.includes('gpt') || a2Model.includes('sol') || a2Model.includes('luna') || a2Model.includes('astra') || a2Model.includes('openai')) {
     candidate = sessionStorage.getItem('workbench_openai_key') || '';

@@ -15,7 +15,7 @@ export function getWorkbenchAPIConfig() {
   const openaiKey = (document.getElementById('cfg-openai-key')?.value.trim()) || sessionStorage.getItem('workbench_openai_key') || '';
   const geminiKey = (document.getElementById('cfg-gemini-key')?.value.trim()) || sessionStorage.getItem('workbench_gemini_key') || '';
   const anthropicKey = (document.getElementById('cfg-anthropic-key')?.value.trim()) || sessionStorage.getItem('workbench_anthropic_key') || '';
-  const agent2ModelVal = document.getElementById('cfg-agent2-model')?.value || 'gemini-3.6-flash';
+  const agent2ModelVal = document.getElementById('cfg-agent2-model')?.value || 'gpt-6.1-sol';
   const provider = agent2ModelVal;
   const strictMode = elements.togglePdfStrictApi ? elements.togglePdfStrictApi.checked : false;
 

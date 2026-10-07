@@ -92,6 +92,53 @@ def distill_academic_query(query: str) -> str:
         return " ".join(tokens[:7])
     return " ".join(core_terms)
 
+def enrich_subquery_context(sub_query: str, parent_query: str) -> str:
+    """
+    Prevents topic drift by ensuring subqueries never search isolated acronyms or benchmarks in isolation.
+    E.g., if parent query relates to GNNs or molecular benchmarks and a subquery is bare 'ZINC' or 'QM9',
+    enriches the search string with molecular graph benchmark context.
+    """
+    sub_clean = (sub_query or "").strip()
+    if not sub_clean:
+        return ""
+        
+    p_lower = (parent_query or "").lower()
+    s_lower = sub_clean.lower()
+    
+    # Check domain anchors and required keywords
+    domain_anchors: List[str] = []
+    required_keywords: List[str] = []
+    
+    if any(k in p_lower for k in ["gnn", "graph neural", "molecular", "molecule", "chemoinformatics", "chemistry", "property prediction", "weisfeiler", "zinc", "qm9", "mpnn"]):
+        domain_anchors = ["molecular", "graph", "dataset", "benchmark"]
+        required_keywords = ["molecular", "molecule", "chemistry", "graph", "gnn", "mpnn", "chemoinformatics"]
+    elif any(k in p_lower for k in ["rollup", "optimistic", "fraud-proof", "dispute window", "zk-rollup", "ethereum", "blockchain"]):
+        domain_anchors = ["blockchain", "rollup", "settlement", "latency"]
+        required_keywords = ["blockchain", "rollup", "ethereum", "l2"]
+    elif any(k in p_lower for k in ["quantum", "qubit", "rydberg", "surface code", "fault-tolerant"]):
+        domain_anchors = ["quantum", "qubit", "architecture", "benchmark"]
+        required_keywords = ["quantum", "qubit"]
+    elif any(k in p_lower for k in ["order book", "microstructure", "liquidity", "trading"]):
+        domain_anchors = ["market", "microstructure", "order book", "benchmark"]
+        required_keywords = ["market", "microstructure", "trading", "order book"]
+    elif any(k in p_lower for k in ["distributed", "consensus", "replication", "raft", "paxos"]):
+        domain_anchors = ["distributed", "consensus", "protocol", "benchmark"]
+        required_keywords = ["distributed", "consensus", "replication"]
+
+    sub_words = [w for w in sub_clean.split() if w.lower() not in STOPWORDS]
+    has_domain_anchor = any(req in s_lower for req in required_keywords) if required_keywords else True
+    
+    # Only skip enrichment if the subquery already contains the parent's domain anchor AND has >= 3 non-stopwords
+    if has_domain_anchor and len(sub_words) >= 3:
+        return sub_clean
+        
+    if domain_anchors:
+        needed = [t for t in domain_anchors if t not in s_lower]
+        if needed:
+            return f"{sub_clean} {' '.join(needed[:2])}"
+            
+    return sub_clean
+
 def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
     """
     Decomposes multi-facet research prompts into atomic, targeted search sub-queries.
@@ -111,12 +158,13 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
             distilled = distill_academic_query(part)
             entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', part)
             clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+            effective_sub = enrich_subquery_context(distilled or part, q_raw)
             facets.append({
                 "facet_id": f"F{idx+1}",
-                "sub_query": distilled or part,
+                "sub_query": effective_sub,
                 "raw_facet": part,
                 "entities": list(set(clean_ents)),
-                "keywords": clean_and_tokenize(distilled or part)
+                "keywords": clean_and_tokenize(effective_sub)
             })
         if facets:
             return facets
@@ -147,12 +195,13 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
                         e for e in re.findall(r'\b[A-Z0-9][a-zA-Z0-9_-]*(?:\s+[A-Z0-9][a-zA-Z0-9_-]*)*\b', part)
                         if len(e) > 1 and e.lower() not in STOPWORDS
                     ]
+                    effective_sub = enrich_subquery_context(distilled or part, q_raw)
                     facets.append({
                         "facet_id": f"F{idx+1}",
-                        "sub_query": distilled or part,
+                        "sub_query": effective_sub,
                         "raw_facet": part,
                         "entities": list(set(clean_ents)),
-                        "keywords": clean_and_tokenize(distilled or part)
+                        "keywords": clean_and_tokenize(effective_sub)
                     })
                 if facets:
                     return facets
@@ -164,12 +213,13 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
             distilled = distill_academic_query(part)
             entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', part)
             clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+            effective_sub = enrich_subquery_context(distilled or part, q_raw)
             facets.append({
                 "facet_id": f"F{idx+1}",
-                "sub_query": distilled or part,
+                "sub_query": effective_sub,
                 "raw_facet": part,
                 "entities": list(set(clean_ents)),
-                "keywords": clean_and_tokenize(distilled or part)
+                "keywords": clean_and_tokenize(effective_sub)
             })
         if facets:
             return facets
@@ -187,12 +237,13 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
             distilled = distill_academic_query(part)
             entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', part)
             clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+            effective_sub = enrich_subquery_context(distilled or part, q_raw)
             facets.append({
                 "facet_id": f"F{idx+1}",
-                "sub_query": distilled or part,
+                "sub_query": effective_sub,
                 "raw_facet": part,
                 "entities": list(set(clean_ents)),
-                "keywords": clean_and_tokenize(distilled or part)
+                "keywords": clean_and_tokenize(effective_sub)
             })
         if facets:
             return facets
@@ -207,12 +258,13 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
                 distilled = distill_academic_query(c)
                 entities = re.findall(r'\b[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+)*\b', c)
                 clean_ents = [e for e in entities if len(e) > 2 and e.lower() not in STOPWORDS]
+                effective_sub = enrich_subquery_context(distilled or c, q_raw)
                 facets.append({
                     "facet_id": f"F{idx+1}",
-                    "sub_query": distilled or c,
+                    "sub_query": effective_sub,
                     "raw_facet": c,
                     "entities": list(set(clean_ents)),
-                    "keywords": clean_and_tokenize(distilled or c)
+                    "keywords": clean_and_tokenize(effective_sub)
                 })
             if facets:
                 return facets
@@ -230,24 +282,26 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
             match = re.search(r'([^,.;?!\n]*\b' + re.escape(ent) + r'\b[^,.;?!\n]*)', q_raw, re.IGNORECASE)
             local_clause = match.group(1).strip() if match else ent
             distilled = distill_academic_query(local_clause) if len(local_clause.split()) >= 3 else ent
+            effective_sub = enrich_subquery_context(distilled or ent, q_raw)
             facets.append({
                 "facet_id": f"F{idx+1}",
-                "sub_query": distilled or ent,
+                "sub_query": effective_sub,
                 "raw_facet": local_clause or ent,
                 "entities": [ent],
-                "keywords": clean_and_tokenize(distilled or ent)
+                "keywords": clean_and_tokenize(effective_sub)
             })
         if facets:
             return facets
 
     # Fallback: single primary facet
     distilled = distill_academic_query(q_raw)
+    effective_sub = enrich_subquery_context(distilled or q_raw, q_raw)
     return [{
         "facet_id": "F1",
-        "sub_query": distilled or q_raw,
+        "sub_query": effective_sub,
         "raw_facet": q_raw,
         "entities": unique_entities[:2],
-        "keywords": clean_and_tokenize(distilled or q_raw)
+        "keywords": clean_and_tokenize(effective_sub)
     }]
 
 def check_facet_coverage(facets: List[Dict[str, Any]], papers: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -563,17 +617,17 @@ def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str, fac
        (e.g. consumer product liability, supply chain logistics, social media diffusion).
     4. Facet support: If facets provided, matches if either the overall query or any atomic facet sub-query matches.
     """
+    title = (paper.get("title") or "").strip().lower()
+    abstract = (paper.get("abstract") or "").strip().lower()
+    venue = (paper.get("venue") or "").strip().lower()
+    text = f"{title} {abstract} {venue}"
+
+    # Discard publishing metadata / administrative corrections
+    bad_meta = ["author correction", "publisher correction", "erratum", "corrigendum", "retraction notice", "expression of concern"]
+    if any(bm in title for bm in bad_meta):
+        return False
+
     def _check_single_intent(q_str: str) -> bool:
-        title = (paper.get("title") or "").strip().lower()
-        abstract = (paper.get("abstract") or "").strip().lower()
-        venue = (paper.get("venue") or "").strip().lower()
-        text = f"{title} {abstract} {venue}"
-        
-        # Discard publishing metadata / administrative corrections
-        bad_meta = ["author correction", "publisher correction", "erratum", "corrigendum", "retraction notice", "expression of concern"]
-        if any(bm in title for bm in bad_meta):
-            return False
-            
         q_tokens = clean_and_tokenize(q_str)
         if not q_tokens:
             return True
@@ -620,14 +674,18 @@ def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str, fac
                     return False
 
         # Domain Cluster 4: Molecular Property Prediction / Chemoinformatics / Graph Neural Networks
-        if any(k in q_lower for k in ["molecular", "molecule", "chemoinformatics", "chemistry", "property prediction", "zinc", "qm9", "smiles", "conformation", "1-wl", "weisfeiler-lehman"]):
+        if any(k in q_lower for k in ["molecular", "molecule", "chemoinformatics", "chemistry", "property prediction", "zinc", "qm9", "smiles", "conformation", "1-wl", "weisfeiler-lehman", "gnn", "graph neural"]):
             orthogonal_molecular_signals = [
                 "traffic", "traffic flow", "rail vehicle", "railway", "train", "vehicle dynamics",
                 "point cloud", "point clouds", "tabular transformer", "tabular data", "power grid",
-                "urban mobility", "road network", "air quality"
+                "urban mobility", "road network", "air quality",
+                "poultry", "broiler", "dietary zinc", "swine", "feed intake", "animal nutrition",
+                "livestock", "pfas", "wastewater", "soil remediation", "per- and polyfluoroalkyl", "fertilizer",
+                "bile acid", "bile acids", "antibiotics", "intestinal morphology", "gut microbiota", "rumen", "piglets", "calves",
+                "astronomy", "astronomical", "astromer", "light curve", "cadence"
             ]
-            if any(sig in title or sig in abstract for sig in orthogonal_molecular_signals):
-                if not any(mol in text for mol in ["molecule", "molecular", "chemical", "atom", "bond", "compound", "chemistry", "drug", "bioinformatics", "qm9", "zinc", "biomolecule", "conformation"]):
+            if any(sig in text for sig in orthogonal_molecular_signals):
+                if not any(mol in text for mol in ["graph neural network", "gnn", "mpnn", "property prediction", "qm9", "smiles", "weisfeiler-lehman", "chemoinformatics", "molecular representation", "geometric deep learning", "quantum chemistry"]):
                     return False
 
         return True
@@ -638,32 +696,136 @@ def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str, fac
         for f in facets:
             sub_q = f.get("sub_query", "")
             if sub_q and _check_single_intent(sub_q):
+                # Verify that facet match is not orthogonal to parent query intent
+                q_p_lower = query_intent.lower()
+                if any(k in q_p_lower for k in ["molecular", "molecule", "chemoinformatics", "chemistry", "property prediction", "zinc", "qm9", "gnn"]):
+                    if any(sig in text for sig in ["poultry", "broiler", "dietary zinc", "swine", "feed intake", "pfas", "wastewater", "bile acid", "bile acids", "antibiotics", "traffic", "astronomy", "astromer"]):
+                        if not any(mol in text for mol in ["graph neural network", "gnn", "mpnn", "property prediction", "qm9", "smiles", "weisfeiler-lehman", "chemoinformatics"]):
+                            continue
                 return True
     return False
 
-async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pages: int = 15) -> Optional[Dict[str, Any]]:
+async def fetch_pmc_bioc_fulltext(pmc_id: str, client: httpx.AsyncClient) -> Optional[List[str]]:
     """
-    Queries Unpaywall or arXiv for open-access PDF URL and extracts high-density methodology/results
-    paragraphs in-memory using PyMuPDF. Prioritizes tables, benchmarks, and quantitative measurements.
+    Fetches full text paragraphs from PubMed Central via BioC XML REST API without binary PDF rendering.
+    Very fast, pure text extraction, <1MB RAM.
     """
-    if not doi:
-        return None
-    clean_doi = re.sub(r'^https?://[^/]+/', '', doi).strip()
-    if not clean_doi:
-        return None
-        
-    pdf_url = None
-    # Check direct arXiv PDF pattern first
-    if "arxiv" in clean_doi.lower():
-        a_id = re.sub(r'^.*?arxiv[.:/]', '', clean_doi, flags=re.IGNORECASE).strip()
-        if a_id:
-            pdf_url = f"https://arxiv.org/pdf/{a_id}.pdf"
+    clean_id = pmc_id.strip().upper()
+    if not clean_id.startswith("PMC"):
+        clean_id = f"PMC{clean_id}"
+    url = f"https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_xml/{clean_id}/unicode"
+    try:
+        resp = await client.get(url, timeout=20.0, follow_redirects=True)
+        if resp.status_code == 200 and resp.text:
+            paras = []
+            for m in re.finditer(r'<text>([\s\S]*?)</text>', resp.text):
+                txt = html.unescape(m.group(1)).strip()
+                words = txt.split()
+                if 25 <= len(words) <= 250:
+                    if not re.search(r'^(?:references|acknowledgements|author contributions|conflict of interest)\b', txt, re.I):
+                        paras.append(re.sub(r'\s+', ' ', txt))
+                if len(paras) >= 20:
+                    break
+            if paras:
+                logger.info(f"Retrieved {len(paras)} full-text paragraphs via PMC BioC XML for {clean_id}.")
+                return paras
+    except Exception as e:
+        logger.debug(f"PMC BioC XML extraction skipped for {clean_id}: {e}")
+    return None
 
-    if not pdf_url:
+async def fetch_arxiv_html_fulltext(arxiv_id: str, client: httpx.AsyncClient) -> Optional[List[str]]:
+    """
+    Scrapes full text from arXiv direct HTML or ar5iv without downloading heavy PDFs.
+    """
+    clean_id = re.sub(r'^arxiv:\s*', '', arxiv_id.strip(), flags=re.I)
+    urls = [
+        f"https://arxiv.org/html/{clean_id}",
+        f"https://ar5iv.labs.arxiv.org/html/{clean_id}"
+    ]
+    for url in urls:
+        try:
+            resp = await client.get(url, timeout=20.0, follow_redirects=True)
+            if resp.status_code == 200 and resp.text:
+                paras = []
+                for m in re.finditer(r'<p\b[^>]*>([\s\S]*?)</p>', resp.text, re.I):
+                    p_txt = re.sub(r'<[^>]+>', ' ', m.group(1))
+                    p_txt = html.unescape(p_txt).strip()
+                    words = p_txt.split()
+                    if 25 <= len(words) <= 250:
+                        if not re.search(r'^(?:references|acknowledgements|table of contents)\b', p_txt, re.I):
+                            paras.append(re.sub(r'\s+', ' ', p_txt))
+                    if len(paras) >= 20:
+                        break
+                if paras:
+                    logger.info(f"Retrieved {len(paras)} full-text paragraphs via arXiv HTML for {clean_id}.")
+                    return paras
+        except Exception as e:
+            logger.debug(f"arXiv HTML extraction skipped for {url}: {e}")
+    return None
+
+async def fetch_open_access_fulltext(
+    doi: str, 
+    client: httpx.AsyncClient, 
+    max_pages: int = 15,
+    direct_pdf_url: Optional[str] = None,
+    paper_meta: Optional[Dict[str, Any]] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Downloads open-access text directly:
+    1. Checks PubMed Central (PMC) BioC XML for immediate pure-text extraction.
+    2. Checks arXiv direct HTML / ar5iv for immediate HTML text extraction.
+    3. Downloads open-access PDF directly or via Unpaywall and extracts high-density
+       methodology/results paragraphs in-memory using PyMuPDF.
+    """
+    paper_meta = paper_meta or {}
+    pmc_id = paper_meta.get("pmc_id") or ""
+    if not pmc_id and doi and "PMC" in doi.upper():
+        pmc_match = re.search(r'PMC\d+', doi, re.I)
+        if pmc_match:
+            pmc_id = pmc_match.group(0)
+
+    # 1. Fast, low-RAM PubMed Central BioC XML extraction
+    if pmc_id:
+        pmc_paras = await fetch_pmc_bioc_fulltext(pmc_id, client)
+        if pmc_paras:
+            return {
+                "pdf_url": f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/",
+                "paragraphs": pmc_paras[:18],
+                "source_type": "pmc_xml"
+            }
+
+    # 2. Fast arXiv direct HTML extraction
+    arxiv_id = ""
+    clean_doi = re.sub(r'^https?://[^/]+/', '', doi or "").strip()
+    if "arxiv" in clean_doi.lower() or "10.48550" in clean_doi:
+        a_id = re.sub(r'^.*?arxiv[.:/]', '', clean_doi, flags=re.IGNORECASE).strip()
+        if not a_id:
+            m = re.search(r'(\d{4}\.\d{4,5}(?:v\d+)?)', clean_doi)
+            if m:
+                a_id = m.group(1)
+        arxiv_id = a_id
+
+    if arxiv_id:
+        arxiv_paras = await fetch_arxiv_html_fulltext(arxiv_id, client)
+        if arxiv_paras:
+            return {
+                "pdf_url": f"https://arxiv.org/abs/{arxiv_id}",
+                "paragraphs": arxiv_paras[:18],
+                "source_type": "arxiv_html"
+            }
+
+    pdf_url = direct_pdf_url
+
+    # Check direct arXiv PDF pattern if not already supplied
+    if not pdf_url and arxiv_id:
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+
+    # Fallback to Unpaywall only if no direct PDF URL exists
+    if not pdf_url and clean_doi and "10." in clean_doi:
         unpaywall_url = f"https://api.unpaywall.org/v2/{clean_doi}"
         params = {"email": "academic@workbench.org"}
         try:
-            resp = await client.get(unpaywall_url, params=params, timeout=7.0)
+            resp = await client.get(unpaywall_url, params=params, timeout=10.0)
             if resp.status_code == 200:
                 data = resp.json()
                 if data.get("is_oa"):
@@ -675,15 +837,16 @@ async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pa
     if not pdf_url:
         return None
 
+    doc = None
     try:
-        # Bounded 12.0s timeout to allow full download of complex papers with extensive results
-        pdf_resp = await client.get(pdf_url, timeout=12.0, follow_redirects=True)
-        if pdf_resp.status_code == 200 and 1000 < len(pdf_resp.content) <= 25 * 1024 * 1024 and pdf_resp.content[:4] == b"%PDF" and pymupdf is not None:
+        # Bounded 45.0s timeout and 10MB maximum size
+        pdf_resp = await client.get(pdf_url, timeout=45.0, follow_redirects=True)
+        if pdf_resp.status_code == 200 and 1000 < len(pdf_resp.content) <= 8 * 1024 * 1024 and pdf_resp.content[:4] == b"%PDF" and pymupdf is not None:
             doc = pymupdf.open(stream=io.BytesIO(pdf_resp.content), filetype="pdf")
             total_pages = len(doc)
             extracted_paragraphs = []
             start_p = 1 if total_pages > 1 else 0
-            end_p = min(total_pages, max(max_pages, 25))
+            end_p = min(total_pages, max(max_pages, 20))
             for p_num in range(start_p, end_p):
                 page_text = doc[p_num].get_text("text")
                 for para in page_text.split("\n\n"):
@@ -696,18 +859,26 @@ async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pa
                                 extracted_paragraphs.insert(0, p_clean)
                             else:
                                 extracted_paragraphs.append(p_clean)
-                    if len(extracted_paragraphs) >= 24:
+                    if len(extracted_paragraphs) >= 20:
                         break
-                if len(extracted_paragraphs) >= 24:
+                if len(extracted_paragraphs) >= 20:
                     break
-            doc.close()
             if extracted_paragraphs:
                 return {
                     "pdf_url": pdf_url,
                     "paragraphs": extracted_paragraphs[:16]
                 }
     except Exception as e:
-        logger.debug(f"OA fulltext download/extraction skipped for {clean_doi}: {e}")
+        logger.debug(f"OA fulltext download/extraction skipped for {pdf_url}: {e}")
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+                del doc
+            except Exception:
+                pass
+        import gc
+        gc.collect()
     return None
 
 def extract_clean_topic(query: str) -> str:
@@ -762,7 +933,7 @@ def split_into_sentences(text: str) -> List[str]:
     boilerplate_blacklist = [
         "wikipedia contributors", "all rights reserved", "terms of service", "cookie policy", 
         "privacy policy", "click here", "sign in", "author correction", "a study retrieved from", 
-        "openalex repository", "mode multiplexer", "metamaterial"
+        "openalex repository"
     ]
     valid_sentences = []
     for s in raw_sentences:
@@ -944,6 +1115,7 @@ async def _fetch_eprint_repository(query: str, limit: int = 5) -> List[Dict[str,
                         "abstract": summary,
                         "doi": doi,
                         "url": arxiv_url or f"https://arxiv.org/abs/{arxiv_id}",
+                        "oa_pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else None,
                         "venue": "arXiv e-Print Archive",
                         "citationCount": 0,
                         "source": "arXiv",
@@ -1158,6 +1330,8 @@ async def fetch_pubmed_ncbi(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                             year = int(year_elem.text) if year_elem is not None and year_elem.text.isdigit() else None
                             doi_elem = article.find(".//ArticleIdList/ArticleId[@IdType='doi']")
                             doi = doi_elem.text.strip() if doi_elem is not None and doi_elem.text else ""
+                            pmc_elem = article.find(".//ArticleIdList/ArticleId[@IdType='pmc']")
+                            pmc_id = pmc_elem.text.strip() if pmc_elem is not None and pmc_elem.text else ""
                             venue_elem = article.find(".//Journal/Title")
                             venue = venue_elem.text if venue_elem is not None else "PubMed (.gov)"
                             
@@ -1168,6 +1342,7 @@ async def fetch_pubmed_ncbi(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                                 "year": year,
                                 "abstract": abstract,
                                 "doi": doi,
+                                "pmc_id": pmc_id,
                                 "url": f"https://doi.org/{doi}" if doi else f"https://pubmed.ncbi.nlm.nih.gov/{pid}/",
                                 "venue": venue,
                                 "citationCount": None,
@@ -1228,6 +1403,7 @@ async def fetch_openalex(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                     primary_loc = item.get("primary_location") or {}
                     source_elem = primary_loc.get("source") or {} if isinstance(primary_loc, dict) else {}
                     venue = source_elem.get("display_name", "Academic Repository") if isinstance(source_elem, dict) else "Academic Repository"
+                    oa_pdf = (primary_loc.get("pdf_url") or (item.get("open_access") or {}).get("oa_url")) if isinstance(primary_loc, dict) else None
 
                     papers.append({
                         "id": item.get("id", "").split("/")[-1],
@@ -1237,6 +1413,7 @@ async def fetch_openalex(query: str, limit: int = 5) -> List[Dict[str, Any]]:
                         "abstract": abstract,
                         "doi": doi,
                         "url": oa_url,
+                        "oa_pdf_url": oa_pdf,
                         "venue": venue,
                         "citationCount": item.get("cited_by_count", 0),
                         "source": "OpenAlex",
@@ -1846,16 +2023,29 @@ async def run_agent1_academic_scraper(
         
         # Attempt 1: Query exact atomic sub_query and entity names across arXiv, Semantic Scholar, OpenAlex, Europe PMC, and Crossref
         re_tasks_1 = []
+        q_intent_lower = query.lower()
+        is_biomedical = any(bm in q_intent_lower for bm in [
+            "biology", "biological", "biomedical", "genomic", "genetics", "protein", 
+            "clinical", "disease", "medicine", "medical", "pharmacology", "drug", "cellular"
+        ])
         for uf in uncovered_facets[:4]:
             sub_q = uf.get("sub_query") or ""
             ents = uf.get("entities", [])
             primary_ent = ents[0] if ents else ""
-            target_terms = f'"{primary_ent}"' if primary_ent else sub_q
+            if primary_ent:
+                # If short entity, contextualize with subquery to prevent cross-domain drift
+                if len(primary_ent.split()) <= 2 and len(primary_ent) < 12 and sub_q:
+                    target_terms = f'"{primary_ent}" {sub_q}'
+                else:
+                    target_terms = f'"{primary_ent}"'
+            else:
+                target_terms = sub_q
             if target_terms:
                 re_tasks_1.append(_fetch_eprint_repository(target_terms, limit=3))
                 re_tasks_1.append(fetch_semantic_scholar(target_terms, limit=3))
                 re_tasks_1.append(fetch_openalex(target_terms, limit=3))
-                re_tasks_1.append(fetch_europepmc(target_terms, limit=3))
+                if is_biomedical:
+                    re_tasks_1.append(fetch_europepmc(target_terms, limit=3))
                 re_tasks_1.append(fetch_crossref(target_terms, limit=3))
                 
         if re_tasks_1:
@@ -1864,7 +2054,7 @@ async def run_agent1_academic_scraper(
                 if isinstance(res, list):
                     for p in res:
                         san = sanitize_and_validate_paper_metadata(p)
-                        if san:
+                        if san and is_paper_semantically_relevant(san, query, facets=facets):
                             raw_papers.append(san)
             raw_papers = _dedup_papers_list(raw_papers)
             covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
@@ -1875,11 +2065,13 @@ async def run_agent1_academic_scraper(
             re_tasks_2 = []
             for uf in uncovered_facets[:4]:
                 ents = uf.get("entities", [])
+                sub_q = uf.get("sub_query") or ""
                 if ents:
                     base_ent = re.sub(r'[^a-zA-Z0-9\s]', '', ents[0]).strip()
-                    re_tasks_2.append(_fetch_eprint_repository(base_ent, limit=3))
-                    re_tasks_2.append(fetch_semantic_scholar(base_ent, limit=3))
-                    re_tasks_2.append(fetch_openalex(base_ent, limit=3))
+                    query_ent = f"{base_ent} {sub_q}".strip() if len(base_ent) < 10 and sub_q else base_ent
+                    re_tasks_2.append(_fetch_eprint_repository(query_ent, limit=3))
+                    re_tasks_2.append(fetch_semantic_scholar(query_ent, limit=3))
+                    re_tasks_2.append(fetch_openalex(query_ent, limit=3))
                 else:
                     kws = uf.get("keywords", [])
                     if kws:
@@ -1892,7 +2084,7 @@ async def run_agent1_academic_scraper(
                     if isinstance(res, list):
                         for p in res:
                             san = sanitize_and_validate_paper_metadata(p)
-                            if san:
+                            if san and is_paper_semantically_relevant(san, query, facets=facets):
                                 raw_papers.append(san)
                 raw_papers = _dedup_papers_list(raw_papers)
                 covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
@@ -1902,7 +2094,7 @@ async def run_agent1_academic_scraper(
     if snowballed:
         for sp in snowballed:
             san = sanitize_and_validate_paper_metadata(sp)
-            if san:
+            if san and is_paper_semantically_relevant(san, query, facets=facets):
                 raw_papers.append(san)
         raw_papers = _dedup_papers_list(raw_papers)
         covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
@@ -1919,9 +2111,16 @@ async def run_agent1_academic_scraper(
                 
     # Semantic Relevance Gating (Multi-Faceted)
     papers = [p for p in raw_papers if is_paper_semantically_relevant(p, query, facets=facets)]
-    # Fallback to raw if filtering removes everything
+    # Fallback to raw only if candidate papers have genuine lexical overlap with the query
     if not papers and raw_papers:
-        papers = raw_papers
+        if disable_fallback:
+            papers = []
+        else:
+            q_toks = set(clean_and_tokenize(query))
+            papers = [
+                p for p in raw_papers 
+                if any(t in f"{p.get('title', '')} {p.get('abstract', '')}".lower() for t in q_toks if len(t) > 3)
+            ]
 
     for p in papers:
         if "provenance_tier" not in p or "provenance_label" not in p:
@@ -1929,14 +2128,28 @@ async def run_agent1_academic_scraper(
         
     query_tokens = clean_and_tokenize(query)
     
-    # Open-Access Full-Text Ingestion via Unpaywall & arXiv (Pillar 3)
-    # Asynchronously enrich top DOI/arXiv papers with empirical body paragraphs
-    doi_papers = [p for p in papers if (p.get("doi") and "10." in str(p.get("doi"))) or "arxiv" in str(p.get("url", "")).lower()][:8]
+    # Open-Access Full-Text Ingestion via Direct Links, Unpaywall & arXiv (Pillar 3)
+    # Asynchronously enrich papers with empirical body paragraphs using max 2 concurrent downloads
+    doi_papers = [
+        p for p in papers 
+        if p.get("oa_pdf_url") or (p.get("doi") and "10." in str(p.get("doi"))) or "arxiv" in str(p.get("url", "")).lower()
+    ][:8]
     if doi_papers:
         try:
-            async with httpx.AsyncClient(timeout=12.0) as oa_client:
-                oa_tasks = [fetch_open_access_fulltext(p.get("doi") or p.get("url", ""), oa_client, max_pages=max_pdf_pages) for p in doi_papers]
-                oa_results = await asyncio.wait_for(asyncio.gather(*oa_tasks, return_exceptions=True), timeout=15.0)
+            sem = asyncio.Semaphore(2)
+            async def _fetch_with_sem(p_obj, client_obj):
+                async with sem:
+                    return await fetch_open_access_fulltext(
+                        p_obj.get("doi") or p_obj.get("url", ""),
+                        client_obj,
+                        max_pages=max_pdf_pages,
+                        direct_pdf_url=p_obj.get("oa_pdf_url"),
+                        paper_meta=p_obj
+                    )
+
+            async with httpx.AsyncClient(timeout=45.0) as oa_client:
+                oa_tasks = [_fetch_with_sem(p, oa_client) for p in doi_papers]
+                oa_results = await asyncio.wait_for(asyncio.gather(*oa_tasks, return_exceptions=True), timeout=60.0)
                 for dp, oa_res in zip(doi_papers, oa_results):
                     if isinstance(oa_res, dict) and oa_res.get("paragraphs"):
                         dp["oa_pdf_url"] = oa_res.get("pdf_url")

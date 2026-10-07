@@ -111,10 +111,11 @@ export function renderHistoryList(runs) {
       archBadge = '<span class="matrix-chip chip-red" style="font-size: 10.5px; padding: 2px 7px; margin-right: 6px;">System C: Direct API</span>';
     }
 
+    card.dataset.runId = run.run_id;
     card.innerHTML = `
       <div class="history-card-header">
         <div>
-          <div class="history-card-title" title="Click to view and replay monograph">${escapeHTML(run.query || 'Research Monograph')}</div>
+          <div class="history-card-title" data-run-id="${run.run_id}" title="Click to view and replay monograph">${escapeHTML(run.query || 'Research Monograph')}</div>
           <div style="margin-top: 4px;">${archBadge}</div>
         </div>
         <div class="history-card-actions">
@@ -124,7 +125,7 @@ export function renderHistoryList(runs) {
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
           </button>
-          <button class="btn-history-delete" data-run-id="${run.run_id}" title="Delete this run">
+          <button class="btn-history-delete" data-run-id="${run.run_id}" data-query="${escapeHTML(run.query || '')}" title="Delete this run">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -140,21 +141,28 @@ export function renderHistoryList(runs) {
       </div>
     `;
 
-    card.querySelector('.history-card-title').addEventListener('click', () => replayResearchRun(run.run_id));
-    card.querySelector('.btn-history-replay').addEventListener('click', (e) => {
-      e.stopPropagation();
-      replayResearchRun(run.run_id);
-    });
-
-    card.querySelector('.btn-history-delete').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (confirm(`Delete past output for "${run.query}"?`)) {
-        await deleteHistoryRun(run.run_id);
-      }
-    });
-
     elements.historyList.appendChild(card);
   });
+
+  if (!elements.historyList._delegationAttached) {
+    elements.historyList._delegationAttached = true;
+    elements.historyList.addEventListener('click', async (e) => {
+      const replayBtn = e.target.closest('.btn-history-replay') || e.target.closest('.history-card-title');
+      if (replayBtn) {
+        const runId = replayBtn.dataset.runId || replayBtn.closest('.history-card')?.dataset.runId;
+        if (runId) replayResearchRun(runId);
+        return;
+      }
+      const deleteBtn = e.target.closest('.btn-history-delete');
+      if (deleteBtn) {
+        const runId = deleteBtn.dataset.runId;
+        const queryTitle = deleteBtn.dataset.query || 'this run';
+        if (runId && confirm(`Delete past output for "${queryTitle}"?`)) {
+          await deleteHistoryRun(runId);
+        }
+      }
+    });
+  }
 }
 
 export async function replayResearchRun(runId) {

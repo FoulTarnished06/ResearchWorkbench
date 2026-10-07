@@ -59,16 +59,8 @@ def clean_monograph_text(text: str) -> str:
     text = re.sub(r'(\bO\([^)]+\))(?:\s+\1)+', r'\1', text)
     text = re.sub(r'(\$O\([^$]+\)\$)(?:\s*\1)+', r'\1', text)
 
-    # Normalize specific ASCII equation to LaTeX if explicitly present
-    text = re.sub(r'\bO\(E\s*[·⋅*]\s*N\)\b', r'$O(E \\cdot N)$', text)
-
-    # Clean garbled fraction duplicates like "Ttransfer=MexpertBWPCIe. Ttransfer = BWPCIe Mexpert"
-    text = re.sub(
-        r'Ttransfer\s*=\s*MexpertBWPCIe\.?\s*Ttransfer\s*=\s*BWPCIe\s*Mexpert',
-        r'$T_{\\text{transfer}} = \\frac{M_{\\text{expert}}}{\\text{BW}_{\\text{PCIe}}}$',
-        text,
-        flags=re.IGNORECASE
-    )
+    # Normalize ASCII multiplication in asymptotic complexity to LaTeX
+    text = re.sub(r'\bO\((\w+)\s*[·⋅*]\s*(\w+)\)\b', r'$O(\1 \\cdot \2)$', text)
 
     # 6. Unwrap accidental quotes around entire assertion sentences (between tags only)
     text = re.sub(r'(?<=>)\s*["\u201c\u201d]([A-Z][^"\u201c\u201d<]{20,}\.?)["\u201c\u201d]\s*(?=<)', r'\1', text)
@@ -480,7 +472,7 @@ def enforce_section2_empirical_purity(dossier_data: Dict[str, Any]) -> Dict[str,
     holds ONLY retrieved findings.
     Any ungrounded theoretical speculations or claims without an empirical paper in Section 2
     are calibrated to state clearly:
-    'No direct empirical measurement reported in the retrieved evidence.'
+    'No direct empirical measurement reported in retrieved evidence.'
     """
     if not dossier_data or not isinstance(dossier_data, dict):
         return dossier_data
@@ -491,8 +483,11 @@ def enforce_section2_empirical_purity(dossier_data: Dict[str, Any]) -> Dict[str,
         
     sec2 = sections[1]
     sec2_html = sec2.get("content_html") or sec2.get("answer_html") or ""
-    
-    # If Section 2 has ungrounded claims with tier no_source, rewrite them to calibrated refusal notice
+
+    # Clean stray meta-commentary without corrupting synthesized sentences
+    sec2_html = re.sub(r'\bExplored research dimension:\s*', '', sec2_html, flags=re.IGNORECASE)
+
+    # If Section 2 has ungrounded claims with tier no_source, calibrate them with empirical gap notice
     if "claim-tier-no_source" in sec2_html:
         sec2_html = re.sub(
             r'<span class="claim-wrapper claim-tier-no_source[^"]*"[^>]*><span class="claim-text">([^<]+)</span>.*?</span>',
@@ -500,30 +495,12 @@ def enforce_section2_empirical_purity(dossier_data: Dict[str, Any]) -> Dict[str,
             sec2_html
         )
 
-    # Clean stray meta-commentary
-    sec2_html = re.sub(r'\bExplored research dimension:\s*', '', sec2_html, flags=re.IGNORECASE)
-    
-    # If Section 2 has empty paragraphs or was stripped clean, populate with real empirical findings from evaluated claims or citations
-    plain_text = re.sub(r'<[^>]+>', ' ', sec2_html).strip()
-    if len(plain_text.split()) < 20:
-        claims = dossier_data.get("evaluated_claims") or []
-        empirical_findings = [c.get("claim_text") or c.get("text") for c in claims if (c.get("claim_text") or c.get("text")) and (c.get("paper") or c.get("paper_id"))]
-        if not empirical_findings:
-            for cit in dossier_data.get("citations", []):
-                for snip in cit.get("supporting_snippets", []):
-                    if snip and len(snip.split()) >= 8:
-                        empirical_findings.append(snip)
-        if empirical_findings:
-            import html as py_html
-            clean_snippets = [f"<p><strong>Empirical Benchmark Observation:</strong> {py_html.escape(f.strip())}</p>" for f in empirical_findings[:4]]
-            sec2_html = "\n".join(clean_snippets)
-
     if "content_html" in sec2:
         sec2["content_html"] = sec2_html
     if "answer_html" in sec2:
         sec2["answer_html"] = sec2_html
 
-    # Also ensure claims array in Section 2 only holds claims linked to actual papers
+    # Ensure claims array in Section 2 only holds claims linked to actual papers if present
     if "claims" in sec2 and isinstance(sec2["claims"], list):
         sec2["claims"] = [c for c in sec2["claims"] if c.get("paper") or c.get("paper_id")]
 

@@ -235,82 +235,60 @@ User Follow-Up Question:
     active_anthropic_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
     active_openai_key = openai_key or os.environ.get("OPENAI_API_KEY")
 
-    if (active_gemini_key or active_anthropic_key or active_openai_key) and provider != "mock":
-        try:
-            raw_response = None
-            used_tokens = 0
-            prov_lower = provider.lower()
-            is_openai_selected = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
-            is_claude_selected = not is_openai_selected and (("claude" in prov_lower) or (not active_gemini_key and bool(active_anthropic_key)))
+    if not (active_gemini_key or active_anthropic_key or active_openai_key):
+        raise RuntimeError("No API key available for live dialogue synthesis. Offline fallback has been completely removed.")
 
-            if is_openai_selected and active_openai_key:
-                pref = provider if provider != "auto" else "gpt-6.1-sol"
-                provider_label = f"{pref} (OpenAI)"
-                raw_response, used_tokens = await call_openai_api(
-                    prompt, active_openai_key, model_pref=pref, system_instruction=system_instruction
-                )
-            elif is_claude_selected and active_anthropic_key:
-                if "opus" in provider.lower():
-                    pref = "claude-opus-5.5" if "5.5" in provider.lower() else "claude-opus-4.5"
-                    provider_label = "Claude Opus 5.5 (DHS-RCC)" if "5.5" in provider.lower() else "Claude Opus 4.5 (DHS-RCC)"
-                elif "haiku" in provider.lower():
-                    pref = "claude-haiku-4.5"
-                    provider_label = "Claude Haiku 4.5 (DHS-RCC)"
-                elif "sonnet" in provider.lower():
-                    pref = provider
-                    provider_label = "Claude Sonnet (DHS-RCC)"
-                else:
-                    pref = "claude-sonnet-5"
-                    provider_label = "Claude Sonnet 5 (DHS-RCC)"
-                raw_response, used_tokens = await call_anthropic_api(
-                    prompt, active_anthropic_key, model_pref=pref, system_instruction=system_instruction
-                )
-            elif active_gemini_key:
-                if "3.8" in provider.lower():
-                    pref = "gemini-3.8-flash"
-                    provider_label = "Gemini 3.8 Flash (DHS-RCC)"
-                elif "3.1" in provider.lower() or "pro" in provider.lower():
-                    pref = "gemini-3.1-pro"
-                    provider_label = "Gemini 3.1 Pro (DHS-RCC)"
-                elif "3.5" in provider.lower():
-                    pref = "gemini-3.5-flash"
-                    provider_label = "Gemini 3.5 Flash (DHS-RCC)"
-                else:
-                    pref = "gemini-3.6-flash"
-                    provider_label = "Gemini 3.6 Flash (DHS-RCC)"
-                raw_response, used_tokens = await call_gemini_api(
-                    prompt, active_gemini_key, model_pref=pref, system_instruction=system_instruction
-                )
+    quick_summary = ""
+    answer_html = ""
+    provider_label = "Live Dialogue"
+    tokens_consumed = 0
 
-            if raw_response:
-                parsed = safe_parse_json(raw_response)
-                if parsed and isinstance(parsed, dict):
-                    quick_summary = parsed.get("quick_summary", "").strip()
-                    answer_html = parsed.get("answer_html", "").strip()
-                    tokens_consumed = used_tokens if used_tokens > 0 else max(round((len(prompt) + len(raw_response)) / 3.8), 280)
-                else:
-                    raise ValueError("Could not parse JSON response from dialogue model")
-        except Exception as e:
-            logger.error(f"Live dialogue synthesis error: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Live dialogue call failed: {e}. Fallback disabled.")
-            is_fallback = True
+    try:
+        raw_response = None
+        used_tokens = 0
+        prov_lower = provider.lower()
+        is_openai_selected = is_openai_provider(provider) or (bool(active_openai_key) and not active_gemini_key and not active_anthropic_key)
+        is_claude_selected = not is_openai_selected and (("claude" in prov_lower) or (not active_gemini_key and bool(active_anthropic_key)))
 
-    # High-quality deterministic fallback if no API keys or live API failed
+        if is_openai_selected and active_openai_key:
+            allowed_openai = ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.5")
+            pref = provider if provider in allowed_openai else "gpt-6.1-sol"
+            provider_label = f"{pref} (OpenAI)"
+            raw_response, used_tokens = await call_openai_api(
+                prompt, active_openai_key, model_pref=pref, system_instruction=system_instruction
+            )
+        elif is_claude_selected and active_anthropic_key:
+            if "opus" in provider.lower():
+                pref = "claude-3-opus-20240229"
+            elif "haiku" in provider.lower():
+                pref = "claude-3-5-haiku-20241022"
+            else:
+                pref = "claude-3-7-sonnet-20250219" if "3-7" in provider.lower() else "claude-3-5-sonnet-20241022"
+            provider_label = f"{pref} (Claude)"
+            raw_response, used_tokens = await call_anthropic_api(
+                prompt, active_anthropic_key, model_pref=pref, system_instruction=system_instruction
+            )
+        elif active_gemini_key:
+            pref = "gemini-2.5-pro" if "pro" in provider.lower() else "gemini-2.5-flash"
+            provider_label = f"{pref} (Gemini)"
+            raw_response, used_tokens = await call_gemini_api(
+                prompt, active_gemini_key, model_pref=pref, system_instruction=system_instruction
+            )
+
+        if raw_response:
+            parsed = safe_parse_json(raw_response)
+            if parsed and isinstance(parsed, dict):
+                quick_summary = parsed.get("quick_summary", "").strip()
+                answer_html = parsed.get("answer_html", "").strip()
+                tokens_consumed = used_tokens if used_tokens > 0 else max(round((len(prompt) + len(raw_response)) / 3.8), 280)
+            else:
+                raise ValueError(f"Could not parse JSON response from dialogue model: {raw_response[:200]}")
+    except Exception as e:
+        logger.error(f"Live dialogue synthesis error: {e}")
+        raise RuntimeError(f"Live dialogue synthesis failed: {e}. Offline fallback has been completely removed.") from e
+
     if not answer_html:
-        is_fallback = True
-        provider_label = "Local Synthesis (Grounded Offline)"
-        tokens_consumed = 360
-        quick_summary = f"Addressing '{user_message[:60]}...': Analysis across the anchored monograph confirms consistent theoretical and empirical bounds."
-        
-        evidence_snippet = relevant_sentences[0] if relevant_sentences else digest["summary"][:160]
-        answer_html = (
-            f"<p><strong>Mechanistic Analysis:</strong> Evaluated in connection with {digest['query']}, "
-            f"findings demonstrate that {evidence_snippet}. Under operational constraints, "
-            f"system performance adheres to formal scaling bounds $O(N \\log N)$, preventing unbounded resource saturation.</p>"
-            f"<p><strong>Practical Implications:</strong> Experimental literature indicates that trade-offs between "
-            f"latency and error mitigation remain stable within calibrated tolerances, confirming theoretical predictions.</p>"
-        )
+        raise RuntimeError("Live dialogue model returned empty answer. Offline fallback has been completely removed.")
 
     # Post-process and sanitize output via centralized nh3/bleach engine
     safe_html = clean_monograph_text(answer_html)

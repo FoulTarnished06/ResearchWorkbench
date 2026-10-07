@@ -10,6 +10,10 @@ Validates:
 
 import os
 import sys
+
+# Ensure root directory on sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import unittest
 import asyncio
 from fastapi.testclient import TestClient
@@ -150,13 +154,20 @@ class TestFollowupEngine(unittest.TestCase):
 
     def test_fol_03_sub_600_token_synthesis_and_math(self):
         """FOL-02: Verifies follow-up synthesis respects sub-600 token budget and includes LaTeX math."""
-        res = asyncio.run(run_followup_synthesis(
-            parent_run_id=self.test_run_id,
-            query="Can you formalize the IO complexity and memory bounds?",
-            claim_id="c1",
-            target_topic="Attention Complexity",
-            disable_fallback=False
-        ))
+        from unittest.mock import patch
+        mock_resp = (
+            '{"quick_summary": "FlashAttention uses tiling to bound memory IO by O(N).", "answer_html": "<p>Tiling bounds IO complexity to $O(N)$ with SRAM blocks.</p>"}',
+            350
+        )
+        with patch("backend.agents.followup_synthesizer.call_gemini_api", return_value=mock_resp):
+            res = asyncio.run(run_followup_synthesis(
+                parent_run_id=self.test_run_id,
+                query="Can you formalize the IO complexity and memory bounds?",
+                claim_id="c1",
+                target_topic="Attention Complexity",
+                gemini_key="mock-key",
+                disable_fallback=False
+            ))
         
         self.assertIn("id", res)
         self.assertIn("quick_summary", res)
@@ -171,14 +182,21 @@ class TestFollowupEngine(unittest.TestCase):
 
     def test_fol_04_api_pipeline_followup_endpoint(self):
         """FOL-03: Tests POST /api/pipeline/followup endpoint with valid payload."""
-        response = client.post("/api/pipeline/followup", json={
-            "parent_run_id": self.test_run_id,
-            "claim_id": "c1",
-            "target_topic": "Transformer Attention",
-            "query": "How does FlashAttention avoid quadratic IO overhead?",
-            "provider": "auto",
-            "disable_fallback": False
-        })
+        from unittest.mock import patch
+        mock_resp = (
+            '{"quick_summary": "FlashAttention uses tiling to bound memory IO by O(N).", "answer_html": "<p>Tiling bounds IO complexity to $O(N)$ with SRAM blocks.</p>"}',
+            350
+        )
+        with patch("backend.agents.followup_synthesizer.call_gemini_api", return_value=mock_resp):
+            response = client.post("/api/pipeline/followup", json={
+                "parent_run_id": self.test_run_id,
+                "claim_id": "c1",
+                "target_topic": "Transformer Attention",
+                "query": "How does FlashAttention avoid quadratic IO overhead?",
+                "provider": "auto",
+                "gemini_key": "mock-key",
+                "disable_fallback": False
+            })
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["parent_run_id"], self.test_run_id)
@@ -192,12 +210,19 @@ class TestFollowupEngine(unittest.TestCase):
 
     def test_fol_05_api_prompt_history_endpoints(self):
         """FOL-06: Tests GET /api/history/prompts and follow-up tree lineage."""
+        from unittest.mock import patch
+        mock_resp = (
+            '{"quick_summary": "KV-cache memory scales linearly with sequence length.", "answer_html": "<p>KV-cache memory bound is $O(L \\cdot d)$.</p>"}',
+            300
+        )
         # Add a follow-up first
-        client.post("/api/pipeline/followup", json={
-            "parent_run_id": self.test_run_id,
-            "query": "What is the memory bound for KV-cache?",
-            "target_topic": "KV-cache scaling"
-        })
+        with patch("backend.agents.followup_synthesizer.call_gemini_api", return_value=mock_resp):
+            client.post("/api/pipeline/followup", json={
+                "parent_run_id": self.test_run_id,
+                "query": "What is the memory bound for KV-cache?",
+                "target_topic": "KV-cache scaling",
+                "gemini_key": "mock-key"
+            })
 
         # Test GET /api/history/prompts
         res = client.get("/api/history/prompts?limit=50")

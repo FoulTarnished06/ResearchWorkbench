@@ -759,6 +759,102 @@ export function setupClaimCitationInteractions() {
       }
     });
   }
+
+  // Dossier Custom PDF Upload Controls & Drag-and-Drop
+  const btnUpload = document.getElementById('btn-dossier-upload-source');
+  const fileInput = document.getElementById('dossier-pdf-file-input');
+  const uploadBox = document.getElementById('dossier-upload-source-box');
+  const sidebar = document.getElementById('dossier-citations-sidebar');
+
+  if (btnUpload && fileInput && !btnUpload.dataset.bound) {
+    btnUpload.dataset.bound = 'true';
+    btnUpload.addEventListener('click', () => {
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) {
+        uploadDossierSourceFile(fileInput.files[0]);
+        fileInput.value = '';
+      }
+    });
+
+    const dropTarget = uploadBox || sidebar;
+    if (dropTarget) {
+      dropTarget.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropTarget.classList.add('drag-over');
+      });
+      dropTarget.addEventListener('dragleave', () => {
+        dropTarget.classList.remove('drag-over');
+      });
+      dropTarget.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropTarget.classList.remove('drag-over');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+          const file = e.dataTransfer.files[0];
+          if (file.name.toLowerCase().endsWith('.pdf')) {
+            uploadDossierSourceFile(file);
+          } else {
+            showToast('Please upload a PDF document (.pdf)');
+          }
+        }
+      });
+    }
+  }
+}
+
+export async function uploadDossierSourceFile(file) {
+  if (!file) return;
+  const statusEl = document.getElementById('dossier-upload-status');
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.className = 'dossier-upload-status uploading';
+    statusEl.textContent = `Uploading and parsing ${file.name}...`;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  const runId = UIState.lastDossierData?.run_id || UIState.currentRunId;
+  if (runId) {
+    formData.append('run_id', runId);
+  }
+
+  try {
+    const res = await fetch('/api/dossier/upload-source', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Upload failed (${res.status})`);
+    }
+    const data = await res.json();
+    if (data.citation) {
+      if (!UIState.lastDossierData) {
+        UIState.lastDossierData = { citations: [] };
+      }
+      if (!Array.isArray(UIState.lastDossierData.citations)) {
+        UIState.lastDossierData.citations = [];
+      }
+      UIState.lastDossierData.citations.push(data.citation);
+      renderCitationsPanel(UIState.lastDossierData.citations);
+
+      if (statusEl) {
+        statusEl.className = 'dossier-upload-status success';
+        statusEl.textContent = `Added: [${data.citation.paper_idx}] ${data.citation.title.slice(0, 30)}...`;
+        setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+      }
+      showToast(`Custom paper added: [${data.citation.paper_idx}]`);
+      logToCanvas(`[UPLOAD] Custom research source indexed: [${data.citation.paper_idx}] ${data.citation.title}`);
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = 'dossier-upload-status error';
+      statusEl.textContent = `Error: ${err.message}`;
+      setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+    }
+    showToast(`Upload failed: ${err.message}`);
+  }
 }
 
 export function highlightCitation(refId) {

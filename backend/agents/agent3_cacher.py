@@ -16,12 +16,30 @@ logger = get_logger("Agent3_Cacher")
 _EMBED_MODEL = None
 _EMBED_INITIALIZED = False
 
+def is_low_memory_environment() -> bool:
+    """
+    Detects if running on Render free/starter tier (512MB RAM ceiling) or low-memory container.
+    Guarantees zero-OOM execution by avoiding loading heavy ONNX runtime and models.
+    """
+    if os.environ.get("LOW_MEMORY_MODE", "").lower() in ("1", "true", "yes"):
+        return True
+    if os.environ.get("DISABLE_FASTEMBED", "").lower() in ("1", "true", "yes"):
+        return True
+    if os.environ.get("RENDER", "").lower() in ("true", "1") or os.environ.get("IS_RENDER", "").lower() in ("true", "1"):
+        return True
+    if os.path.exists("/etc/render") or "RENDER_SERVICE_ID" in os.environ or "RENDER_INSTANCE_ID" in os.environ:
+        return True
+    return False
+
 def get_embedding_model():
     """
     Lazy singleton loader for local ONNX fastembed BAAI/bge-small-en-v1.5 model.
-    Runs 100% on CPU in sub-15ms, zero API tokens, zero PyTorch overhead.
+    Automatically safeguards Render 512MB RAM environments with lightweight profile vectorizer.
     """
     global _EMBED_MODEL, _EMBED_INITIALIZED
+    if is_low_memory_environment():
+        return None
+
     if not _EMBED_INITIALIZED:
         _EMBED_INITIALIZED = True
         try:
@@ -148,9 +166,9 @@ def compute_profile_similarity(p1: Dict[str, Any], p2: Dict[str, Any]) -> float:
         if len(shorter.split()) >= 5 and (p1["clean"] in p2["clean"] or p2["clean"] in p1["clean"]):
             raw_sim = max(raw_sim, 0.96)
         
-    # Polarity Inversion Guard: Prevent false auto-verification of negated hallucinations
+    # Polarity Inversion Guard: Slight penalty for differing polarity without crushing similarity
     if p1.get("is_negative") != p2.get("is_negative"):
-        raw_sim = min(raw_sim, 0.35)
+        raw_sim = max(0.0, raw_sim - 0.15)
 
     return round(min(raw_sim, 1.0), 4)
 
@@ -180,7 +198,7 @@ def compute_cosine_similarity(text1: str, text2: str) -> float:
             if vecs is not None and len(vecs) == 2:
                 n_sim = float(np.dot(vecs[0], vecs[1]))
                 if p1.get("is_negative") != p2.get("is_negative"):
-                    n_sim = min(n_sim, 0.35)
+                    n_sim = max(0.0, n_sim - 0.15)
                 return round(max(lex_sim, min(1.0, n_sim)), 4)
         except Exception:
             pass
@@ -400,20 +418,10 @@ def run_agent3_context_cacher(
         for sent in dense_sentences
     ]
 
-    # Batch neural embeddings (Pillar 1: Fastembed ONNX embeddings)
-    # Pre-filter to top 35 candidate sentences to guarantee fast sub-second execution
+    # Batch neural embeddings (Pillar 1: Fastembed ONNX embeddings / pure-Python subword index)
     model = get_embedding_model()
-    if len(dense_sentences) > 35 and model is not None:
-        cand_subset = [sent.get("text", "") for sent in dense_sentences[:35]]
-        sub_mat = embed_texts(cand_subset)
-        if sub_mat is not None:
-            s_mat = np.zeros((len(dense_sentences), sub_mat.shape[1]), dtype=np.float32)
-            s_mat[:len(sub_mat)] = sub_mat
-        else:
-            s_mat = None
-    else:
-        sent_texts = [sent.get("text", "") for sent in dense_sentences]
-        s_mat = embed_texts(sent_texts) if (model is not None and sent_texts) else None
+    sent_texts = [sent.get("text", "") for sent in dense_sentences]
+    s_mat = embed_texts(sent_texts[:250]) if (model is not None and sent_texts) else None
     
     claim_texts = [html.unescape(c.get("text", "")).strip() for c in claims]
     c_mat = embed_texts(claim_texts) if (claim_texts and s_mat is not None) else None
@@ -441,10 +449,10 @@ def run_agent3_context_cacher(
         full_matches = []
         for s_idx, (sent, s_prof) in enumerate(sentence_profiles):
             lex_sim = compute_profile_similarity(full_profile, s_prof)
-            if f_vec is not None and s_mat is not None:
+            if f_vec is not None and s_mat is not None and s_idx < len(s_mat):
                 n_sim = float(np.dot(f_vec[0], s_mat[s_idx]))
                 if full_profile.get("is_negative") != s_prof.get("is_negative"):
-                    n_sim = min(n_sim, 0.35)
+                    n_sim = max(0.0, n_sim - 0.15)
                 sim = max(lex_sim, n_sim)
             else:
                 sim = lex_sim
@@ -483,10 +491,10 @@ def run_agent3_context_cacher(
             scored_matches = []
             for s_idx, (sent, s_prof) in enumerate(sentence_profiles):
                 lex_sim = compute_profile_similarity(atomic_profile, s_prof)
-                if n_vec is not None and s_mat is not None:
+                if n_vec is not None and s_mat is not None and s_idx < len(s_mat):
                     n_sim = float(np.dot(n_vec[0], s_mat[s_idx]))
                     if atomic_profile.get("is_negative") != s_prof.get("is_negative"):
-                        n_sim = min(n_sim, 0.35)
+                        n_sim = max(0.0, n_sim - 0.15)
                     sim = max(lex_sim, n_sim)
                 else:
                     sim = lex_sim
@@ -525,18 +533,44 @@ def run_agent3_context_cacher(
         best_match_paper_id = overall_best_sent.get("paper_id")
         best_match_paper_title = overall_best_sent.get("paper_title")
 
-        # Candidate evidence snippets for targeted routing (Point 24)
-        candidate_snippets = [
-            {"text": m[1].get("text"), "paper_id": m[1].get("paper_id"), "paper_title": m[1].get("paper_title"), "score": float(m[0])}
-            for m in full_matches[:3] if m[1].get("text")
-        ]
+        # Multi-sentence Paragraph-Level Evidence Windowing
+        candidate_snippets = []
+        for eff_sim, sent_obj in full_matches[:5]:
+            sent_text = (sent_obj.get("text") or "").strip()
+            if not sent_text:
+                continue
+            p_id = sent_obj.get("paper_id") or sent_obj.get("paper_idx")
+            p_title = sent_obj.get("paper_title") or ""
+
+            # Extract surrounding context window from the same paper
+            same_paper_sents = [
+                s.get("text", "").strip() 
+                for s in dense_sentences 
+                if (s.get("paper_id") == p_id or s.get("paper_idx") == p_id) and s.get("text")
+            ]
+            context_window = sent_text
+            if sent_text in same_paper_sents:
+                idx = same_paper_sents.index(sent_text)
+                start = max(0, idx - 1)
+                end = min(len(same_paper_sents), idx + 2)
+                context_window = " ".join(same_paper_sents[start:end])
+
+            candidate_snippets.append({
+                "text": context_window,
+                "matched_sentence": sent_text,
+                "paper_id": p_id,
+                "paper_title": p_title,
+                "score": float(eff_sim)
+            })
+
         if claim_paper_tag:
             for s in dense_sentences:
                 if s.get("paper_idx") == claim_paper_tag or claim_paper_tag in (s.get("paper_id") or ""):
-                    stext = s.get("text")
-                    if stext and not any(cs.get("text") == stext for cs in candidate_snippets):
+                    stext = (s.get("text") or "").strip()
+                    if stext and not any(cs.get("matched_sentence") == stext for cs in candidate_snippets):
                         candidate_snippets.append({
                             "text": stext,
+                            "matched_sentence": stext,
                             "paper_id": s.get("paper_id"),
                             "paper_title": s.get("paper_title"),
                             "score": 0.90
@@ -583,7 +617,8 @@ def run_agent3_context_cacher(
             "multi_source_corroborated": is_multi_source,
             "corroborating_sources_count": len(distinct_sources),
             "claim_category": claim_category,
-            "candidate_snippets": candidate_snippets
+            "candidate_snippets": candidate_snippets,
+            "candidate_evidence": candidate_snippets
         }
         
         comparison_logs.append(eval_result)

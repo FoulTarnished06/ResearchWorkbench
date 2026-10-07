@@ -635,14 +635,26 @@ class TestAuditFixes(unittest.TestCase):
         self.assertTrue(demo_res["papers_found"] > 0)
 
         # 5. Verify /api/pipeline/run accepts active_scrapers payload
-        pipe_resp = client.post("/api/pipeline/run", json={
-            "query": "Quantum Error Mitigation",
-            "active_scrapers": ["crossref", "doaj", "openalex"]
-        })
-        self.assertEqual(pipe_resp.status_code, 200)
-        json_data = pipe_resp.json()
-        self.assertIn("dossier_sections", json_data)
-        self.assertIn("citations", json_data)
+        from unittest.mock import patch
+        mock_a2 = synthesize_fallback_draft("Quantum Error Mitigation", [], [], target_count=3)
+        mock_a2["tokens_used"] = 150
+        mock_a4 = {
+            "dossier_sections": [{"sub_question": "Overview", "content_html": "<p>Overview</p>"}],
+            "citations": [{"ref_id": "REF-1", "title": "Paper 1"}],
+            "executive_summary": "Summary",
+            "tokens_used": 100,
+            "evaluated_claims": []
+        }
+        with patch("backend.pipeline.run_agent2_the_drafter", return_value=mock_a2), \
+             patch("backend.pipeline.run_agent4_fact_checker_synthesizer", return_value=mock_a4):
+            pipe_resp = client.post("/api/pipeline/run", json={
+                "query": "Quantum Error Mitigation",
+                "active_scrapers": ["crossref", "doaj", "openalex"]
+            })
+            self.assertEqual(pipe_resp.status_code, 200)
+            json_data = pipe_resp.json()
+            self.assertIn("dossier_sections", json_data)
+            self.assertIn("citations", json_data)
 
     def test_31_grounded_attribution_and_3tier_claims(self):
         """Verify calibrated Agent 3 threshold (0.55), metric boosting, and 3-tier claim tagging."""
@@ -708,14 +720,19 @@ class TestAuditFixes(unittest.TestCase):
             ]
         }
 
-        a4_res = asyncio.run(run_agent4_fact_checker_synthesizer(
-            "EU AI Act compliance",
-            a1_res,
-            a2_res,
-            a3_res,
-            provider="offline",
-            disable_fallback=False
-        ))
+        from unittest.mock import patch
+        from backend.agents.agent2_drafter import TokenCount
+
+        with patch("backend.agents.agent4_synthesizer.call_gemini_factcheck", return_value=([], TokenCount(100, 50, 50))):
+            a4_res = asyncio.run(run_agent4_fact_checker_synthesizer(
+                "EU AI Act compliance",
+                a1_res,
+                a2_res,
+                a3_res,
+                provider="gemini-2.5-flash",
+                api_key="mock-test-key",
+                disable_fallback=False
+            ))
 
         sec_html = a4_res["dossier_sections"][0]["content_html"]
         # Verify Tier 1: Auto-verified claim has claim-tier-auto_cache and cache badge
@@ -798,32 +815,99 @@ class TestAuditFixes(unittest.TestCase):
         # All 14 claims should be sent to unverified
         self.assertEqual(a3_data["unverified_for_agent4_count"], 14)
 
-        a4_res = asyncio.run(run_agent4_fact_checker_synthesizer(
-            "Hardware speedup",
-            a1_data,
-            a2_data,
-            a3_data,
-            provider="offline",
-            disable_fallback=False
-        ))
+        from unittest.mock import patch
+        from backend.agents.agent2_drafter import TokenCount
+
+        with patch("backend.agents.agent4_synthesizer.call_gemini_factcheck", return_value=([], TokenCount(100, 50, 50))):
+            a4_res = asyncio.run(run_agent4_fact_checker_synthesizer(
+                "Hardware speedup",
+                a1_data,
+                a2_data,
+                a3_data,
+                provider="gemini-2.5-flash",
+                api_key="mock-test-key",
+                disable_fallback=False
+            ))
         # Ensure all 14 claims were processed (not capped at 10!)
         evaluated_ids = [c["claim_id"] for c in a4_res["evaluated_claims"]]
         self.assertEqual(len(evaluated_ids), 14, f"Expected 14 evaluated claims, got {len(evaluated_ids)}")
 
-        # 5. Test Pillar 5: Dual Execution Engine (Rapid Mode)
-        rapid_output = asyncio.run(run_query_pipeline(
-            "Quantum Error Mitigation",
-            config={
-                "execution_mode": "rapid",
-                "bypass_cache": True,
-                "provider_agent2": "offline"
-            }
-        ))
-        self.assertEqual(rapid_output.get("execution_mode"), "rapid")
-        self.assertEqual(rapid_output["token_usage"]["llm_calls_count"], 1)
-        self.assertIn("dossier_sections", rapid_output)
-        self.assertIn("citations", rapid_output)
-        self.assertGreater(len(rapid_output["citations"]), 0)
+        # Verify Zero Fallback Mandate: Agent 4 without API key raises RuntimeError loudly
+        with self.assertRaises(RuntimeError):
+            asyncio.run(run_agent4_fact_checker_synthesizer(
+                "Hardware speedup",
+                a1_data,
+                a2_data,
+                a3_data,
+                provider="offline"
+            ))
+
+        # 5. Verify Zero Fallback Mandate on pipeline: offline execution without API key raises RuntimeError loudly
+        with self.assertRaises(RuntimeError):
+            asyncio.run(run_query_pipeline(
+                "Quantum Error Mitigation",
+                config={
+                    "execution_mode": "rapid",
+                    "bypass_cache": True,
+                    "provider_agent2": "offline"
+                }
+            ))
+
+    def test_33_subquery_enrichment_and_cross_domain_gating(self):
+        """Verify subquery enrichment injects domain anchors and blocks cross-domain contamination."""
+        from backend.agents.agent1_scraper import (
+            enrich_subquery_context,
+            is_paper_semantically_relevant,
+            decompose_query_into_facets
+        )
+
+        parent = (
+            "Spatial Message Passing Neural Networks (MPNN) with edge-conditioned convolutions "
+            "vs Graph Transformers with spectral Laplacian positional encodings for molecular property prediction: "
+            "over-squashing mitigation, expressive power beyond the 1-Weisfeiler-Lehman (1-WL) limit, "
+            "and inference scaling on QM9 and ZINC benchmarks"
+        )
+
+        facets = decompose_query_into_facets(parent)
+        self.assertGreaterEqual(len(facets), 4)
+
+        # 1. Verify isolated benchmark subquery is enriched with domain context
+        sub = "inference scaling on QM9 and ZINC benchmarks"
+        enriched = enrich_subquery_context(sub, parent)
+        self.assertIn("molecular", enriched)
+        self.assertIn("graph", enriched)
+
+        # 2. Verify orthogonal poultry zinc paper is rejected
+        bad_paper_1 = {
+            "title": "Optimizing its bioavailability remains an important objective in modern poultry nutrition",
+            "abstract": "Nanotechnology has emerged as a promising strategy to enhance zinc bioavailability in broilers.",
+            "venue": "Poultry Science"
+        }
+        self.assertFalse(is_paper_semantically_relevant(bad_paper_1, parent, facets))
+
+        # 3. Verify orthogonal PFAS water testing paper is rejected
+        bad_paper_2 = {
+            "title": "Validation of method for 42 PFAS compounds across water matrices",
+            "abstract": "This method quantitates 42 PFAS compounds in low ng L-1 range with limits of detection verified.",
+            "venue": "Environmental Analysis"
+        }
+        self.assertFalse(is_paper_semantically_relevant(bad_paper_2, parent, facets))
+
+        # 4. Verify orthogonal astronomy ASTROMER paper is rejected
+        bad_paper_3 = {
+            "title": "Trainable positional encodings within ASTROMER architecture",
+            "abstract": "Generate datasets with varying cadences derived from astronomical survey on which transformer was pretrained.",
+            "venue": "Astronomy & Astrophysics"
+        }
+        self.assertFalse(is_paper_semantically_relevant(bad_paper_3, parent, facets))
+
+        # 5. Verify legitimate molecular GNN paper passes
+        good_paper = {
+            "title": "A General Architecture for Graph Neural Networks in Molecular Property Prediction",
+            "abstract": "We benchmark MPNN with edge-conditioned convolutions and Graph Transformers with Laplacian positional encodings on QM9 and ZINC.",
+            "venue": "NeurIPS"
+        }
+        self.assertTrue(is_paper_semantically_relevant(good_paper, parent, facets))
 
 if __name__ == "__main__":
     unittest.main()

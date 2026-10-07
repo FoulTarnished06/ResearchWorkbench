@@ -492,6 +492,7 @@ function initApp() {
   initQuerySuggestions();
   initPDFWorkspace();
   initAuth();
+  setupClaimCitationInteractions();
   switchView('about');
   
   window.addEventListener('resize', () => {

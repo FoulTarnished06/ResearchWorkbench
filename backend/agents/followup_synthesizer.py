@@ -105,7 +105,7 @@ async def run_followup_synthesis(
     gemini_key: Optional[str] = None,
     anthropic_key: Optional[str] = None,
     openai_key: Optional[str] = None,
-    disable_fallback: bool = False
+    disable_fallback: bool = True
 ) -> Dict[str, Any]:
     """
     Executes a high-efficiency targeted follow-up synthesis.
@@ -176,74 +176,54 @@ Return strictly a raw JSON object:
     is_openai = is_openai_provider(provider) or (bool(o_key) and not g_key and not a_key)
     is_claude = not is_openai and (("claude" in prov_lower) or (not g_key and bool(a_key)))
     active_key = o_key if is_openai else (a_key if is_claude else g_key)
-    
+
+    if not active_key:
+        raise RuntimeError("No API key available for live follow-up synthesis. Offline fallback has been completely removed.")
+
     tokens_consumed = 0
     quick_summary = ""
     answer_html = ""
-    provider_label = "Gemini Flash (Targeted)"
-    is_fallback = False
+    provider_label = "Live Synthesis"
 
-    if active_key:
-        try:
-            if is_openai:
-                pref = provider if provider != "auto" else "gpt-6.1-sol"
-                provider_label = f"{pref} (Targeted)"
-                raw_text, used_tokens = await call_openai_api(
-                    prompt, active_key, model_pref=pref, system_instruction=system_instruction
-                )
-            elif is_claude:
-                if "opus" in provider.lower():
-                    pref = "claude-opus-4.5"
-                    provider_label = "Claude Opus 4.5 (Targeted)"
-                elif "sonnet" in provider.lower():
-                    pref = "claude-sonnet-5"
-                    provider_label = "Claude Sonnet 5 (Targeted)"
-                else:
-                    pref = "claude-haiku-4.5"
-                    provider_label = "Claude Haiku 4.5 (Targeted)"
-                raw_text, used_tokens = await call_anthropic_api(
-                    prompt, active_key, model_pref=pref, system_instruction=system_instruction
-                )
+    try:
+        if is_openai:
+            allowed_openai = ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.5")
+            pref = provider if provider in allowed_openai else "gpt-6.1-sol"
+            provider_label = f"{pref} (Targeted)"
+            raw_text, used_tokens = await call_openai_api(
+                prompt, active_key, model_pref=pref, system_instruction=system_instruction
+            )
+        elif is_claude:
+            if "opus" in provider.lower():
+                pref = "claude-3-opus-20240229"
+            elif "haiku" in provider.lower():
+                pref = "claude-3-5-haiku-20241022"
             else:
-                if "3.8" in provider.lower():
-                    pref = "gemini-3.8-flash"
-                    provider_label = "Gemini 3.8 Flash (Targeted)"
-                elif "3.1" in provider.lower() or "pro" in provider.lower():
-                    pref = "gemini-3.1-pro"
-                    provider_label = "Gemini 3.1 Pro (Targeted)"
-                elif "3.5" in provider.lower():
-                    pref = "gemini-3.5-flash"
-                    provider_label = "Gemini 3.5 Flash (Targeted)"
-                else:
-                    pref = "gemini-3.6-flash"
-                    provider_label = "Gemini 3.6 Flash (Targeted)"
-                raw_text, used_tokens = await call_gemini_api(
-                    prompt, active_key, model_pref=pref, system_instruction=system_instruction
-                )
+                pref = "claude-3-7-sonnet-20250219" if "3-7" in provider.lower() else "claude-3-5-sonnet-20241022"
+            provider_label = f"{pref} (Targeted)"
+            raw_text, used_tokens = await call_anthropic_api(
+                prompt, active_key, model_pref=pref, system_instruction=system_instruction
+            )
+        else:
+            pref = "gemini-2.5-pro" if "pro" in provider.lower() else "gemini-2.5-flash"
+            provider_label = f"{pref} (Targeted)"
+            raw_text, used_tokens = await call_gemini_api(
+                prompt, active_key, model_pref=pref, system_instruction=system_instruction
+            )
 
-            tokens_consumed = used_tokens if used_tokens > 0 else 520
-            parsed = safe_parse_json(raw_text)
-            if parsed and isinstance(parsed, dict):
-                quick_summary = parsed.get("quick_summary", "").strip()
-                answer_html = parsed.get("answer_html", "").strip()
-            else:
-                raise ValueError("Could not parse JSON response from follow-up model")
-        except Exception as e:
-            logger.error(f"Live follow-up synthesis error: {e}")
-            if disable_fallback:
-                raise RuntimeError(f"Live follow-up call failed: {e}. Fallback disabled.")
-            is_fallback = True
+        tokens_consumed = used_tokens if used_tokens > 0 else 520
+        parsed = safe_parse_json(raw_text)
+        if parsed and isinstance(parsed, dict):
+            quick_summary = parsed.get("quick_summary", "").strip()
+            answer_html = parsed.get("answer_html", "").strip()
+        else:
+            raise ValueError(f"Could not parse JSON response from follow-up model: {raw_text[:200]}")
+    except Exception as e:
+        logger.error(f"Live follow-up synthesis error: {e}")
+        raise RuntimeError(f"Live follow-up synthesis failed: {e}. Offline fallback has been completely removed.") from e
 
-    # High-quality deterministic fallback if no API key or API call failed
     if not answer_html:
-        is_fallback = True
-        provider_label = "Local Synthesis (Offline Grounded)"
-        tokens_consumed = 380
-        quick_summary = f"Analysis of {target_claim_text[:60]}... confirms direct alignment with empirical scaling bounds under controlled laboratory trials."
-        
-        evidence_p = f"Corroborating literature demonstrates that {top_sentences[0]['text']}" if top_sentences else f"Detailed investigation into {target_claim_text} reveals bounded operational trade-offs."
-        second_p = f" Furthermore, mathematical formalizations verify that execution latency adheres to asymptotic bounds $O(N \\log N)$, bounding resource saturation beneath critical thermal ceilings."
-        answer_html = f"<p><strong>Mechanistic Analysis:</strong> {evidence_p}{second_p}</p>"
+        raise RuntimeError("Live follow-up model returned empty answer. Offline fallback has been completely removed.")
 
     # Post-process and sanitize output
     cleaned_html = clean_monograph_text(answer_html)
@@ -285,5 +265,5 @@ Return strictly a raw JSON object:
         "completion_tokens": completion_tokens,
         "token_savings_pct": token_savings_pct,
         "provider_used": provider_label,
-        "is_fallback": is_fallback
+        "is_fallback": False
     }

@@ -20,7 +20,112 @@ from backend.agents.agent1_scraper import classify_paper_provenance
 
 logger = get_logger("Agent4_Synthesizer")
 
-async def _post_gemini_factcheck(url: str, payload: dict, headers: dict) -> tuple[List[Dict[str, Any]], TokenCount]:
+def parse_factcheck_response(raw_text: str) -> Dict[str, Any]:
+    if not raw_text or not isinstance(raw_text, str):
+        return {}
+    clean_text = raw_text.strip()
+    match = re.search(r'```(?:json|yaml)?\s*([\s\S]*?)\s*```', clean_text)
+    if match:
+        clean_text = match.group(1).strip()
+    else:
+        clean_text = re.sub(r'^```[a-zA-Z]*', '', clean_text, flags=re.MULTILINE).strip()
+        clean_text = re.sub(r'```$', '', clean_text).strip()
+    try:
+        data = safe_parse_json(clean_text)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {
+                str(item.get("claim_id") or item.get("id") or f"c{i+1}"): item
+                for i, item in enumerate(data)
+                if isinstance(item, dict)
+            }
+    except Exception:
+        pass
+    try:
+        data = json.loads(clean_text, strict=False)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {
+                str(item.get("claim_id") or item.get("id") or f"c{i+1}"): item
+                for i, item in enumerate(data)
+                if isinstance(item, dict)
+            }
+    except Exception:
+        pass
+    try:
+        data = yaml.safe_load(clean_text)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {
+                str(item.get("claim_id") or item.get("id") or f"c{i+1}"): item
+                for i, item in enumerate(data)
+                if isinstance(item, dict)
+            }
+    except Exception:
+        pass
+    return {}
+
+def build_factcheck_prompt(claims_to_check: List[Dict[str, Any]], context_sentences: List[Dict[str, Any]]) -> str:
+    claims_payload = []
+    for c in claims_to_check:
+        raw_snips = c.get("candidate_evidence") or c.get("candidate_snippets") or []
+        clean_snips = []
+        if isinstance(raw_snips, list):
+            for s in raw_snips[:4]:
+                if isinstance(s, dict):
+                    t = (s.get("text") or s.get("matched_sentence") or "").strip()
+                    title = s.get("paper_title") or s.get("paper_id") or ""
+                    if t:
+                        clean_snips.append(f"[{title}] {t}" if title else t)
+                elif isinstance(s, str) and s.strip():
+                    clean_snips.append(s.strip())
+        if not clean_snips and context_sentences:
+            clean_snips = [s.get("text", "").strip() for s in context_sentences[:3] if s.get("text")]
+        claims_payload.append({
+            "claim_id": c.get("claim_id") or c.get("id"),
+            "claim_text": c.get("claim_text") or c.get("text"),
+            "candidate_evidence": clean_snips
+        })
+    claims_str = json.dumps(claims_payload, indent=2)
+    return f"""You are a Principal Scientific Fact-Checker and Senior Peer-Reviewer.
+Evaluate each unverified claim strictly against its matched candidate evidence from the retrieved academic literature.
+
+For each claim:
+- "status": "Supported" (empirically/theoretically entailed by evidence), "Partially Supported" (partial entailment or directional match), or "Unsupported" (no evidence found, contradictory, or orthogonal).
+- "confidence_score": Float from 0.0 to 1.0 (0.85-1.0 for Supported, 0.50-0.80 for Partially Supported, 0.0-0.30 for Unsupported).
+- "rationale": 1-2 concise sentences explaining why the claim is or is not entailed by the candidate evidence.
+- "supporting_quote": Verbatim excerpt from the candidate evidence that supports the claim, or null if unsupported.
+
+Return strictly a valid JSON object mapping each claim_id to its evaluation object:
+{{
+  "c1": {{
+    "status": "Supported",
+    "confidence_score": 0.95,
+    "rationale": "Directly corroborated by reported benchmark measurements.",
+    "supporting_quote": "..."
+  }}
+}}
+
+Claims and Targeted Evidence:
+{claims_str}
+"""
+
+def resolve_gemini_factcheck_model(model_pref: str, default: str = "gemini-2.5-flash") -> str:
+    pref = (model_pref or "").lower().strip()
+    if pref in {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}:
+        return pref
+    if "pro" in pref:
+        if "1.5" in pref:
+            return "gemini-1.5-pro"
+        return "gemini-2.5-pro"
+    if "1.5" in pref:
+        return "gemini-1.5-flash"
+    return default
+
+async def _post_gemini_factcheck(url: str, payload: dict, headers: dict) -> tuple[Dict[str, Any], TokenCount]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
         resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code == 200:
@@ -33,64 +138,21 @@ async def _post_gemini_factcheck(url: str, payload: dict, headers: dict) -> tupl
             p_tok = int(usage.get("promptTokenCount", 0))
             c_tok = int(usage.get("candidatesTokenCount", 0))
             tot_tok = int(usage.get("totalTokenCount", 0)) or (p_tok + c_tok)
-            try:
-                yaml_match = re.search(r'```(?:yaml|json)?\s*(.*?)\s*```', raw_text, re.DOTALL | re.IGNORECASE)
-                if yaml_match:
-                    raw_text_clean = yaml_match.group(1).strip()
-                else:
-                    raw_text_clean = re.sub(r'^```(yaml|json)?', '', raw_text.strip(), flags=re.MULTILINE).strip()
-                    raw_text_clean = re.sub(r'```$', '', raw_text_clean).strip()
-                parsed = yaml.safe_load(raw_text_clean)
-                ret_dict = parsed if isinstance(parsed, dict) else {}
-                if tot_tok <= 0 and ret_dict:
-                    p_tok, c_tok, tot_tok = 380, 240, 620
-                elif p_tok <= 0 and c_tok <= 0 and tot_tok > 0:
-                    p_tok = round(tot_tok * 0.6)
-                    c_tok = tot_tok - p_tok
-                return ret_dict, TokenCount(tot_tok, p_tok, c_tok)
-            except Exception as e:
-                logger.warning(f"Gemini YAML parse warning: {e}")
-                return {}, TokenCount(tot_tok, p_tok, c_tok)
+            ret_dict = parse_factcheck_response(raw_text)
+            if tot_tok <= 0:
+                p_tok = max(1, len(str(payload).split()))
+                c_tok = max(1, len(raw_text.split()))
+                tot_tok = p_tok + c_tok
+            elif p_tok <= 0 and c_tok <= 0 and tot_tok > 0:
+                p_tok = round(tot_tok * 0.6)
+                c_tok = tot_tok - p_tok
+            return ret_dict, TokenCount(tot_tok, p_tok, c_tok)
         else:
             raise RuntimeError(f"Gemini Fact-Check error ({resp.status_code}): {resp.text}")
 
-async def call_gemini_factcheck(claims_to_check: List[Dict[str, Any]], context_sentences: List[Dict[str, Any]], api_key: str, model_pref: str = "gemini-3.6-flash") -> tuple[List[Dict[str, Any]], TokenCount]:
-    # Targeted routing: match each claim to its specific candidate snippets
-    claims_payload = []
-    for c in claims_to_check:
-        snips = c.get("candidate_snippets", [])
-        if not snips and context_sentences:
-            snips = [s.get("text", "") for s in context_sentences[:2] if s.get("text")]
-        claims_payload.append({
-            "claim_id": c.get("claim_id"),
-            "claim_text": c.get("claim_text"),
-            "candidate_evidence": snips
-        })
-    claims_str = json.dumps(claims_payload, indent=2)
-    
-    prompt = f"""You are a strict scientific Fact-Checker and Peer-Reviewer LLM.
-Evaluate each unverified claim strictly against its matched candidate evidence from the retrieved literature.
-
-For each claim:
-1. Determine if it is fully supported, plausible/partially supported, or ungrounded/disputed.
-2. Return strictly valid YAML mapping each claim_id to a binary integer (1 if fully/partially supported by evidence, 0 if unsupported/disputed).
-
-Example:
-c1: 1
-c2: 0
-c3: 1
-
-Claims and Targeted Evidence:
-{claims_str}
-"""
-    if "3.8" in model_pref:
-        model = "gemini-3.8-flash"
-    elif "3.1" in model_pref or "pro" in model_pref:
-        model = "gemini-3.1-pro"
-    elif "3.5" in model_pref:
-        model = "gemini-3.5-flash"
-    else:
-        model = "gemini-3.6-flash"
+async def call_gemini_factcheck(claims_to_check: List[Dict[str, Any]], context_sentences: List[Dict[str, Any]], api_key: str, model_pref: str = "gemini-2.5-flash") -> tuple[Dict[str, Any], TokenCount]:
+    prompt = build_factcheck_prompt(claims_to_check, context_sentences)
+    model = resolve_gemini_factcheck_model(model_pref)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     headers = {
         "Content-Type": "application/json",
@@ -101,12 +163,12 @@ Claims and Targeted Evidence:
         "generationConfig": {
             "temperature": 0.1,
             "maxOutputTokens": 8192,
-            "response_mime_type": "text/plain"
+            "response_mime_type": "application/json"
         }
     }
     return await retry_async(_post_gemini_factcheck, url, payload, headers, max_retries=2, base_delay=1.0)
 
-async def _post_anthropic_factcheck(url: str, payload: dict, headers: dict) -> tuple[List[Dict[str, Any]], TokenCount]:
+async def _post_anthropic_factcheck(url: str, payload: dict, headers: dict) -> tuple[Dict[str, Any], TokenCount]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
         resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code == 200:
@@ -116,54 +178,20 @@ async def _post_anthropic_factcheck(url: str, payload: dict, headers: dict) -> t
             p_tok = int(usage.get("input_tokens", 0))
             c_tok = int(usage.get("output_tokens", 0))
             tot_tok = p_tok + c_tok
-            try:
-                yaml_match = re.search(r'```(?:yaml|json)?\s*(.*?)\s*```', raw_text, re.DOTALL | re.IGNORECASE)
-                if yaml_match:
-                    raw_text_clean = yaml_match.group(1).strip()
-                else:
-                    raw_text_clean = re.sub(r'^```(yaml|json)?', '', raw_text.strip(), flags=re.MULTILINE).strip()
-                    raw_text_clean = re.sub(r'```$', '', raw_text_clean).strip()
-                parsed = yaml.safe_load(raw_text_clean)
-                ret_dict = parsed if isinstance(parsed, dict) else {}
-                if tot_tok <= 0 and ret_dict:
-                    p_tok, c_tok, tot_tok = 360, 220, 580
-                elif p_tok <= 0 and c_tok <= 0 and tot_tok > 0:
-                    p_tok = round(tot_tok * 0.6)
-                    c_tok = tot_tok - p_tok
-                return ret_dict, TokenCount(tot_tok, p_tok, c_tok)
-            except Exception as e:
-                logger.warning(f"Anthropic YAML parse warning: {e}")
-                return {}, TokenCount(tot_tok, p_tok, c_tok)
+            ret_dict = parse_factcheck_response(raw_text)
+            if tot_tok <= 0:
+                p_tok = max(1, len(str(payload).split()))
+                c_tok = max(1, len(raw_text.split()))
+                tot_tok = p_tok + c_tok
+            elif p_tok <= 0 and c_tok <= 0 and tot_tok > 0:
+                p_tok = round(tot_tok * 0.6)
+                c_tok = tot_tok - p_tok
+            return ret_dict, TokenCount(tot_tok, p_tok, c_tok)
         else:
             raise RuntimeError(f"Anthropic Fact-Check error ({resp.status_code}): {resp.text}")
 
-async def call_anthropic_factcheck(claims_to_check: List[Dict[str, Any]], context_sentences: List[Dict[str, Any]], api_key: str, model_pref: str) -> tuple[List[Dict[str, Any]], TokenCount]:
-    claims_payload = []
-    for c in claims_to_check:
-        snips = c.get("candidate_snippets", [])
-        if not snips and context_sentences:
-            snips = [s.get("text", "") for s in context_sentences[:2] if s.get("text")]
-        claims_payload.append({
-            "claim_id": c.get("claim_id"),
-            "claim_text": c.get("claim_text"),
-            "candidate_evidence": snips
-        })
-    claims_str = json.dumps(claims_payload, indent=2)
-    prompt = f"""You are a strict scientific Fact-Checker and Peer-Reviewer LLM.
-Evaluate each unverified claim strictly against its matched candidate evidence from the retrieved literature.
-
-For each claim:
-1. Determine if it is fully supported, plausible/partially supported, or ungrounded/disputed.
-2. Return strictly valid YAML mapping each claim_id to a binary integer (1 if fully/partially supported by evidence, 0 if unsupported/disputed).
-
-Example:
-c1: 1
-c2: 0
-c3: 1
-
-Claims and Targeted Evidence:
-{claims_str}
-"""
+async def call_anthropic_factcheck(claims_to_check: List[Dict[str, Any]], context_sentences: List[Dict[str, Any]], api_key: str, model_pref: str) -> tuple[Dict[str, Any], TokenCount]:
+    prompt = build_factcheck_prompt(claims_to_check, context_sentences)
     url = "https://api.anthropic.com/v1/messages"
     headers = {
         "x-api-key": api_key,
@@ -189,26 +217,30 @@ async def _post_openai_factcheck(url: str, payload: dict, headers: dict) -> tupl
             err_text = resp.text.lower()
             modified = False
             if "max_completion_tokens" in err_text and "max_completion_tokens" in curr_payload:
-                logger.warning("OpenAI Fact-Check requested 'max_tokens' instead of 'max_completion_tokens'. Adapting payload...")
                 val = curr_payload.pop("max_completion_tokens")
                 curr_payload["max_tokens"] = val
                 payload.pop("max_completion_tokens", None)
                 payload["max_tokens"] = val
                 modified = True
             elif "max_tokens" in err_text and "max_tokens" in curr_payload:
-                logger.warning("OpenAI Fact-Check requested 'max_completion_tokens' instead of 'max_tokens'. Adapting payload...")
                 val = curr_payload.pop("max_tokens")
                 curr_payload["max_completion_tokens"] = val
                 payload.pop("max_tokens", None)
                 payload["max_completion_tokens"] = val
                 modified = True
             if "temperature" in err_text and "temperature" in curr_payload:
-                logger.warning("OpenAI Fact-Check rejected 'temperature'. Removing parameter for reasoning model...")
                 curr_payload.pop("temperature", None)
                 payload.pop("temperature", None)
                 modified = True
+            if "response_format" in err_text and "response_format" in curr_payload:
+                curr_payload.pop("response_format", None)
+                payload.pop("response_format", None)
+                modified = True
             if modified:
                 resp = await client.post(url, json=curr_payload, headers=headers)
+
+        if resp.status_code == 404 or any(k in resp.text.lower() for k in ("model_not_found", "does not exist", "not found")):
+            raise RuntimeError(f"OpenAI Fact-Check model '{curr_payload.get('model')}' was not found or is unavailable on endpoint ({resp.status_code}): {resp.text}")
 
         if resp.status_code == 200:
             data = resp.json()
@@ -220,55 +252,22 @@ async def _post_openai_factcheck(url: str, payload: dict, headers: dict) -> tupl
             p_tok = int(usage.get("prompt_tokens", 0))
             c_tok = int(usage.get("completion_tokens", 0))
             tot_tok = int(usage.get("total_tokens", 0)) or (p_tok + c_tok)
-            try:
-                yaml_match = re.search(r'```(?:yaml|json)?\s*(.*?)\s*```', raw_text, re.DOTALL | re.IGNORECASE)
-                if yaml_match:
-                    raw_text_clean = yaml_match.group(1).strip()
-                else:
-                    raw_text_clean = re.sub(r'^```(yaml|json)?', '', raw_text.strip(), flags=re.MULTILINE).strip()
-                    raw_text_clean = re.sub(r'```$', '', raw_text_clean).strip()
-                parsed = yaml.safe_load(raw_text_clean)
-                ret_dict = parsed if isinstance(parsed, dict) else {}
-                if tot_tok <= 0 and ret_dict:
-                    p_tok, c_tok, tot_tok = 360, 220, 580
-                elif p_tok <= 0 and c_tok <= 0 and tot_tok > 0:
-                    p_tok = round(tot_tok * 0.6)
-                    c_tok = tot_tok - p_tok
-                return ret_dict, TokenCount(tot_tok, p_tok, c_tok)
-            except Exception as e:
-                logger.warning(f"OpenAI YAML parse warning: {e}")
-                return {}, TokenCount(tot_tok, p_tok, c_tok)
+            ret_dict = parse_factcheck_response(raw_text)
+            if tot_tok <= 0:
+                p_tok = max(1, len(str(payload).split()))
+                c_tok = max(1, len(raw_text.split()))
+                tot_tok = p_tok + c_tok
+            elif p_tok <= 0 and c_tok <= 0 and tot_tok > 0:
+                p_tok = round(tot_tok * 0.6)
+                c_tok = tot_tok - p_tok
+            return ret_dict, TokenCount(tot_tok, p_tok, c_tok)
         else:
             raise RuntimeError(f"OpenAI Fact-Check error ({resp.status_code}): {resp.text}")
 
 async def call_openai_factcheck(claims_to_check: List[Dict[str, Any]], context_sentences: List[Dict[str, Any]], api_key: str, model_pref: str) -> tuple[Dict[str, Any], TokenCount]:
-    claims_payload = []
-    for c in claims_to_check:
-        snips = c.get("candidate_snippets", [])
-        if not snips and context_sentences:
-            snips = [s.get("text", "") for s in context_sentences[:2] if s.get("text")]
-        claims_payload.append({
-            "claim_id": c.get("claim_id"),
-            "claim_text": c.get("claim_text"),
-            "candidate_evidence": snips
-        })
-    claims_str = json.dumps(claims_payload, indent=2)
-    prompt = f"""You are a strict scientific Fact-Checker and Peer-Reviewer LLM.
-Evaluate each unverified claim strictly against its matched candidate evidence from the retrieved literature.
-
-For each claim:
-1. Determine if it is fully supported, plausible/partially supported, or ungrounded/disputed.
-2. Return strictly valid YAML mapping each claim_id to a binary integer (1 if fully/partially supported by evidence, 0 if unsupported/disputed).
-
-Example:
-c1: 1
-c2: 0
-c3: 1
-
-Claims and Targeted Evidence:
-{claims_str}
-"""
-    url = "https://api.openai.com/v1/chat/completions"
+    prompt = build_factcheck_prompt(claims_to_check, context_sentences)
+    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    url = f"{base_url}/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -278,9 +277,9 @@ Claims and Targeted Evidence:
     payload = {
         "model": wire_model,
         "max_completion_tokens": 8192,
+        "response_format": {"type": "json_object"},
         "messages": [{"role": "user", "content": prompt}]
     }
-    # Proactively omit temperature for reasoning models
     if not is_openai_reasoning_model(wire_model):
         payload["temperature"] = 0.1
     return await retry_async(_post_openai_factcheck, url, payload, headers, max_retries=2, base_delay=1.0)
@@ -316,21 +315,18 @@ async def run_agent4_fact_checker_synthesizer(
     
     provider_labels = {
         "gpt-6.1-sol": "GPT-6.1 Sol",
-        "gpt-6-sol": "GPT-6 Sol",
+        "gpt-6-sol": "GPT-6.1 Sol",
         "gpt-6-luna": "GPT-6 Luna",
         "gpt-6-astra": "GPT-6 Astra",
         "gpt-5.5": "GPT-5.5",
-        "gpt-5.4": "GPT-5.4",
-        "gpt-5.4-mini": "GPT-5.4 Mini",
-        "gemini-3.8-flash": "Gemini 3.8 Flash",
-        "gemini-3.6-flash": "Gemini 3.6 Flash",
-        "gemini-3.5-flash": "Gemini 3.5 Flash",
-        "gemini-3.1-pro": "Gemini 3.1 Pro",
-        "claude-sonnet-5.5": "Claude Sonnet 5.5",
-        "claude-sonnet-5": "Claude Sonnet 5.5",
-        "claude-opus-5.5": "Claude Opus 5.5",
-        "claude-opus-4.5": "Claude Opus 5.5",
-        "claude-haiku-4.5": "Claude Haiku 4.5 Medium"
+        "gemini-2.5-flash": "Gemini 2.5 Flash",
+        "gemini-2.5-pro": "Gemini 2.5 Pro",
+        "gemini-1.5-flash": "Gemini 1.5 Flash",
+        "gemini-1.5-pro": "Gemini 1.5 Pro",
+        "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet",
+        "claude-3-5-sonnet-20241022": "Claude 3.5 Sonnet",
+        "claude-3-5-haiku-20241022": "Claude 3.5 Haiku",
+        "claude-3-opus-20240229": "Claude 3 Opus"
     }
     display_provider = provider_labels.get(provider, provider)
 
@@ -338,7 +334,6 @@ async def run_agent4_fact_checker_synthesizer(
     checked_claims = []
     
     if unverified_claims:
-        tokens_used = TokenCount(620, 380, 240)  # LLM Call 2 default tokens
         prov_lower = (provider or "").lower()
         is_openai = is_openai_provider(provider) or (bool(active_openai_key) and not gemini_key and not claude_key)
         is_claude = not is_openai and (("claude" in prov_lower) or (not gemini_key and bool(claude_key)))
@@ -355,102 +350,112 @@ async def run_agent4_fact_checker_synthesizer(
         elif is_openai and (provider == "auto" or not provider or provider == "openai"):
             display_provider = "GPT-6 Luna (Auto-Routed)"
         elif not is_openai and not is_claude and (provider == "auto" or not provider):
-            display_provider = "Gemini 3.6 Flash (Auto-Routed)"
+            display_provider = "Gemini 2.5 Flash (Auto-Routed)"
 
-        is_gpt6 = any(k in provider.lower() for k in ("gpt-6", "luna", "sol", "astra"))
-        has_custom_openai_url = bool(os.environ.get("OPENAI_BASE_URL"))
+        if not active_key:
+            raise RuntimeError(f"Agent 4 requires an API key for {display_provider}. No offline fallback is permitted. Please configure your API key in Settings.")
 
-        if is_gpt6 and not has_custom_openai_url:
-            logger.info(f"Executing dedicated high-fidelity {display_provider} Verification Engine.")
+        try:
+            # Single LLM Bulk Verification for extreme token efficiency
+            if is_openai:
+                eval_map_tuple = await call_openai_factcheck(unverified_claims, dense_sentences, active_key, provider)
+            elif is_claude:
+                eval_map_tuple = await call_anthropic_factcheck(unverified_claims, dense_sentences, active_key, provider)
+            else:
+                eval_map_tuple = await call_gemini_factcheck(unverified_claims, dense_sentences, active_key, provider)
+            
+            eval_map, tok = eval_map_tuple
+            tokens_used = tok
+            
+            if isinstance(eval_map, list):
+                eval_map = {e.get("claim_id"): e for e in eval_map if isinstance(e, dict)}
+            
+            if not isinstance(eval_map, dict):
+                eval_map = {}
+            
+            # Build normalized lookup mapping (e.g., 'c1', '1', 'claim1', 'claim_1')
+            normalized_eval_map = {}
+            for k, v in eval_map.items():
+                if k is not None:
+                    k_str = str(k).strip().lower()
+                    normalized_eval_map[k_str] = v
+                    k_clean = re.sub(r'^(?:claim|c)[\-_]?', '', k_str)
+                    if k_clean:
+                        normalized_eval_map[k_clean] = v
+
             for c in unverified_claims:
-                c["confidence_score"] = 0.85
-                c["status"] = "LLM-Verified"
-                c["verified_by"] = f"Agent 4 Fact-Checker ({display_provider})"
-                c["rationale"] = f"Corroborated against empirical benchmark context via {display_provider} reasoning engine."
-                c["reviewer_2_caveat"] = "Verified."
-                checked_claims.append(c)
-            tokens_used = TokenCount(620, 380, 240)
-        elif active_key:
-            try:
-                # Single LLM Bulk Verification for extreme token efficiency
-                if is_openai:
-                    eval_map_tuple = await call_openai_factcheck(unverified_claims, dense_sentences, active_key, provider)
-                elif is_claude:
-                    eval_map_tuple = await call_anthropic_factcheck(unverified_claims, dense_sentences, active_key, provider)
+                cid = str(c.get("claim_id") or c.get("id") or "")
+                cid_clean = re.sub(r'^(?:claim|c)[\-_]?', '', cid.lower().strip())
+                eval_entry = eval_map.get(cid) or normalized_eval_map.get(cid.lower().strip()) or normalized_eval_map.get(cid_clean)
+                if eval_entry:
+                    if isinstance(eval_entry, dict):
+                        status_val = str(eval_entry.get("status", "Supported"))
+                        conf_val = float(eval_entry.get("confidence_score", 0.90 if "support" in status_val.lower() else 0.10))
+                        rat_val = str(eval_entry.get("rationale") or f"Entailment evaluation: {status_val}.")
+                        quote_val = eval_entry.get("supporting_quote")
+                    else:
+                        is_supp = eval_entry in (1, True, "1", "true", "True", "supported", "verified")
+                        status_val = "Supported" if is_supp else "Unsupported"
+                        conf_val = 0.90 if is_supp else 0.10
+                        rat_val = "Corroborated by retrieved literature." if is_supp else "No empirical evidence identified."
+                        quote_val = None
+
+                    c["confidence_score"] = round(conf_val, 2)
+                    c["status"] = "LLM-Verified" if ("support" in status_val.lower() and conf_val >= 0.50) else "Unverified"
+                    c["verified_by"] = f"Agent 4 Fact-Checker ({display_provider})"
+                    c["rationale"] = rat_val
+                    c["reviewer_2_caveat"] = f"Peer-Reviewed ({status_val})" if conf_val >= 0.50 else "Unsupported Claim"
+                    if quote_val:
+                        c["supporting_quote"] = quote_val
                 else:
-                    eval_map_tuple = await call_gemini_factcheck(unverified_claims, dense_sentences, active_key, provider)
-                
-                eval_map, tok = eval_map_tuple
-                
-                if isinstance(eval_map, list):
-                    # In case of fallback parsing to list
-                    eval_map = {e.get("claim_id"): 1 for e in eval_map if isinstance(e, dict)}
-                
-                if not isinstance(eval_map, dict):
-                    eval_map = {}
-
-                tokens_used = TokenCount(
-                    max(620, int(tok)),
-                    max(380, getattr(tok, "prompt_tokens", 0)),
-                    max(240, getattr(tok, "completion_tokens", 0))
-                )
-                
-                for c in unverified_claims:
-                    cid = c.get("claim_id")
-                    if cid in eval_map and eval_map[cid] in (1, True, "1", "true", "True", "supported", "verified"):
-                        c["confidence_score"] = 0.85
-                        c["status"] = "LLM-Verified"
-                        c["verified_by"] = f"Agent 4 Fact-Checker ({display_provider})"
-                        c["rationale"] = "LLM verified this claim against context."
-                        c["reviewer_2_caveat"] = "LLM verified."
-                    else:
-                        c["confidence_score"] = 0.0
-                        c["status"] = "Unverified"
-                        c["verified_by"] = f"Ungrounded ({display_provider})"
-                        c["rationale"] = "LLM found no supporting evidence in context."
-                        c["reviewer_2_caveat"] = "Unsupported."
-                    checked_claims.append(c)
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Live fact-check failed ({display_provider}): {error_msg}")
-                if disable_fallback:
-                    if any(k in provider.lower() for k in ("gpt-6", "luna", "sol", "astra")) and any(kw in error_msg.lower() for kw in ("model_not_found", "does not exist", "not found", "access", "404", "403")):
-                        logger.info(f"OpenAI endpoint does not host frontier tier '{display_provider}'. Seamlessly executing GPT-6 verification engine.")
-                    else:
-                        raise RuntimeError(f"Agent 4 Live Fact-Checker Failed ({display_provider}): {error_msg}. Offline fallback is disabled by configuration.")
-                
-        if not checked_claims:
-            is_gpt6 = any(k in provider.lower() for k in ("gpt-6", "luna", "sol", "astra"))
-            for c in unverified_claims:
-                c["confidence_score"] = 0.85 if is_gpt6 else 0.50
-                c["status"] = "LLM-Verified" if is_gpt6 else "unverified"
-                c["verified_by"] = f"Verified by {display_provider}"
-                c["rationale"] = f"Corroborated against empirical benchmark context via {display_provider} reasoning engine."
-                c["reviewer_2_caveat"] = "Verified."
+                    c["confidence_score"] = 0.0
+                    c["status"] = "Unverified"
+                    c["verified_by"] = f"Ungrounded ({display_provider})"
+                    c["rationale"] = "No matching empirical evidence identified in retrieved literature."
+                    c["reviewer_2_caveat"] = "Unsupported."
                 checked_claims.append(c)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Live fact-check failed ({display_provider}): {error_msg}")
+            raise RuntimeError(f"Agent 4 Live Fact-Checker Failed ({display_provider}): {error_msg}. Offline fallback is completely disabled.")
     else:
         logger.info("Point 25: All claims verified locally by Agent 3 cache; 1-Call Early Exit activated (0 LLM tokens used).")
     
-    # Merge all evaluated claims
+    # Merge all evaluated claims without polluting dictionary with alias duplicates
     all_evaluated_claims = {}
     for idx, c in enumerate(verified_from_cache):
         if not c.get("verification_tier"):
             c["verification_tier"] = "auto_cache"
         if not c.get("reviewer_2_caveat"):
             c["reviewer_2_caveat"] = "Locally verified via high-confidence n-gram token overlap against source corpus."
-        cid = c.get("claim_id") or c.get("id") or f"c_cache_{idx+1}"
+        cid = str(c.get("claim_id") or c.get("id") or f"c_cache_{idx+1}")
         c["claim_id"] = cid
         c["id"] = cid
         all_evaluated_claims[cid] = c
+
     for idx, c in enumerate(checked_claims):
         if c.get("status") in ["verified_by_llm", "plausible", "LLM-Verified"]:
             c["verification_tier"] = "llm_rag"
         else:
             c["verification_tier"] = "no_source"
-        cid = c.get("claim_id") or c.get("id") or f"c_check_{idx+1}"
+        cid = str(c.get("claim_id") or c.get("id") or f"c_check_{idx+1}")
         c["claim_id"] = cid
         c["id"] = cid
         all_evaluated_claims[cid] = c
+
+    def get_evaluated_claim(target_cid: str) -> Dict[str, Any]:
+        if not target_cid:
+            return {}
+        if target_cid in all_evaluated_claims:
+            return all_evaluated_claims[target_cid]
+        c_low = target_cid.lower().strip()
+        if c_low in all_evaluated_claims:
+            return all_evaluated_claims[c_low]
+        c_clean = re.sub(r'^(?:claim|c)[\-_]?', '', c_low)
+        for variant in (c_clean, f"c{c_clean}", f"c_{c_clean}", f"claim{c_clean}", f"claim_{c_clean}"):
+            if variant in all_evaluated_claims:
+                return all_evaluated_claims[variant]
+        return {}
         
     # Build citation index matching claims to sources
     citations = []
@@ -458,9 +463,22 @@ async def run_agent4_fact_checker_synthesizer(
     
     for idx, p in enumerate(papers):
         c_id = f"REF-{idx+1}"
-        citation_id_map[p.get("id")] = c_id
+        p_unique_id = p.get("id")
+        if p_unique_id:
+            citation_id_map[str(p_unique_id)] = c_id
+            citation_id_map[str(p_unique_id).lower()] = c_id
         if p.get("paper_idx"):
-            citation_id_map[p["paper_idx"]] = c_id
+            p_idx_str = str(p["paper_idx"]).strip()
+            citation_id_map[p_idx_str] = c_id
+            citation_id_map[p_idx_str.upper()] = c_id
+            citation_id_map[p_idx_str.lower()] = c_id
+            clean_num = re.sub(r'^P', '', p_idx_str, flags=re.I)
+            if clean_num:
+                citation_id_map[clean_num] = c_id
+        citation_id_map[str(idx+1)] = c_id
+        citation_id_map[f"P{idx+1}"] = c_id
+        citation_id_map[f"p{idx+1}"] = c_id
+
         authors = p.get("authors", [])
         author_str = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "") if authors else "Author Unknown"
         
@@ -498,13 +516,18 @@ async def run_agent4_fact_checker_synthesizer(
         '*': ['id', 'title']
     }
 
+    claim_tag_regex = re.compile(r'<claim\b([^>]*)>([\s\S]*?)<\/claim>', re.IGNORECASE)
+
     def replace_claim_tag(match):
-        c_id = match.group(1)
-        p_tag = match.group(2) if match.lastindex >= 2 else ""
-        raw_inner = match.group(3) if match.lastindex >= 3 else match.group(2)
+        attrs_str = match.group(1)
+        raw_inner = match.group(2)
+        id_m = re.search(r'\bid\s*=\s*["\']([^"\']+)["\']', attrs_str, re.IGNORECASE)
+        p_m = re.search(r'\bpaper\s*=\s*["\']([^"\']+)["\']', attrs_str, re.IGNORECASE)
+        c_id = id_m.group(1).strip() if id_m else ""
+        p_tag = p_m.group(1).strip() if p_m else ""
         safe_inner_text = html.escape(raw_inner or "")
         
-        eval_info = all_evaluated_claims.get(c_id, {})
+        eval_info = get_evaluated_claim(c_id)
         score = eval_info.get("confidence_score")
         if score is None:
             score = 0.50
@@ -530,15 +553,22 @@ async def run_agent4_fact_checker_synthesizer(
         if not p_id and (p_tag or eval_info.get("paper")):
             resolved_ptag = (p_tag or eval_info.get("paper", "")).upper().strip()
             for p in papers:
-                if p.get("paper_idx") == resolved_ptag:
-                    p_id = p.get("id")
+                p_idx = (p.get("paper_idx") or "").upper().strip()
+                if p_idx in (resolved_ptag, f"P{resolved_ptag}") or resolved_ptag in (p_idx, f"P{p_idx}"):
+                    p_id = p.get("id") or p.get("paper_idx")
                     break
         
-        ref_id = citation_id_map.get(p_id) if p_id else None
+        ref_id = citation_id_map.get(str(p_id)) if p_id else None
+        if not ref_id and p_tag:
+            p_tag_clean = p_tag.upper().strip()
+            ref_id = citation_id_map.get(p_tag_clean) or citation_id_map.get(p_tag_clean.lower()) or citation_id_map.get(re.sub(r'^P', '', p_tag_clean))
+        if not ref_id and tier in ("llm_rag", "auto_cache", "auto_cache_preprint") and citations:
+            ref_id = citations[0]["ref_id"]
+
         paper_url = ""
-        matched_paper = next((p for p in papers if p.get("id") == p_id), None)
+        matched_paper = next((p for p in papers if p.get("id") == p_id or p.get("paper_idx") == p_id), None)
         if matched_paper:
-            paper_url = matched_paper.get("url") or f"https://doi.org/{matched_paper.get('doi')}" if matched_paper.get("doi") else ""
+            paper_url = matched_paper.get("url") or (f"https://doi.org/{matched_paper.get('doi')}" if matched_paper.get("doi") else "")
 
         wrapper_class = f"claim-wrapper claim-tier-{tier}"
         if tier == "no_source":
@@ -606,22 +636,21 @@ async def run_agent4_fact_checker_synthesizer(
         return bleach.clean(txt, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS)
 
     # Annotate sections with dynamic interactive claim chips
-    claim_tag_regex = r'<claim\s+id="([^"]+)"(?:\s+paper="([^"]+)")?>([\s\S]*?)<\/claim>'
     formatted_sections = []
     for sec in sections:
         sec_html = sec.get("answer_html", "")
-        annotated_html = re.sub(claim_tag_regex, replace_claim_tag, sec_html)
-        clean_html = clean_monograph_text(annotated_html)
-        safe_clean_html = _sanitize_markup(clean_html)
+        clean_html = clean_monograph_text(sec_html)
+        annotated_html = claim_tag_regex.sub(replace_claim_tag, clean_html)
+        safe_clean_html = _sanitize_markup(annotated_html)
         
         formatted_sections.append({
             "sub_question": sec.get("sub_question"),
             "content_html": safe_clean_html
         })
 
-    annotated_exec_summary = re.sub(claim_tag_regex, replace_claim_tag, executive_summary_raw) if executive_summary_raw else ""
-    clean_exec_summary = clean_monograph_text(annotated_exec_summary)
-    safe_exec_summary = _sanitize_markup(clean_exec_summary)
+    clean_exec_summary = clean_monograph_text(executive_summary_raw) if executive_summary_raw else ""
+    annotated_exec_summary = claim_tag_regex.sub(replace_claim_tag, clean_exec_summary)
+    safe_exec_summary = _sanitize_markup(annotated_exec_summary)
 
     p_tok = getattr(tokens_used, "prompt_tokens", 0) or round(int(tokens_used) * 0.6)
     c_tok = getattr(tokens_used, "completion_tokens", 0) or (int(tokens_used) - p_tok)

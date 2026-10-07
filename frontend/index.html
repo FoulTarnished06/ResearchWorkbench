@@ -190,26 +190,23 @@
           <div class="form-group">
             <label>Drafting Model Provider</label>
             <select id="cfg-agent2-model" class="custom-select">
-              <optgroup label="OpenAI GPT-6 Series">
-                <option value="gpt-6.1-sol">GPT-6.1 Sol (Flagship SOTA)</option>
-                <option value="gpt-6-luna">GPT-6 Luna (Ultra-Low Cost)</option>
+              <optgroup label="OpenAI (Strict Allowed Models)">
+                <option value="gpt-6.1-sol" selected>GPT-6.1 Sol (Flagship SOTA)</option>
+                <option value="gpt-6-luna">GPT-6 Luna (Ultra-Fast Monograph)</option>
                 <option value="gpt-6-astra">GPT-6 Astra (Max Reasoning)</option>
-              </optgroup>
-              <optgroup label="OpenAI GPT-5 Series">
                 <option value="gpt-5.5">GPT-5.5 (Deep Reasoning)</option>
-                <option value="gpt-5.4">GPT-5.4 (Core Workhorse)</option>
-                <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast &amp; Cheap)</option>
               </optgroup>
               <optgroup label="Google Gemini">
-                <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
-                <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (Recommended)</option>
-                <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
               </optgroup>
               <optgroup label="Anthropic Claude">
-                <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
-                <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
-                <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+                <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Reasoning)</option>
+                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
+                <option value="claude-3-opus">Claude 3 Opus</option>
               </optgroup>
             </select>
           </div>
@@ -227,26 +224,23 @@
           <div class="form-group">
             <label>Fact-Checker Model</label>
             <select id="cfg-agent4-model" class="custom-select">
-              <optgroup label="OpenAI GPT-6 Series">
+              <optgroup label="OpenAI (Strict Allowed Models)">
                 <option value="gpt-6.1-sol">GPT-6.1 Sol (Flagship SOTA)</option>
-                <option value="gpt-6-luna">GPT-6 Luna (Ultra-Low Cost)</option>
+                <option value="gpt-6-luna" selected>GPT-6 Luna (Ultra-Fast Verifier)</option>
                 <option value="gpt-6-astra">GPT-6 Astra (Max Reasoning)</option>
-              </optgroup>
-              <optgroup label="OpenAI GPT-5 Series">
                 <option value="gpt-5.5">GPT-5.5 (Deep Reasoning)</option>
-                <option value="gpt-5.4">GPT-5.4 (Core Workhorse)</option>
-                <option value="gpt-5.4-mini">GPT-5.4 Mini (Fast &amp; Cheap)</option>
               </optgroup>
               <optgroup label="Google Gemini">
-                <option value="gemini-3.8-flash">Gemini 3.8 Flash (High Speed)</option>
-                <option value="gemini-3.6-flash" selected>Gemini 3.6 Flash (High Precision)</option>
-                <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning)</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash (High Speed Verifier)</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
               </optgroup>
               <optgroup label="Anthropic Claude">
-                <option value="claude-sonnet-5.5">Claude Sonnet 5.5</option>
-                <option value="claude-opus-5.5">Claude Opus 5.5 (Frontier)</option>
-                <option value="claude-haiku-4.5">Claude Haiku 4.5 Medium</option>
+                <option value="claude-3-7-sonnet">Claude 3.7 Sonnet</option>
+                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast Verifier)</option>
+                <option value="claude-3-opus">Claude 3 Opus</option>
               </optgroup>
             </select>
           </div>
@@ -1246,8 +1240,8 @@
                     <span class="m-val text-amber" id="m-agent2-complexity">Auto-scaling</span>
                   </div>
                   <div class="metric-row">
-                    <span class="m-label">Subtopics:</span>
-                    <span class="m-val mono" id="m-agent2-subq">0</span>
+                    <span class="m-label">Claims:</span>
+                    <span class="m-val mono" id="m-agent2-subq">0 Claims</span>
                   </div>
                   <div class="metric-row">
                     <span class="m-label">Token Usage:</span>
@@ -1255,7 +1249,7 @@
                   </div>
                   <div class="metric-row">
                     <span class="m-label">AI Model:</span>
-                    <span class="m-val text-cyan" id="m-agent2-model">Gemini 3.6 Flash</span>
+                    <span class="m-val text-cyan" id="m-agent2-model">GPT-6.1 Sol</span>
                   </div>
                 </div>
               </div>
@@ -1278,7 +1272,7 @@
                 </div>
                 <div class="node-title-group">
                   <div class="node-name">Agent 3: Context Cacher</div>
-                  <div class="node-sub">Local ONNX + MMR &amp; SQLite</div>
+                  <div class="node-sub">Subword Vector Index &amp; SQLite</div>
                 </div>
                 <div class="node-badge badge-idle" id="badge-agent3">Awaiting</div>
               </div>
@@ -1356,7 +1350,7 @@
                   </div>
                   <div class="metric-row">
                     <span class="m-label">Model:</span>
-                    <span class="m-val text-cyan" id="m-agent4-model">Gemini 3.6 Flash</span>
+                    <span class="m-val text-cyan" id="m-agent4-model">GPT-6 Luna</span>
                   </div>
                 </div>
               </div>
@@ -1535,6 +1529,18 @@
                 <span class="cit-count-badge" id="cit-total-count">0 Sources</span>
               </div>
               <p class="cit-help-text">Click any highlighted claim or citation card to inspect the verbatim excerpt matched in the SQLite context cache.</p>
+              <div class="dossier-upload-source-box" id="dossier-upload-source-box">
+                <input type="file" id="dossier-pdf-file-input" accept=".pdf" style="display:none;" />
+                <button type="button" class="btn-dossier-upload-source" id="btn-dossier-upload-source" title="Upload custom research PDF as a source for this dossier">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                  <span>+ Upload Custom Paper (PDF)</span>
+                </button>
+                <div class="dossier-upload-status" id="dossier-upload-status" style="display:none;"></div>
+              </div>
             </div>
 
             <div class="citations-list-container" id="citations-list-container">

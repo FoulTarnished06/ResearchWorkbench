@@ -9,7 +9,7 @@ import secrets
 import httpx
 from typing import Optional, Dict, Any, List
 
-from fastapi import FastAPI, Request, Response, Query, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, Request, Response, Query, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, RedirectResponse
@@ -36,6 +36,7 @@ from backend.agents.followup_synthesizer import run_followup_synthesis
 from backend.agents.dialogue_synthesizer import run_dialogue_turn
 from backend.database import (
     init_db, get_all_cached_papers, get_db_connection, clear_all_cache, get_cache_stats,
+    save_scraped_papers, save_cached_sentences, append_source_to_run,
     save_pdf_session, get_pdf_session, get_all_pdf_sessions, update_pdf_session_status,
     delete_pdf_session, save_pdf_file, update_pdf_file_status, save_pdf_chunks,
     save_pdf_figures, get_pdf_figures_by_session, save_pdf_references,
@@ -1067,6 +1068,155 @@ def cache_stats():
 def clear_cache():
     result = clear_all_cache()
     return {"status": "success", "cleared": result}
+
+# =========================================================
+# DOSSIER CUSTOM SOURCE UPLOAD ENDPOINT
+# =========================================================
+
+@app.post("/api/dossier/upload-source")
+@limiter.limit("20/minute")
+async def upload_dossier_source(
+    request: Request,
+    file: UploadFile = File(...),
+    run_id: Optional[str] = Form(None),
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
+):
+    """
+    Upload a custom research paper PDF directly into the Research Dossier as an authoritative source.
+    Extracts title, authors, abstract, benchmark excerpts, and dense context sentences.
+    Indexes the paper into scraped_papers and cached_sentences.
+    If run_id is provided, automatically appends the paper to the pipeline run's saved citations.
+    """
+    import datetime
+    import pymupdf as fitz
+
+    raw_name = os.path.basename(file.filename or "document.pdf")
+    safe_name = re.sub(r'[^\w\s\-.]', '_', raw_name).strip()
+    if not safe_name.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be a PDF document (.pdf).")
+
+    # Read bytes with memory bound (max 15MB)
+    MAX_SIZE = 15 * 1024 * 1024
+    content = await file.read(MAX_SIZE + 1)
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="PDF size exceeds 15MB limit.")
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
+
+    try:
+        doc = fitz.open(stream=content, filetype="pdf")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse PDF: {str(e)}")
+
+    try:
+        page_count = len(doc)
+        raw_meta = doc.metadata or {}
+        doc_title = (raw_meta.get("title") or "").strip()
+        doc_author = (raw_meta.get("author") or "").strip()
+
+        # Extract text from first 10 pages bounded to ~25,000 characters to prevent memory spikes
+        pages_text = []
+        max_pages = min(10, page_count)
+        for i in range(max_pages):
+            p_text = doc[i].get_text("text")
+            if p_text:
+                pages_text.append(p_text.strip())
+
+        full_extracted = "\n\n".join(pages_text)
+        if len(full_extracted) > 25000:
+            full_extracted = full_extracted[:25000]
+
+        # Extract or infer title if meta_title is missing or generic
+        if not doc_title or doc_title.lower() in ("untitled", "pdf", "microsoft word", "unknown"):
+            lines = [ln.strip() for ln in full_extracted.split("\n") if len(ln.strip()) > 5]
+            if lines:
+                doc_title = lines[0][:150]
+            else:
+                doc_title = safe_name.replace(".pdf", "").replace("_", " ")
+
+        # Extract abstract or page 1 lead
+        abstract_match = re.search(r'(?:abstract|summary)\s*[:\-\n]([\s\S]{50,1500}?)(?:\n\s*(?:1[\.\s]|introduction|keywords|index terms|background))', full_extracted, re.IGNORECASE)
+        if abstract_match:
+            abstract_text = re.sub(r'\s+', ' ', abstract_match.group(1)).strip()
+        else:
+            abstract_text = re.sub(r'\s+', ' ', full_extracted[:800]).strip()
+
+        # Split into dense sentences for context matching
+        raw_sentences = re.split(r'(?<=[.!?])\s+', full_extracted)
+        dense_sentences = []
+        for s in raw_sentences:
+            clean_s = re.sub(r'\s+', ' ', s).strip()
+            if 35 <= len(clean_s) <= 400 and not any(kw in clean_s.lower() for kw in ("http", "arxiv:", "all rights reserved", "downloaded from")):
+                dense_sentences.append(clean_s)
+                if len(dense_sentences) >= 25:
+                    break
+
+        paper_suffix = uuid.uuid4().hex[:4].upper()
+        paper_idx = f"P_USER_{paper_suffix}"
+        paper_id = f"upload_{uuid.uuid4().hex[:12]}"
+        year_val = datetime.datetime.now().year
+        authors_list = [doc_author] if doc_author else ["User Upload"]
+
+        citation = {
+            "id": paper_id,
+            "paper_id": paper_id,
+            "paper_idx": paper_idx,
+            "ref_id": paper_idx,
+            "title": doc_title,
+            "authors": authors_list,
+            "year": year_val,
+            "venue": "User Uploaded Source",
+            "url": "#",
+            "source": "User Upload",
+            "source_type": "User Uploaded Paper",
+            "provenance_tier": "user_upload",
+            "provenance_label": "User Uploaded Source",
+            "citation_count": 0,
+            "abstract": abstract_text[:1000],
+            "fulltext_excerpt": full_extracted[:5000],
+            "evidence": dense_sentences[0] if dense_sentences else (abstract_text[:250]),
+            "supporting_snippets": dense_sentences[:3],
+            "dense_sentences": [{"id": f"ds_{uuid.uuid4().hex[:8]}", "text": s, "paper_idx": paper_idx, "paper_id": paper_id} for s in dense_sentences]
+        }
+
+        # Index paper into database
+        db_paper_obj = {
+            "id": paper_id,
+            "paperId": paper_id,
+            "title": doc_title,
+            "authors": authors_list,
+            "year": year_val,
+            "abstract": abstract_text,
+            "url": "#",
+            "venue": "User Uploaded Source",
+            "citationCount": 0
+        }
+        active_query = "user_uploaded_source"
+        if run_id:
+            run_data = get_run_by_id(run_id)
+            if run_data:
+                active_query = run_data.get("query", active_query)
+
+        save_scraped_papers(active_query, [db_paper_obj])
+        db_sentences = [
+            {"id": f"s_{uuid.uuid4().hex[:12]}", "paper_id": paper_id, "text": s, "density_score": 0.95}
+            for s in dense_sentences
+        ]
+        if db_sentences:
+            save_cached_sentences(active_query, db_sentences)
+
+        # Update run history if run_id provided
+        if run_id:
+            append_source_to_run(run_id, citation)
+
+        return {
+            "status": "success",
+            "message": f"Successfully parsed and indexed '{doc_title}' as {paper_idx}.",
+            "citation": citation
+        }
+    finally:
+        doc.close()
+        del doc
 
 # =========================================================
 # V3: PDF DOCUMENT ANALYSIS ENDPOINTS

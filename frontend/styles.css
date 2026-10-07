@@ -5993,6 +5993,66 @@ body.theme-beige .dialogue-pill:hover {
   background: rgba(245, 158, 11, 0.15);
   border: 1px solid rgba(245, 158, 11, 0.35);
 }
+.cit-provenance-tag.provenance-user_upload {
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+
+.dossier-upload-source-box {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.btn-dossier-upload-source {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px dashed rgba(168, 85, 247, 0.45);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-dossier-upload-source:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.7);
+  color: #e9d5ff;
+}
+
+.btn-dossier-upload-source:active {
+  transform: scale(0.98);
+}
+
+.dossier-upload-status {
+  margin-top: 6px;
+  font-size: 0.76rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.dossier-upload-status.uploading {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.dossier-upload-status.success {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.1);
+}
+
+.dossier-upload-status.error {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
 
 
 
@@ -7929,5 +7989,146 @@ body.theme-beige .canvas-arch-pill.active[data-arch="system_c"] {
   font-weight: 700;
   box-shadow: 0 0 10px rgba(220, 38, 38, 0.25) !important;
 }
+
+/* =========================================================
+   PIPELINE FAILURE SCREEN & RETRY MODAL
+   ========================================================= */
+.pipeline-failure-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 14, 23, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pipeline-failure-card {
+  max-width: 580px;
+  width: 100%;
+  background: #111827;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 35px rgba(244, 63, 94, 0.15);
+  border-radius: 12px;
+  overflow: hidden;
+  color: #f1f5f9;
+}
+
+body.theme-beige .pipeline-failure-card {
+  background: #fdfbf7;
+  border-color: #f43f5e;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2), 0 0 35px rgba(244, 63, 94, 0.15);
+  color: #1e293b;
+}
+
+.pipeline-failure-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 24px 16px;
+  background: rgba(244, 63, 94, 0.1);
+  border-bottom: 1px solid rgba(244, 63, 94, 0.25);
+}
+
+.pipeline-failure-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(244, 63, 94, 0.18);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f43f5e;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.pipeline-failure-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f87171;
+}
+
+.pipeline-failure-sub {
+  margin: 3px 0 0;
+  font-size: 0.84rem;
+  color: #94a3b8;
+}
+
+.pipeline-failure-body {
+  padding: 20px 24px;
+}
+
+.pipeline-failure-msg {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+  margin: 0 0 14px 0;
+}
+
+body.theme-beige .pipeline-failure-msg {
+  color: #334155;
+}
+
+.pipeline-failure-trace {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #fca5a5;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  border-radius: 6px;
+  padding: 12px 14px;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 16px;
+}
+
+body.theme-beige .pipeline-failure-trace {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #fecdd3;
+}
+
+.pipeline-failure-notice {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid #f43f5e;
+  padding: 10px 14px;
+  border-radius: 0 6px 6px 0;
+}
+
+body.theme-beige .pipeline-failure-notice {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.pipeline-failure-actions {
+  display: flex;
+  gap: 10px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+  justify-content: flex-end;
+}
+
+body.theme-beige .pipeline-failure-actions {
+  border-top-color: #e2e8f0;
+  background: #f1f5f9;
+}
+
 
 

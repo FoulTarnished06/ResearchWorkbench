@@ -131,8 +131,9 @@ class PostgresCursorWrapper:
 
 class PostgresConnectionWrapper:
     """Wraps a psycopg2 connection to provide sqlite3-compatible cursor and transaction helpers."""
-    def __init__(self, raw_conn):
+    def __init__(self, raw_conn, pool=None):
         self._conn = raw_conn
+        self._pool = pool
 
     def cursor(self):
         return PostgresCursorWrapper(self._conn.cursor())
@@ -149,7 +150,16 @@ class PostgresConnectionWrapper:
         return self._conn.rollback()
 
     def close(self):
-        return self._conn.close()
+        if self._pool is not None:
+            try:
+                self._pool.putconn(self._conn)
+                return
+            except Exception:
+                pass
+        try:
+            return self._conn.close()
+        except Exception:
+            pass
 
     def __enter__(self):
         return self
@@ -159,44 +169,95 @@ class PostgresConnectionWrapper:
             self.rollback()
         else:
             self.commit()
+        self.close()
 
 class DatabaseEngine:
     """
     Pluggable database backend engine abstraction (STRAT-02).
     Defaults to high-performance WAL-mode SQLite with row factories and foreign key pragmas.
     Supports DATABASE_URL configuration for 100% free cloud databases (Neon, Supabase, Render, Aiven).
+    Features resilient connection pooling, 15s Neon serverless cold-start latency tolerance,
+    and automatic reconnection without sticky SQLite fallbacks.
     """
     def __init__(self, db_path: Optional[str] = None):
-        self.db_url = os.environ.get("DATABASE_URL", "")
+        self.db_url = os.environ.get("DATABASE_URL", "").strip()
         self.db_path = db_path or DB_PATH
-        self.fallback_to_sqlite = False
         self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
+        self._pool = None
+
+    def _normalize_db_url(self) -> str:
+        url = (os.environ.get("DATABASE_URL") or self.db_url).strip()
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        # Ensure sslmode=require for cloud-hosted Neon/AWS/Render databases
+        if any(h in url for h in ("neon.tech", "render.com", "amazonaws.com", "supabase.co")):
+            if "sslmode=" not in url:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}sslmode=require"
+        return url
+
+    def _get_sqlite_conn(self):
+        conn = sqlite3.connect(self.db_path, timeout=5.0)
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def connect(self):
-        if not self.fallback_to_sqlite:
-            self.db_url = os.environ.get("DATABASE_URL", self.db_url)
-            self.is_sqlite = not self.db_url.startswith(("postgres://", "postgresql://"))
-            
-        if self.is_sqlite or self.fallback_to_sqlite:
-            conn = sqlite3.connect(self.db_path, timeout=5.0)
-            conn.execute("PRAGMA foreign_keys = ON;")
-            conn.execute("PRAGMA synchronous = NORMAL;")
-            conn.row_factory = sqlite3.Row
-            return conn
-        else:
+        clean_url = self._normalize_db_url()
+        self.is_sqlite = not clean_url.startswith(("postgres://", "postgresql://"))
+        if self.is_sqlite:
+            return self._get_sqlite_conn()
+
+        # Strict PostgreSQL Neon connection: zero fallback to SQLite when DATABASE_URL is set!
+        # Accommodate Neon serverless scale-to-zero wake-up with exponential backoff retries (up to 15s)
+        import psycopg2
+        from psycopg2 import pool
+
+        last_err = None
+        backoffs = [0.5, 1.0, 2.0, 4.0]
+        for attempt in range(len(backoffs) + 1):
             try:
-                import psycopg2
-                conn = psycopg2.connect(self.db_url, connect_timeout=2, options="-c statement_timeout=3000")
-                return PostgresConnectionWrapper(conn)
-            except Exception as e:
-                logger.warning(f"Failed to connect to cloud database via DATABASE_URL: {e}; falling back to SQLite")
-                self.fallback_to_sqlite = True
-                self.is_sqlite = True
-                conn = sqlite3.connect(self.db_path, timeout=5.0)
-                conn.execute("PRAGMA foreign_keys = ON;")
-                conn.execute("PRAGMA synchronous = NORMAL;")
-                conn.row_factory = sqlite3.Row
-                return conn
+                # 1. Try pool if available
+                if self._pool is None:
+                    try:
+                        self._pool = pool.ThreadedConnectionPool(
+                            minconn=1,
+                            maxconn=10,
+                            dsn=clean_url,
+                            connect_timeout=10
+                        )
+                        logger.info("Initialized resilient PostgreSQL Neon ThreadedConnectionPool (15s cold-start budget).")
+                    except Exception as pool_init_err:
+                        logger.warning(f"ThreadedConnectionPool init: {pool_init_err}")
+
+                if self._pool is not None:
+                    try:
+                        raw_conn = self._pool.getconn()
+                        if raw_conn.closed:
+                            self._pool.putconn(raw_conn, close=True)
+                            raw_conn = self._pool.getconn()
+                        return PostgresConnectionWrapper(raw_conn, pool=self._pool)
+                    except Exception as pool_get_err:
+                        logger.warning(f"Postgres pool checkout warning: {pool_get_err}; attempting direct connect...")
+
+                # 2. Try direct connect
+                raw_conn = psycopg2.connect(clean_url, connect_timeout=10)
+                return PostgresConnectionWrapper(raw_conn)
+            except Exception as conn_err:
+                last_err = conn_err
+                if attempt < len(backoffs):
+                    delay = backoffs[attempt]
+                    logger.warning(f"Neon PostgreSQL connection attempt {attempt + 1} failed ({conn_err}). Retrying in {delay}s for serverless wake-up...")
+                    time.sleep(delay)
+                else:
+                    logger.error(f"Neon PostgreSQL connection completely failed after {len(backoffs) + 1} attempts: {conn_err}")
+
+        # Strict mandate: When DATABASE_URL is configured, DO NOT fall back to ephemeral SQLite!
+        raise RuntimeError(
+            f"PostgreSQL Neon database connection failed after retries: {last_err}. "
+            "DATABASE_URL is set but database is unreachable. Ensure the database endpoint is active."
+        )
 
 _DEFAULT_ENGINE = DatabaseEngine()
 
@@ -381,6 +442,15 @@ def init_db():
                         logger.warning(f"Note adding user_id to {tbl}: {e}")
             cursor.execute("INSERT INTO schema_version (version, description) VALUES (2, 'Add user authentication tables and user_id relations')")
 
+        # Ensure status column exists on pipeline_runs across all database engines
+        try:
+            if not _DEFAULT_ENGINE.is_sqlite:
+                cursor.execute("ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed'")
+            else:
+                cursor.execute("ALTER TABLE pipeline_runs ADD COLUMN status TEXT DEFAULT 'completed'")
+        except Exception:
+            pass
+
         # V3: Persistent PDF sessions (document library)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pdf_sessions (
@@ -529,6 +599,55 @@ def init_db():
     finally:
         conn.close()
 
+    # If running against PostgreSQL Neon, seamlessly sync local SQLite history if cloud table is fresh
+    if not _DEFAULT_ENGINE.is_sqlite:
+        sync_sqlite_history_to_postgres()
+
+def sync_sqlite_history_to_postgres():
+    """
+    If running on PostgreSQL and the cloud pipeline_runs table is empty,
+    seamlessly imports past runs from local SQLite cache so history is preserved.
+    """
+    if _DEFAULT_ENGINE.is_sqlite:
+        return
+    try:
+        if not os.path.exists(DB_PATH):
+            return
+        local_conn = sqlite3.connect(DB_PATH)
+        local_conn.row_factory = sqlite3.Row
+        l_cur = local_conn.cursor()
+        l_cur.execute("SELECT id, query, tokens_used, prompt_tokens, completion_tokens, elapsed_seconds, created_at, status, results_json, user_id FROM pipeline_runs ORDER BY created_at DESC LIMIT 100")
+        local_runs = l_cur.fetchall()
+        local_conn.close()
+        if not local_runs:
+            return
+
+        pg_conn = get_db_connection()
+        try:
+            pg_cur = pg_conn.cursor()
+            pg_cur.execute("SELECT COUNT(*) FROM pipeline_runs")
+            count_res = pg_cur.fetchone()
+            pg_count = count_res[0] if count_res else 0
+            if pg_count == 0:
+                logger.info(f"Syncing {len(local_runs)} historical runs from local SQLite to PostgreSQL Neon...")
+                for r in local_runs:
+                    d = dict(r)
+                    pg_cur.execute("""
+                        INSERT OR REPLACE INTO pipeline_runs (id, query, tokens_used, prompt_tokens, completion_tokens, elapsed_seconds, created_at, status, results_json, user_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        d["id"], d["query"], d.get("tokens_used", 0), d.get("prompt_tokens", 0),
+                        d.get("completion_tokens", 0), d.get("elapsed_seconds", 0.0),
+                        d.get("created_at"), d.get("status", "completed"),
+                        d.get("results_json", "{}"), None
+                    ))
+                pg_conn.commit()
+                logger.info("Successfully synced historical runs to PostgreSQL Neon.")
+        finally:
+            pg_conn.close()
+    except Exception as e:
+        logger.debug(f"SQLite to PostgreSQL history sync skipped: {e}")
+
 def save_scraped_papers(query: str, papers: List[Dict[str, Any]]) -> None:
     conn = get_db_connection()
     try:
@@ -558,28 +677,31 @@ def save_scraped_papers(query: str, papers: List[Dict[str, Any]]) -> None:
         conn.close()
 
 def save_cached_sentences(query: str, sentences: List[Dict[str, Any]]) -> None:
+    if not sentences:
+        return
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        cursor.execute("SELECT id FROM scraped_papers WHERE query = ?", (query,))
+        valid_paper_ids = {r[0] for r in cursor.fetchall()}
+        
+        insert_rows = []
         for s in sentences:
             sentence_text = s.get("text") or s.get("sentence_text") or s.get("sentence") or ""
             sent_id = s.get("id") or hashlib.md5(f"{query}:{sentence_text}".encode('utf-8')).hexdigest()
             raw_paper_id = s.get("paper_id")
-            valid_paper_id = None
-            if raw_paper_id:
-                cursor.execute("SELECT 1 FROM scraped_papers WHERE id = ?", (raw_paper_id,))
-                if cursor.fetchone():
-                    valid_paper_id = raw_paper_id
-            cursor.execute("""
-                INSERT OR REPLACE INTO cached_sentences (id, paper_id, query, sentence_text, density_score)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
+            valid_paper_id = raw_paper_id if (raw_paper_id and raw_paper_id in valid_paper_ids) else None
+            insert_rows.append((
                 sent_id,
                 valid_paper_id,
                 query,
                 sentence_text,
                 s.get("density_score") or s.get("score", 0.0)
             ))
+        cursor.executemany("""
+            INSERT OR REPLACE INTO cached_sentences (id, paper_id, query, sentence_text, density_score)
+            VALUES (?, ?, ?, ?, ?)
+        """, insert_rows)
         conn.commit()
     finally:
         conn.close()
@@ -638,19 +760,30 @@ def log_pipeline_run(
                 logger.warning(f"Failed to verify user_id '{valid_user_id}': {chk_err}")
                 valid_user_id = None
 
+        run_status = kwargs.get("status")
+        if not run_status:
+            if isinstance(results, dict):
+                if results.get("status") == "failed" or "error" in results:
+                    run_status = "failed"
+                else:
+                    run_status = results.get("status", "completed")
+            else:
+                run_status = "completed"
+
         cursor.execute("""
-            INSERT OR REPLACE INTO pipeline_runs (id, query, tokens_used, elapsed_seconds, results_json, prompt_tokens, completion_tokens, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (run_id, query, tokens_used, elapsed_seconds, json.dumps(results), prompt_tokens, completion_tokens, valid_user_id))
+            INSERT OR REPLACE INTO pipeline_runs (id, query, tokens_used, elapsed_seconds, results_json, prompt_tokens, completion_tokens, user_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (run_id, query, tokens_used, elapsed_seconds, json.dumps(results), prompt_tokens, completion_tokens, valid_user_id, run_status))
         conn.commit()
     except Exception as exc:
         logger.error(f"Failed to log pipeline run {run_id}: {exc}")
         if user_id:
             try:
+                run_status = kwargs.get("status") or ("failed" if isinstance(results, dict) and "error" in results else "completed")
                 cursor.execute("""
-                    INSERT OR REPLACE INTO pipeline_runs (id, query, tokens_used, elapsed_seconds, results_json, prompt_tokens, completion_tokens, user_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-                """, (run_id, query, tokens_used, elapsed_seconds, json.dumps(results), prompt_tokens, completion_tokens))
+                    INSERT OR REPLACE INTO pipeline_runs (id, query, tokens_used, elapsed_seconds, results_json, prompt_tokens, completion_tokens, user_id, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                """, (run_id, query, tokens_used, elapsed_seconds, json.dumps(results), prompt_tokens, completion_tokens, run_status))
                 conn.commit()
             except Exception as fallback_exc:
                 logger.error(f"Fallback logging without user_id failed: {fallback_exc}")
@@ -664,15 +797,15 @@ def get_run_history(limit: int = 50, user_id: Optional[str] = None) -> List[Dict
         cursor = conn.cursor()
         if user_id:
             cursor.execute("""
-                SELECT id, query, tokens_used, prompt_tokens, completion_tokens, elapsed_seconds, created_at, results_json, user_id
+                SELECT id, query, tokens_used, prompt_tokens, completion_tokens, elapsed_seconds, created_at, status, results_json, user_id
                 FROM pipeline_runs
-                WHERE user_id = ?
+                WHERE user_id = ? OR user_id IS NULL
                 ORDER BY created_at DESC
                 LIMIT ?
             """, (user_id, limit))
         else:
             cursor.execute("""
-                SELECT id, query, tokens_used, prompt_tokens, completion_tokens, elapsed_seconds, created_at, results_json, user_id
+                SELECT id, query, tokens_used, prompt_tokens, completion_tokens, elapsed_seconds, created_at, status, results_json, user_id
                 FROM pipeline_runs
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -683,6 +816,7 @@ def get_run_history(limit: int = 50, user_id: Optional[str] = None) -> List[Dict
             d = dict(r)
             d["run_id"] = d["id"]
             d["total_tokens"] = d.get("tokens_used", 0)
+            d["status"] = d.get("status") or "completed"
             # Parse brief summary for frontend listing
             try:
                 full_data = json.loads(d.get("results_json") or "{}")
@@ -699,6 +833,8 @@ def get_run_history(limit: int = 50, user_id: Optional[str] = None) -> List[Dict
                 d["takeaways"] = []
                 d["citations_count"] = 0
                 d["sections_count"] = 0
+            # Truncate heavy payload in listing to keep history response fast
+            d.pop("results_json", None)
             results.append(d)
         return results
     finally:
@@ -743,6 +879,32 @@ def delete_run(run_id: str) -> bool:
         deleted = cursor.rowcount > 0
         conn.commit()
         return deleted
+    finally:
+        conn.close()
+
+def append_source_to_run(run_id: str, paper_citation: Dict[str, Any]) -> bool:
+    """Appends an uploaded paper source to a pipeline run's saved citations list."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT results_json FROM pipeline_runs WHERE id = ?", (run_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        raw_json = row[0] if isinstance(row, (list, tuple)) else (row.get("results_json") if hasattr(row, "get") else None)
+        try:
+            results = json.loads(raw_json or "{}")
+        except Exception:
+            results = {}
+        
+        citations = results.get("citations", [])
+        if not any(c.get("paper_idx") == paper_citation.get("paper_idx") or c.get("title") == paper_citation.get("title") for c in citations):
+            citations.append(paper_citation)
+        results["citations"] = citations
+        
+        cursor.execute("UPDATE pipeline_runs SET results_json = ? WHERE id = ?", (json.dumps(results), run_id))
+        conn.commit()
+        return True
     finally:
         conn.close()
 

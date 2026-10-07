@@ -265,10 +265,10 @@ export function positionNodeCards() {
       const col2X = Math.max(col1X + cardW + 35, Math.min(Math.round(w * 0.38), w - (cardW * 2) - 65));
       const col3X = Math.min(w - cardW - 30, Math.max(col2X + cardW + 35, Math.round(w * 0.70)));
 
-      const topOffset = Math.max(45, Math.min(70, Math.round(h * 0.06)));
+      const topOffset = Math.max(20, Math.min(40, Math.round(h * 0.035)));
       const agent2Y = topOffset;
-      const verticalGap = Math.max(45, Math.min(75, Math.round(h * 0.07)));
-      const agent3Y = agent2Y + n2H + verticalGap; // GUARANTEED ZERO OVERLAP
+      const verticalGap = Math.max(20, Math.min(40, Math.round(h * 0.035)));
+      const agent3Y = agent2Y + n2H + verticalGap; // GUARANTEED ZERO OVERLAP WITH PROMPT BAR
 
       // Agent 1 vertically center-aligned with Agent 2
       const agent1Y = Math.max(45, agent2Y + Math.round((n2H - n1H) * 0.5));

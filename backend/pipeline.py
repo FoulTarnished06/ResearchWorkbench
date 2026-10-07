@@ -157,7 +157,7 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
     anthropic_key = config.get("anthropic_key")
     openai_key = config.get("openai_key")
     serpapi_key = config.get("serpapi_key")
-    disable_fallback = bool(config.get("disable_fallback", False))
+    disable_fallback = bool(config.get("disable_fallback", True))
     disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", disable_fallback))
     disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", disable_fallback))
     scraper_sources = config.get("scraper_sources", "all")
@@ -201,19 +201,7 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             disable_fallback=disable_fallback_agent2
         )
         
-        # Pillar 5: Dual Execution Engine - Rapid Mode Exit (~5s)
-        execution_mode = config.get("execution_mode", "deep")
-        if execution_mode == "rapid":
-            rapid_res = build_rapid_dossier_output(user_query, run_id, start_time, agent1_res, agent2_res)
-            if use_cache:
-                asyncio.create_task(asyncio.to_thread(set_response_cache, user_query, rapid_res, ttl_hours=24))
-            a2_p = rapid_res["token_usage"]["prompt_tokens"]
-            a2_c = rapid_res["token_usage"]["completion_tokens"]
-            asyncio.create_task(asyncio.to_thread(
-                log_pipeline_run, run_id, user_query, rapid_res["token_usage"]["total_tokens"], rapid_res["elapsed_seconds"], rapid_res, a2_p, a2_c, user_id
-            ))
-            return rapid_res
-
+        # All runs (rapid or deep) execute full grounding and verification through Agents 3 & 4
         # Step 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens, Non-Blocking Async)
         agent3_res = await asyncio.to_thread(
             run_agent3_context_cacher,
@@ -227,9 +215,9 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             if any(k in prov_a2_lower for k in ("gpt", "openai", "sol", "luna", "astra")):
                 resolved_provider_a4 = "gpt-6.1-sol"
             elif "claude" in prov_a2_lower or "anthropic" in prov_a2_lower:
-                resolved_provider_a4 = "claude-sonnet-5.5"
+                resolved_provider_a4 = "claude-3-7-sonnet-20250219"
             else:
-                resolved_provider_a4 = "gemini-3.1-pro" if "pro" in prov_a2_lower else "gemini-3.6-flash"
+                resolved_provider_a4 = "gemini-2.5-pro" if "pro" in prov_a2_lower else "gemini-2.5-flash"
 
         agent4_res = await run_agent4_fact_checker_synthesizer(
             user_query, 
@@ -279,9 +267,9 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
                 },
                 "io_breakdown": {
                     "agent1_scraper": {"input": 0, "output": 0, "total": 0},
-                    "agent2_drafter": {"input": a2_prompt, "output": a2_comp, "total": agent2_res["tokens_used"]},
+                    "agent2_drafter": {"input": a2_prompt, "output": a2_comp, "total": a2_used},
                     "agent3_cacher": {"input": 0, "output": 0, "total": 0},
-                    "agent4_fact_checker": {"input": a4_prompt, "output": a4_comp, "total": agent4_res["tokens_used"]}
+                    "agent4_fact_checker": {"input": a4_prompt, "output": a4_comp, "total": a4_used}
                 }
             },
             "quick_answer": quick_answer,
@@ -317,6 +305,14 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
 
     except Exception as e:
         logger.error(f"Pipeline execution failed: {e}")
+        try:
+            await asyncio.to_thread(
+                log_pipeline_run, run_id, user_query, 0, round(time.time() - start_time, 2),
+                {"error": str(e), "status": "failed", "run_id": run_id, "query": user_query},
+                0, 0, user_id
+            )
+        except Exception as log_err:
+            logger.debug(f"Failed to log error to database: {log_err}")
         raise
 
 async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] = None) -> AsyncGenerator[str, None]:
@@ -382,8 +378,9 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         except Exception as cache_err:
             logger.debug(f"Cache check bypass/error: {cache_err}")
 
-    disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", False))
-    disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", False))
+    disable_fallback = bool(config.get("disable_fallback", True))
+    disable_fallback_agent2 = bool(config.get("disable_fallback_agent2", disable_fallback))
+    disable_fallback_agent4 = bool(config.get("disable_fallback_agent4", disable_fallback))
     scraper_sources = config.get("scraper_sources", "all")
     serpapi_key = config.get("serpapi_key")
     
@@ -552,13 +549,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         try:
             agent2_res = await drafter_task
         except (asyncio.CancelledError, Exception) as exc:
-            logger.warning(f"Drafter task did not complete normally ({exc}). Generating resilient fallback draft...")
-            from backend.agents.agent2_drafter import synthesize_fallback_draft
-            agent2_res = synthesize_fallback_draft(
-                user_query,
-                agent1_res.get("papers", []),
-                dense_sentences=agent1_res.get("dense_sentences", [])
-            )
+            logger.error(f"Drafter task failed or cancelled: {exc}")
+            raise RuntimeError(f"Agent 2 (The Drafter) failed: {exc}") from exc
         partial_data["agent2_draft"] = agent2_res
         
         yield sse_message("agent_progress", {
@@ -582,20 +574,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        # Pillar 5: Dual Execution Engine - Rapid Mode Exit (~5s)
-        execution_mode = config.get("execution_mode", "deep")
-        if execution_mode == "rapid":
-            rapid_res = build_rapid_dossier_output(user_query, run_id, start_time, agent1_res, agent2_res)
-            if not config.get("bypass_cache", False):
-                asyncio.create_task(asyncio.to_thread(set_response_cache, user_query, rapid_res, ttl_hours=24))
-            a2_p = rapid_res["token_usage"]["prompt_tokens"]
-            a2_c = rapid_res["token_usage"]["completion_tokens"]
-            asyncio.create_task(asyncio.to_thread(
-                log_pipeline_run, run_id, user_query, rapid_res["token_usage"]["total_tokens"], rapid_res["elapsed_seconds"], rapid_res, a2_p, a2_c, user_id
-            ))
-            yield sse_message("pipeline_complete", rapid_res)
-            await asyncio.sleep(0.05)
-            return
+        # All runs (rapid or deep) execute full grounding and verification through Agents 3 & 4
 
         # AGENT 3: Context Cacher & Pre-Filter (Tool 2 - 0 Tokens)
         yield sse_message("agent_active", {
@@ -669,9 +648,9 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             if any(k in prov_a2_lower for k in ("gpt", "openai", "sol", "luna", "astra")):
                 resolved_stream_provider_a4 = "gpt-6.1-sol"
             elif "claude" in prov_a2_lower or "anthropic" in prov_a2_lower:
-                resolved_stream_provider_a4 = "claude-sonnet-5.5"
+                resolved_stream_provider_a4 = "claude-3-7-sonnet-20250219"
             else:
-                resolved_stream_provider_a4 = "gemini-3.1-pro" if "pro" in prov_a2_lower else "gemini-3.6-flash"
+                resolved_stream_provider_a4 = "gemini-2.5-pro" if "pro" in prov_a2_lower else "gemini-2.5-flash"
 
         synth_task = asyncio.create_task(run_agent4_fact_checker_synthesizer(
             user_query, 
@@ -714,15 +693,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         try:
             agent4_res = await synth_task
         except (asyncio.CancelledError, Exception) as exc:
-            logger.warning(f"Synthesizer task interrupted or errored ({exc}). Executing resilient offline synthesis...")
-            agent4_res = await run_agent4_fact_checker_synthesizer(
-                query=user_query,
-                agent1_data=agent1_res,
-                agent2_data=agent2_res,
-                agent3_data=agent3_res,
-                provider=resolved_stream_provider_a4,
-                disable_fallback=False
-            )
+            logger.error(f"Synthesizer task failed or cancelled: {exc}")
+            raise RuntimeError(f"Agent 4 (Fact-Checker & Synthesizer) failed: {exc}") from exc
 
         yield sse_message("agent_progress", {
             "agent_id": 4,
@@ -814,6 +786,11 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
     except (asyncio.CancelledError, Exception) as exc:
         err_msg = str(exc)
         logger.error(f"Pipeline error: {err_msg}")
+        asyncio.create_task(asyncio.to_thread(
+            log_pipeline_run, run_id, user_query, 0, round(time.time() - start_time, 2),
+            {"error": err_msg, "status": "failed", "run_id": run_id, "query": user_query},
+            0, 0, user_id
+        ))
         if partial_data.get("agent2_draft"):
             a2 = partial_data["agent2_draft"]
             if "sections" in a2 and "dossier_sections" not in a2:
@@ -828,6 +805,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             partial_data["agent1_scraper"] = partial_data["agent1_scraped"]
         yield sse_message("pipeline_error", {
             "error": err_msg,
-            "status": "Execution failed. Live AI returned an error.",
+            "status": f"Execution failed: {err_msg}",
+            "run_id": run_id,
             "partial_data": partial_data
         })
