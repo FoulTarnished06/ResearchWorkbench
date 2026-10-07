@@ -1077,7 +1077,7 @@ async def _fetch_eprint_repository(query: str, limit: int = 5) -> List[Dict[str,
     
     try:
         async with httpx.AsyncClient(timeout=SCRAPER_HTTP_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "AI-Research-Workbench/3.0 (academic research tool; https://github.com/FoulTarnished06/ResearchWorkbench)"})
+            resp = await client.get(url, headers={"User-Agent": "AI-Research-Workbench/4.0 (academic research tool; https://github.com/FoulTarnished06/ResearchWorkbench)"})
             if resp.status_code == 200:
                 import xml.etree.ElementTree as ET
                 root = ET.fromstring(resp.text)
@@ -1149,7 +1149,7 @@ async def fetch_crossref(query: str, limit: int = 5) -> List[Dict[str, Any]]:
         "mailto": "academic@workbench.org"
     }
     headers = {
-        "User-Agent": "AI-Research-Workbench/3.0 (CrossrefFetcher; mailto:academic@workbench.org)"
+        "User-Agent": "AI-Research-Workbench/4.0 (CrossrefFetcher; mailto:academic@workbench.org)"
     }
     try:
         async with httpx.AsyncClient(timeout=SCRAPER_HTTP_TIMEOUT) as client:
@@ -1225,7 +1225,7 @@ async def fetch_doaj(query: str, limit: int = 5) -> List[Dict[str, Any]]:
         "pageSize": limit
     }
     headers = {
-        "User-Agent": "AI-Research-Workbench/3.0 (DOAJFetcher; mailto:academic@workbench.org)"
+        "User-Agent": "AI-Research-Workbench/4.0 (DOAJFetcher; mailto:academic@workbench.org)"
     }
     try:
         async with httpx.AsyncClient(timeout=SCRAPER_HTTP_TIMEOUT) as client:

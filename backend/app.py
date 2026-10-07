@@ -66,9 +66,9 @@ logger = get_logger("AppServer")
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
-    title="AI Research Workbench v3.0 Backend",
+    title="AI Research Workbench v4.0 Backend",
     description="Multi-Agent Autonomous Research Agent with Dual-Mode Literature Synthesis and PDF Document Analysis",
-    version="3.0.0"
+    version="4.0.0"
 )
 
 app.state.limiter = limiter
@@ -169,16 +169,16 @@ os.makedirs(UPLOADS_BASE, exist_ok=True)
 @app.get("/api/health")
 def get_api_health():
     """Standard health check endpoint."""
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": "4.0.0"}
 
 @app.get("/api/status")
 def get_api_status():
-    """Returns runtime health and provider readiness (BUG-03 unified to v3.0.0)."""
+    """Returns runtime health and provider readiness (v4.0.0)."""
     has_gemini = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
     return {
         "status": "online",
-        "service": "AI Research Workbench v3.0",
+        "service": "AI Research Workbench v4.0",
         "llm_budget_limit": 2,
         "providers_available": {
             "gemini_live": has_gemini,
@@ -200,7 +200,7 @@ async def get_config():
     has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
     return {
         "status": "online",
-        "service": "AI Research Workbench v3.0",
+        "service": "AI Research Workbench v4.0",
         "llm_budget_limit": 2,
         "providers_available": {
             "gemini_live": has_gemini,

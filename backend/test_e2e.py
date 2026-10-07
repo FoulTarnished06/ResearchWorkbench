@@ -1,5 +1,5 @@
 """
-End-to-End Test Suite for AI Research Workbench v3.0.0
+End-to-End Test Suite for AI Research Workbench v4.0.0
 Validates:
 - Backend Health
 - History API & Persistence (BONUS-01, BONUS-02)
@@ -65,7 +65,7 @@ class TestResearchWorkbenchE2E(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "ok")
-        self.assertEqual(data["version"], "3.0.0")
+        self.assertEqual(data["version"], "4.0.0")
 
     def test_02_history_api(self):
         resp = self.client.get("/api/history")

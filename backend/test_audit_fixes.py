@@ -123,7 +123,7 @@ class TestAuditFixes(unittest.TestCase):
         self.assertTrue(os.path.isfile(env_example), ".env.example is missing")
         
         import backend
-        self.assertEqual(getattr(backend, "__version__", None), "3.0.0")
+        self.assertEqual(getattr(backend, "__version__", None), "4.0.0")
 
     def test_10_latex_export_sanitization(self):
         """Verify LaTeX export properly sanitizes special characters while preserving math blocks."""

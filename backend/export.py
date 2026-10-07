@@ -325,10 +325,10 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     # Subtitle / Metadata
     arch = dossier_data.get("architecture") or "system_a"
     arch_label = {
-        "system_a": "AI Research Workbench v3.0 | Multi-Agent Fact-Checked Synthesis",
+        "system_a": "AI Research Workbench v4.0 | Multi-Agent Fact-Checked Synthesis",
         "system_b": "Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval",
         "system_c": "Direct Single API Baseline | Zero-Shot Parametric Memory"
-    }.get(arch, "AI Research Workbench v3.0")
+    }.get(arch, "AI Research Workbench v4.0")
     
     meta_p = doc.add_paragraph()
     meta_run = meta_p.add_run(sanitize_xml(arch_label))
@@ -519,10 +519,10 @@ def export_to_latex(dossier_data: Dict[str, Any]) -> str:
     query = escape_latex(dossier_data.get("query", "Academic Synthesis"))
     arch = dossier_data.get("architecture") or "system_a"
     arch_subtitle = {
-        "system_a": "Synthesized by AI Research Workbench v3.0 | Multi-Agent Fact-Checked Synthesis",
+        "system_a": "Synthesized by AI Research Workbench v4.0 | Multi-Agent Fact-Checked Synthesis",
         "system_b": "Synthesized via Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval",
         "system_c": "Synthesized via Direct Single API Baseline | Zero-Shot Parametric Memory"
-    }.get(arch, "Synthesized by AI Research Workbench v3.0")
+    }.get(arch, "Synthesized by AI Research Workbench v4.0")
 
     latex = [
         "\\documentclass[11pt,a4paper]{article}",
@@ -653,10 +653,10 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
     query = strip_html_tags(dossier_data.get("query", "Academic Research Dossier"))
     arch = dossier_data.get("architecture") or "system_a"
     arch_subtitle = {
-        "system_a": "*Synthesized via AI Research Workbench v3.0 | Multi-Agent Fact-Checked Synthesis*",
+        "system_a": "*Synthesized via AI Research Workbench v4.0 | Multi-Agent Fact-Checked Synthesis*",
         "system_b": "*Synthesized via Conventional RAG Baseline | FastEmbed ONNX Vector Retrieval*",
         "system_c": "*Synthesized via Direct Single API Baseline | Zero-Shot Parametric Memory*"
-    }.get(arch, "*Synthesized via AI Research Workbench v3.0*")
+    }.get(arch, "*Synthesized via AI Research Workbench v4.0*")
 
     md = [
         f"# {query}",
@@ -774,7 +774,7 @@ def export_dialogue_to_markdown(query: str, dialogue_messages: List[Dict[str, An
     lines = [
         f"# Continuous Research Dialogue: {clean_q}",
         "",
-        f"*Session Recorded via AI Research Workbench v3.0 | Total Turns: {len(dialogue_messages)}*",
+        f"*Session Recorded via AI Research Workbench v4.0 | Total Turns: {len(dialogue_messages)}*",
         ""
     ]
     if initial_dossier:
@@ -801,7 +801,7 @@ def export_dialogue_to_latex(query: str, dialogue_messages: List[Dict[str, Any]]
         "\\usepackage{geometry}",
         "\\geometry{margin=1in}",
         f"\\title{{Research Dialogue: {clean_q}}}",
-        "\\author{AI Research Workbench v3.0}",
+        "\\author{AI Research Workbench v4.0}",
         "\\date{\\today}",
         "\\begin{document}",
         "\\maketitle",
