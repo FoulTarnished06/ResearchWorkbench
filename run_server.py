@@ -11,8 +11,8 @@ if __name__ == "__main__":
     reload = os.environ.get("RELOAD", "false").lower() in ("true", "1", "yes")
 
     print("==================================================================")
-    print("  AI Research Workbench v3.0 - Server Starting")
-    print("  Strict 2-LLM Budget Multi-Agent Autonomous Research Pipeline")
+    print("  AI Research Workbench v5.0 (Dual-Engine: v4.0 + v5.0 Tier 1)")
+    print("  Deep-Verification Multi-Agent Autonomous Research Pipeline")
     print("==================================================================")
     print(f"  Access the Workbench in your browser at: http://{host}:{port}")
     uvicorn.run(
