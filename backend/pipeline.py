@@ -179,10 +179,11 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             max_pdf_pages=int(config.get("max_pdf_pages", 15))
         )
         
-        # Phase 1 Pre-Filter (Tool 2.1 - 0 Tokens): Feed comprehensive empirical context
+        # Phase 1 Pre-Filter (Tool 2.1 - 0 Tokens): Feed comprehensive empirical context (~15k tokens)
+        max_tokens_budget = int(config.get("max_tokens", 15000)) if config else 15000
         distilled_sentences = await asyncio.to_thread(
             run_agent3_context_distiller,
-            user_query, agent1_res, top_k=40, max_tokens=2500
+            user_query, agent1_res, top_k=120, max_tokens=max_tokens_budget
         )
         
         # Equip Drafter with full dense empirical context across all facets
@@ -482,10 +483,11 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        # Phase 1 Pre-Filter: Feed comprehensive empirical context (top 40 facts)
+        # Phase 1 Pre-Filter: Feed comprehensive empirical context (~15k tokens)
+        max_tokens_budget = int(config.get("max_tokens", 15000)) if config else 15000
         try:
             distilled_sentences = await asyncio.wait_for(
-                asyncio.to_thread(run_agent3_context_distiller, user_query, agent1_res, top_k=40, max_tokens=2500),
+                asyncio.to_thread(run_agent3_context_distiller, user_query, agent1_res, top_k=120, max_tokens=max_tokens_budget),
                 timeout=15.0
             )
         except Exception as dist_err:

@@ -243,10 +243,10 @@ def split_compound_claim(text: str) -> List[str]:
     splits = [s.strip().rstrip(',;') for s in splits if len(s.split()) >= 3]
     return splits if splits else [text]
 
-def run_agent3_context_distiller(query: str, agent1_data: Any, top_k: int = 40, max_tokens: int = 2500) -> List[Dict[str, Any]]:
+def run_agent3_context_distiller(query: str, agent1_data: Any, top_k: int = 120, max_tokens: int = 15000) -> List[Dict[str, Any]]:
     """
     Phase 1: Hybrid RRF (BM25 + Semantic) + MMR Context Pre-Filter & Dynamic Token Packing (0 LLM Tokens).
-    Enriches downstream drafter with substantive empirical and theoretical evidence.
+    Enriches downstream drafter with substantive empirical and theoretical evidence up to ~15k tokens.
     """
     if isinstance(agent1_data, list):
         dense_sentences = [s for s in agent1_data if "text" in s and "title" not in s] or agent1_data
@@ -268,13 +268,13 @@ def run_agent3_context_distiller(query: str, agent1_data: Any, top_k: int = 40, 
     model = get_embedding_model()
     q_vec = embed_texts([query]) if model is not None else None
     
-    # 2. Embed sentences efficiently (rank top 80 for comprehensive coverage across all facets)
-    if len(dense_sentences) > 80 and model is not None:
+    # 2. Embed sentences efficiently (rank top 150 for comprehensive coverage across all facets)
+    if len(dense_sentences) > 150 and model is not None:
         lex_ranks = [
             compute_profile_similarity(query_profile, text_to_vector_profile(t)) + (bm25_scores[i] * 0.1)
             for i, t in enumerate(sent_texts)
         ]
-        top_cand_indices = set(sorted(range(len(dense_sentences)), key=lambda i: lex_ranks[i], reverse=True)[:80])
+        top_cand_indices = set(sorted(range(len(dense_sentences)), key=lambda i: lex_ranks[i], reverse=True)[:150])
         cand_subset = [sent_texts[i] for i in sorted(list(top_cand_indices))]
         c_mat = embed_texts(cand_subset)
         s_mat = None

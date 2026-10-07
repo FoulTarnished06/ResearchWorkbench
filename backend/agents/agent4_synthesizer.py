@@ -100,7 +100,7 @@ Claims and Targeted Evidence:
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 4096,
+            "maxOutputTokens": 8192,
             "response_mime_type": "text/plain"
         }
     }
@@ -173,7 +173,7 @@ Claims and Targeted Evidence:
     model_name = resolve_anthropic_model(model_pref, default="claude-3-5-haiku-20241022")
     payload = {
         "model": model_name,
-        "max_tokens": 2048,
+        "max_tokens": 4096,
         "temperature": 0.1,
         "messages": [{"role": "user", "content": prompt}]
     }
@@ -277,7 +277,7 @@ Claims and Targeted Evidence:
     wire_model = get_wire_openai_model(canonical_model)
     payload = {
         "model": wire_model,
-        "max_completion_tokens": 2048,
+        "max_completion_tokens": 8192,
         "messages": [{"role": "user", "content": prompt}]
     }
     # Proactively omit temperature for reasoning models

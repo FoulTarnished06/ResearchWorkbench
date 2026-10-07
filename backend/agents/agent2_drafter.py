@@ -204,7 +204,7 @@ async def call_gemini_api(
     }
     gen_config: Dict[str, Any] = {
         "temperature": 0.2,
-        "maxOutputTokens": 8192,
+        "maxOutputTokens": 16384,
     }
     if response_mime_type is not None:
         gen_config["response_mime_type"] = response_mime_type
@@ -458,7 +458,7 @@ async def call_openai_api(
 
     payload: Dict[str, Any] = {
         "model": wire_model,
-        "max_completion_tokens": 8192,
+        "max_completion_tokens": 16384,
         "response_format": {"type": "json_object"},
         "messages": messages
     }
@@ -2231,9 +2231,11 @@ async def run_agent2_the_drafter(
             literature_blocks.append("\n".join(p_lines))
 
         empirical_context = "\n\n".join(literature_blocks).strip()
-        if not empirical_context:
-            dense_lines = [f"[{s.get('paper_idx', 'P1')}] {s.get('text', '')}" for s in (dense_sentences or []) if s.get('text')]
-            empirical_context = "\n".join(dense_lines).strip() or "No indexed empirical excerpts returned. Ground synthesis in verified physical/mathematical principles and state theoretical boundaries."
+        dense_lines = [f"[{s.get('paper_idx', 'P1')}] {s.get('text', '')}" for s in (dense_sentences or []) if s.get('text')]
+        if dense_lines:
+            empirical_context += "\n\n--- DISTILLED EMPIRICAL FINDINGS & BENCHMARKS ---\n" + "\n".join(dense_lines).strip()
+        elif not empirical_context:
+            empirical_context = "No indexed empirical excerpts returned. Ground synthesis in verified physical/mathematical principles and state theoretical boundaries."
         
         context_str = f"""--- RETRIEVED RESEARCH PAPERS & EMPIRICAL SOURCES ---
 {biblio_str}

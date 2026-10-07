@@ -117,6 +117,7 @@ class QueryRequest(BaseModel):
     scraper_sources: Optional[str] = "all"
     active_scrapers: Optional[List[str]] = None
     max_pdf_pages: Optional[int] = 25
+    max_tokens: Optional[int] = 15000
     disable_fallback: Optional[bool] = False
     disable_fallback_agent2: Optional[bool] = False
     disable_fallback_agent4: Optional[bool] = False
@@ -710,6 +711,7 @@ async def stream_query_endpoint_get(
     anthropic_key: Optional[str] = None,
     openai_key: Optional[str] = None,
     serpapi_key: Optional[str] = None,
+    max_tokens: int = 15000,
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
 ):
     """
@@ -733,6 +735,7 @@ async def stream_query_endpoint_get(
         "similarity_threshold": similarity_threshold,
         "paper_limit": paper_limit,
         "execution_mode": execution_mode,
+        "max_tokens": max_tokens,
         "gemini_key": gemini_key or os.environ.get("GEMINI_API_KEY", ""),
         "anthropic_key": anthropic_key or os.environ.get("ANTHROPIC_API_KEY", ""),
         "openai_key": openai_key or os.environ.get("OPENAI_API_KEY", ""),

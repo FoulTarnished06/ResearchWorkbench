@@ -1668,6 +1668,7 @@ async function executeLiveBackend(query) {
     provider_agent4: a4Model,
     paper_limit: paperLimit,
     max_pdf_pages: pdfPageLimit,
+    max_tokens: 15000,
     similarity_threshold: simThresh,
     execution_mode: currentExecutionMode,
     scraper_sources: scraperSources,
