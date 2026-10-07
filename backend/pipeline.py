@@ -298,7 +298,10 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
                 "auto_verified_zero_token": agent3_res["auto_verified_count"],
                 "llm_fact_checked": agent4_res.get("unverified_claims_processed", 0)
             },
-            "all_scraped_papers": agent1_res.get("papers", [])
+            "all_scraped_papers": agent1_res.get("papers", []),
+            "uncovered_facets": agent1_res.get("uncovered_facets", []),
+            "covered_facets": agent1_res.get("covered_facets", []),
+            "facets": agent1_res.get("facets", [])
         }
         
         final_output = post_process_dossier(final_output)
@@ -471,6 +474,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             "agent_id": 1,
             "name": "Academic Scraper",
             "tokens_used": 0,
+            "agent1_scraped": agent1_res,
             "data_summary": {
                 "papers_count": agent1_res["papers_found"],
                 "top_facts": len(agent1_res["dense_sentences"])
@@ -571,7 +575,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             "prompt_tokens": a2_prompt,
             "completion_tokens": a2_comp,
             "claims_count": len(agent2_res.get("claims", [])),
-            "complexity": agent2_res.get("complexity", {})
+            "complexity": agent2_res.get("complexity", {}),
+            "agent2_draft": agent2_res
         })
         await asyncio.sleep(0.01)
 
@@ -599,15 +604,25 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
+        cacher_task = asyncio.create_task(asyncio.to_thread(
+            run_agent3_context_cacher,
+            user_query, agent1_res, agent2_res, similarity_threshold=float(config.get("similarity_threshold", 0.55))
+        ))
+        cacher_elapsed = 0.0
+        while not cacher_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(cacher_task), timeout=2.0)
+            except asyncio.TimeoutError:
+                cacher_elapsed += 2.0
+                yield f": keep-alive cacher {cacher_elapsed:.1f}s\n\n"
+                if cacher_elapsed >= 25.0:
+                    logger.warning("Context cacher task exceeded 25.0s limit; canceling.")
+                    cacher_task.cancel()
+                    break
+
         try:
-            agent3_res = await asyncio.wait_for(
-                asyncio.to_thread(
-                    run_agent3_context_cacher,
-                    user_query, agent1_res, agent2_res, similarity_threshold=float(config.get("similarity_threshold", 0.55))
-                ),
-                timeout=8.0
-            )
-        except Exception as cacher_err:
+            agent3_res = await cacher_task
+        except (asyncio.CancelledError, Exception) as cacher_err:
             logger.warning(f"Context cacher timeout/error: {cacher_err}")
             agent3_res = {
                 "auto_verified_count": 0,
@@ -632,7 +647,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "auto_verified": agent3_res["auto_verified_count"],
-            "unverified_pending": agent3_res["unverified_for_agent4_count"]
+            "unverified_pending": agent3_res["unverified_for_agent4_count"],
+            "agent3_cacher": agent3_res
         })
         await asyncio.sleep(0.01)
 
@@ -778,14 +794,17 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                 "auto_verified_zero_token": agent3_res["auto_verified_count"],
                 "llm_fact_checked": agent4_res.get("unverified_claims_processed", 0)
             },
-            "all_scraped_papers": agent1_res.get("papers", [])
+            "all_scraped_papers": agent1_res.get("papers", []),
+            "uncovered_facets": agent1_res.get("uncovered_facets", []),
+            "covered_facets": agent1_res.get("covered_facets", []),
+            "facets": agent1_res.get("facets", [])
         }
         
         final_payload = post_process_dossier(final_payload)
 
         # Emit completion IMMEDIATELY to client without blocking on DB write latency
         yield sse_message("pipeline_complete", final_payload)
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.4)
 
         # Asynchronously log to SQLite database and cache in background (BUG-01, TOK-03-REVISED)
         asyncio.create_task(asyncio.to_thread(log_pipeline_run, run_id, user_query, total_tokens, elapsed, final_payload, total_prompt, total_comp, user_id))

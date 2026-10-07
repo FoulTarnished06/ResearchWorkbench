@@ -208,6 +208,12 @@ export async function executeLiveBackend(query) {
   const abortController = new AbortController();
   UIState.activeAbortController = abortController;
 
+  const accumulatedPartial = {
+    agent1_scraped: null,
+    agent2_draft: null,
+    agent3_cacher: null
+  };
+
   const eventHandlers = {
     pipeline_start: (e) => {
       const data = JSON.parse(e.data);
@@ -292,11 +298,15 @@ export async function executeLiveBackend(query) {
         }
       }
       
-      if (data.agent_id === 1 && data.data_summary) {
-        const papersEl = document.getElementById('m-agent1-papers');
-        if (papersEl) papersEl.textContent = data.data_summary.papers_count || 0;
+      if (data.agent_id === 1) {
+        if (data.agent1_scraped) accumulatedPartial.agent1_scraped = data.agent1_scraped;
+        if (data.data_summary) {
+          const papersEl = document.getElementById('m-agent1-papers');
+          if (papersEl) papersEl.textContent = data.data_summary.papers_count || 0;
+        }
       }
       if (data.agent_id === 2) {
+        if (data.agent2_draft) accumulatedPartial.agent2_draft = data.agent2_draft;
         if (data.complexity) {
           const compEl = document.getElementById('m-agent2-complexity');
           if (compEl) {
@@ -312,9 +322,12 @@ export async function executeLiveBackend(query) {
           if (subqEl) subqEl.textContent = `${data.claims_count} Claims`;
         }
       }
-      if (data.agent_id === 3 && data.auto_verified !== undefined) {
-        const verifiedEl = document.getElementById('m-agent3-verified');
-        if (verifiedEl) verifiedEl.textContent = `${data.auto_verified} verified`;
+      if (data.agent_id === 3) {
+        if (data.agent3_cacher) accumulatedPartial.agent3_cacher = data.agent3_cacher;
+        if (data.auto_verified !== undefined) {
+          const verifiedEl = document.getElementById('m-agent3-verified');
+          if (verifiedEl) verifiedEl.textContent = `${data.auto_verified} verified`;
+        }
       }
       if (data.agent_id === 4) {
         if (data.tokens_used !== undefined) {
@@ -339,9 +352,9 @@ export async function executeLiveBackend(query) {
       elements.teleStatusText.textContent = "Partial Data";
       logToCanvas(`[NOTICE] ${data.error || data.message || 'Pipeline aborted'}`);
       
-      const agent2Draft = data.partial_data?.agent2_draft;
-      const agent1Scraped = data.partial_data?.agent1_scraped || data.partial_data?.agent1_scraper;
-      const agent3Cacher = data.partial_data?.agent3_cacher;
+      const agent2Draft = data.partial_data?.agent2_draft || accumulatedPartial.agent2_draft;
+      const agent1Scraped = data.partial_data?.agent1_scraped || data.partial_data?.agent1_scraper || accumulatedPartial.agent1_scraped;
+      const agent3Cacher = data.partial_data?.agent3_cacher || accumulatedPartial.agent3_cacher;
 
       // Extract verified and pending claims from Agent 3 if present
       const verifiedMap = {};
@@ -512,6 +525,20 @@ export async function executeLiveBackend(query) {
     },
     pipeline_error: (e) => {
       streamCompleted = true;
+      let parsed = {};
+      try { parsed = JSON.parse(e.data); } catch (_) {}
+      if (parsed.partial_data) {
+        if (!parsed.partial_data.agent1_scraped && accumulatedPartial.agent1_scraped) {
+          parsed.partial_data.agent1_scraped = accumulatedPartial.agent1_scraped;
+        }
+        if (!parsed.partial_data.agent2_draft && accumulatedPartial.agent2_draft) {
+          parsed.partial_data.agent2_draft = accumulatedPartial.agent2_draft;
+        }
+        if (!parsed.partial_data.agent3_cacher && accumulatedPartial.agent3_cacher) {
+          parsed.partial_data.agent3_cacher = accumulatedPartial.agent3_cacher;
+        }
+        e = { data: JSON.stringify(parsed) };
+      }
       eventHandlers.pipeline_error(e);
     }
   };
@@ -527,8 +554,9 @@ export async function executeLiveBackend(query) {
         data: JSON.stringify({
           error: "Pipeline stream closed unexpectedly before completion.",
           partial_data: {
-            agent1_scraped: { papers: [], papers_found: 0 },
-            agent2_draft: { sections: [], sub_questions: [], claims: [] }
+            agent1_scraped: accumulatedPartial.agent1_scraped || { papers: [], papers_found: 0 },
+            agent2_draft: accumulatedPartial.agent2_draft || { sections: [], sub_questions: [], claims: [] },
+            agent3_cacher: accumulatedPartial.agent3_cacher || null
           }
         })
       });

@@ -400,8 +400,19 @@ def run_agent3_context_cacher(
     ]
 
     # Batch neural embeddings (Pillar 1: Fastembed ONNX embeddings)
-    sent_texts = [sent.get("text", "") for sent in dense_sentences]
-    s_mat = embed_texts(sent_texts) if sent_texts else None
+    # Pre-filter to top 35 candidate sentences to guarantee fast sub-second execution
+    model = get_embedding_model()
+    if len(dense_sentences) > 35 and model is not None:
+        cand_subset = [sent.get("text", "") for sent in dense_sentences[:35]]
+        sub_mat = embed_texts(cand_subset)
+        if sub_mat is not None:
+            s_mat = np.zeros((len(dense_sentences), sub_mat.shape[1]), dtype=np.float32)
+            s_mat[:len(sub_mat)] = sub_mat
+        else:
+            s_mat = None
+    else:
+        sent_texts = [sent.get("text", "") for sent in dense_sentences]
+        s_mat = embed_texts(sent_texts) if (model is not None and sent_texts) else None
     
     claim_texts = [html.unescape(c.get("text", "")).strip() for c in claims]
     c_mat = embed_texts(claim_texts) if (claim_texts and s_mat is not None) else None
