@@ -21,7 +21,7 @@ from backend.agents.agent1_scraper import classify_paper_provenance
 logger = get_logger("Agent4_Synthesizer")
 
 async def _post_gemini_factcheck(url: str, payload: dict, headers: dict) -> tuple[List[Dict[str, Any]], TokenCount]:
-    async with httpx.AsyncClient(timeout=50.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
         resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -107,7 +107,7 @@ Claims and Targeted Evidence:
     return await retry_async(_post_gemini_factcheck, url, payload, headers, max_retries=2, base_delay=1.0)
 
 async def _post_anthropic_factcheck(url: str, payload: dict, headers: dict) -> tuple[List[Dict[str, Any]], TokenCount]:
-    async with httpx.AsyncClient(timeout=50.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
         resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code == 200:
             data = resp.json()

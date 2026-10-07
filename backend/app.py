@@ -108,7 +108,7 @@ class QueryRequest(BaseModel):
     provider_agent2: Optional[str] = "auto"
     provider_agent4: Optional[str] = "auto"
     similarity_threshold: Optional[float] = 0.55
-    paper_limit: Optional[int] = 5
+    paper_limit: Optional[int] = 8
     execution_mode: Optional[str] = "deep"
     gemini_key: Optional[str] = None
     anthropic_key: Optional[str] = None
@@ -116,7 +116,7 @@ class QueryRequest(BaseModel):
     serpapi_key: Optional[str] = None
     scraper_sources: Optional[str] = "all"
     active_scrapers: Optional[List[str]] = None
-    max_pdf_pages: Optional[int] = 15
+    max_pdf_pages: Optional[int] = 25
     disable_fallback: Optional[bool] = False
     disable_fallback_agent2: Optional[bool] = False
     disable_fallback_agent4: Optional[bool] = False

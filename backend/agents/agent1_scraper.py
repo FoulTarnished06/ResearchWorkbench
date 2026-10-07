@@ -643,8 +643,8 @@ def is_paper_semantically_relevant(paper: Dict[str, Any], query_intent: str, fac
 
 async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pages: int = 15) -> Optional[Dict[str, Any]]:
     """
-    Queries Unpaywall for open-access PDF URL and extracts high-density methodology/results
-    paragraphs in-memory using PyMuPDF. Sub-3s turnaround, zero disk persistence.
+    Queries Unpaywall or arXiv for open-access PDF URL and extracts high-density methodology/results
+    paragraphs in-memory using PyMuPDF. Prioritizes tables, benchmarks, and quantitative measurements.
     """
     if not doi:
         return None
@@ -652,51 +652,62 @@ async def fetch_open_access_fulltext(doi: str, client: httpx.AsyncClient, max_pa
     if not clean_doi:
         return None
         
-    unpaywall_url = f"https://api.unpaywall.org/v2/{clean_doi}"
-    params = {"email": "academic@workbench.org"}
+    pdf_url = None
+    # Check direct arXiv PDF pattern first
+    if "arxiv" in clean_doi.lower():
+        a_id = re.sub(r'^.*?arxiv[.:/]', '', clean_doi, flags=re.IGNORECASE).strip()
+        if a_id:
+            pdf_url = f"https://arxiv.org/pdf/{a_id}.pdf"
+
+    if not pdf_url:
+        unpaywall_url = f"https://api.unpaywall.org/v2/{clean_doi}"
+        params = {"email": "academic@workbench.org"}
+        try:
+            resp = await client.get(unpaywall_url, params=params, timeout=7.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("is_oa"):
+                    best_oa = data.get("best_oa_location") or {}
+                    pdf_url = best_oa.get("url_for_pdf")
+        except Exception as e:
+            logger.debug(f"Unpaywall OA lookup skipped for {clean_doi}: {e}")
+
+    if not pdf_url:
+        return None
+
     try:
-        resp = await client.get(unpaywall_url, params=params, timeout=5.0)
-        if resp.status_code == 200:
-            data = resp.json()
-            if not data.get("is_oa"):
-                return None
-            best_oa = data.get("best_oa_location") or {}
-            pdf_url = best_oa.get("url_for_pdf")
-            if not pdf_url:
-                return None
-                
-            # Bounded timeout for responsive scraping turnaround
-            pdf_resp = await client.get(pdf_url, timeout=4.0, follow_redirects=True)
-            if pdf_resp.status_code == 200 and 1000 < len(pdf_resp.content) <= 8 * 1024 * 1024 and pdf_resp.content[:4] == b"%PDF" and pymupdf is not None:
-                doc = pymupdf.open(stream=io.BytesIO(pdf_resp.content), filetype="pdf")
-                total_pages = len(doc)
-                extracted_paragraphs = []
-                start_p = 1 if total_pages > 1 else 0
-                end_p = min(total_pages, max(max_pages, 6))
-                for p_num in range(start_p, end_p):
-                    page_text = doc[p_num].get_text("text")
-                    for para in page_text.split("\n\n"):
-                        p_clean = re.sub(r'\s+', ' ', para).strip()
-                        words = p_clean.split()
-                        if 20 <= len(words) <= 180:
-                            if not re.search(r'^(?:references|bibliography|table of contents|contents|acknowledgements)\b', p_clean, re.IGNORECASE):
-                                is_quant = bool(re.search(r'\b(?:\d+(?:\.\d+)?\s*(?:ms|ns|s|seconds|KB|MB|GB|Gbps|B|bytes|%|x\s+speedup)|table\s+\d+|benchmark|throughput|latency|accuracy)\b', p_clean, re.IGNORECASE))
-                                if is_quant:
-                                    extracted_paragraphs.insert(0, p_clean)
-                                else:
-                                    extracted_paragraphs.append(p_clean)
-                        if len(extracted_paragraphs) >= 16:
-                            break
-                    if len(extracted_paragraphs) >= 16:
+        # Bounded 12.0s timeout to allow full download of complex papers with extensive results
+        pdf_resp = await client.get(pdf_url, timeout=12.0, follow_redirects=True)
+        if pdf_resp.status_code == 200 and 1000 < len(pdf_resp.content) <= 25 * 1024 * 1024 and pdf_resp.content[:4] == b"%PDF" and pymupdf is not None:
+            doc = pymupdf.open(stream=io.BytesIO(pdf_resp.content), filetype="pdf")
+            total_pages = len(doc)
+            extracted_paragraphs = []
+            start_p = 1 if total_pages > 1 else 0
+            end_p = min(total_pages, max(max_pages, 25))
+            for p_num in range(start_p, end_p):
+                page_text = doc[p_num].get_text("text")
+                for para in page_text.split("\n\n"):
+                    p_clean = re.sub(r'\s+', ' ', para).strip()
+                    words = p_clean.split()
+                    if 20 <= len(words) <= 220:
+                        if not re.search(r'^(?:references|bibliography|table of contents|contents|acknowledgements)\b', p_clean, re.IGNORECASE):
+                            is_quant = bool(re.search(r'\b(?:\d+(?:\.\d+)?\s*(?:ms|ns|s|seconds|KB|MB|GB|Gbps|B|bytes|%|x\s+speedup|eV|meV|kcal/mol|Debye|MAE|RMSE|ROC-AUC)|table\s+\d+|benchmark|throughput|latency|accuracy|baseline|over-squashing|isomorphism)\b', p_clean, re.IGNORECASE))
+                            if is_quant:
+                                extracted_paragraphs.insert(0, p_clean)
+                            else:
+                                extracted_paragraphs.append(p_clean)
+                    if len(extracted_paragraphs) >= 24:
                         break
-                doc.close()
-                if extracted_paragraphs:
-                    return {
-                        "pdf_url": pdf_url,
-                        "paragraphs": extracted_paragraphs[:12]
-                    }
+                if len(extracted_paragraphs) >= 24:
+                    break
+            doc.close()
+            if extracted_paragraphs:
+                return {
+                    "pdf_url": pdf_url,
+                    "paragraphs": extracted_paragraphs[:16]
+                }
     except Exception as e:
-        logger.debug(f"Unpaywall OA lookup skipped for {clean_doi}: {e}")
+        logger.debug(f"OA fulltext download/extraction skipped for {clean_doi}: {e}")
     return None
 
 def extract_clean_topic(query: str) -> str:
@@ -802,7 +813,8 @@ async def fetch_semantic_scholar(query: str, limit: int = 5) -> List[Dict[str, A
         "fields": "paperId,title,authors,year,abstract,url,venue,citationCount,isOpenAccess,externalIds,tldr,openAccessPdf,references.title,references.venue,references.year,references.contexts,citations.title,citations.venue,citations.year,citations.contexts"
     }
     q_lower = query.lower()
-    if any(k in q_lower for k in ["mixture of experts", "moe", "all-to-all", "latency", "interconnect", "parallelism", "transformer", "llm", "sharding", "gpu", "accelerator"]):
+    is_non_cs = any(k in q_lower for k in ["molecule", "molecular", "chem", "drug", "biology", "protein", "qm9", "zinc", "mpnn", "material", "quantum", "physics"])
+    if not is_non_cs and any(k in q_lower for k in ["mixture of experts", "moe", "all-to-all", "interconnect", "parallelism", "sharding", "gpu", "accelerator"]):
         params["fieldsOfStudy"] = "Computer Science"
         params["publicationTypes"] = "JournalArticle,Conference"
 
@@ -1694,34 +1706,37 @@ async def run_agent1_academic_scraper(
     # Granular individual scraper selection
     active_set = set(active_scrapers) if active_scrapers is not None else None
     
+    # Deep coverage scaling: retrieve more papers when multi-facet inquiry
+    effective_limit = max(limit, len(facets) * 2, 8)
+
     fetch_tasks = []
     if active_set is not None:
         if "crossref" in active_set:
-            fetch_tasks.append(fetch_crossref(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_crossref(search_keywords, limit=effective_limit))
         if "doaj" in active_set:
-            fetch_tasks.append(fetch_doaj(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_doaj(search_keywords, limit=effective_limit))
         if "openalex" in active_set:
-            fetch_tasks.append(fetch_openalex(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_openalex(search_keywords, limit=effective_limit))
         if "semantic_scholar" in active_set:
-            fetch_tasks.append(fetch_semantic_scholar(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_semantic_scholar(search_keywords, limit=effective_limit))
         if "europepmc" in active_set:
-            fetch_tasks.append(fetch_europepmc(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_europepmc(search_keywords, limit=effective_limit))
         if "core" in active_set:
-            fetch_tasks.append(fetch_core(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_core(search_keywords, limit=effective_limit))
         if "base" in active_set:
-            fetch_tasks.append(fetch_base(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_base(search_keywords, limit=effective_limit))
         if "pubmed" in active_set or "pubmed_ncbi" in active_set:
-            fetch_tasks.append(fetch_pubmed_ncbi(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_pubmed_ncbi(search_keywords, limit=effective_limit))
         if "arxiv" in active_set or "papers" in active_set:
-            fetch_tasks.append(_fetch_eprint_repository(search_keywords, limit=limit))
+            fetch_tasks.append(_fetch_eprint_repository(search_keywords, limit=effective_limit))
         if "serpapi" in active_set and serpapi_key:
-            fetch_tasks.append(fetch_serpapi_web(query, limit=limit, api_key=serpapi_key))
+            fetch_tasks.append(fetch_serpapi_web(query, limit=effective_limit, api_key=serpapi_key))
         if "wikipedia" in active_set:
             fetch_tasks.append(fetch_wikipedia_knowledge(search_keywords, limit=2))
 
         # Parallel facet queries for active scrapers if compound query
         if len(facets) > 1:
-            facet_limit = max(2, limit // len(facets) + 1)
+            facet_limit = max(3, effective_limit // len(facets) + 1)
             for f in facets:
                 f_kw = distill_academic_query(f["sub_query"])
                 if "semantic_scholar" in active_set:
@@ -1735,23 +1750,23 @@ async def run_agent1_academic_scraper(
     else:
         # Default behavior: run all active academic repositories
         if sources in ["all", "papers"]:
-            fetch_tasks.append(fetch_crossref(search_keywords, limit=limit))
-            fetch_tasks.append(_fetch_eprint_repository(search_keywords, limit=limit))
-            fetch_tasks.append(fetch_doaj(search_keywords, limit=limit))
-            fetch_tasks.append(fetch_semantic_scholar(search_keywords, limit=limit))
-            fetch_tasks.append(fetch_europepmc(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_crossref(search_keywords, limit=effective_limit))
+            fetch_tasks.append(_fetch_eprint_repository(search_keywords, limit=effective_limit))
+            fetch_tasks.append(fetch_doaj(search_keywords, limit=effective_limit))
+            fetch_tasks.append(fetch_semantic_scholar(search_keywords, limit=effective_limit))
+            fetch_tasks.append(fetch_europepmc(search_keywords, limit=effective_limit))
         if sources in ["all", "gov"]:
-            fetch_tasks.append(fetch_pubmed_ncbi(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_pubmed_ncbi(search_keywords, limit=effective_limit))
         if sources in ["all", "edu"]:
-            fetch_tasks.append(fetch_openalex(search_keywords, limit=limit))
+            fetch_tasks.append(fetch_openalex(search_keywords, limit=effective_limit))
         if sources in ["all", "serpapi"] and serpapi_key:
-            fetch_tasks.append(fetch_serpapi_web(query, limit=limit, api_key=serpapi_key))
+            fetch_tasks.append(fetch_serpapi_web(query, limit=effective_limit, api_key=serpapi_key))
         if sources == "all":
             fetch_tasks.append(fetch_wikipedia_knowledge(search_keywords, limit=2))
         
         # Parallel atomic facet queries to guarantee each sub-question/entity has hits
         if len(facets) > 1:
-            facet_limit = max(2, limit // len(facets) + 1)
+            facet_limit = max(3, effective_limit // len(facets) + 1)
             for f in facets:
                 f_kw = distill_academic_query(f["sub_query"])
                 fetch_tasks.append(fetch_semantic_scholar(f_kw, limit=facet_limit))
@@ -1883,7 +1898,7 @@ async def run_agent1_academic_scraper(
                 covered_facets, uncovered_facets = check_facet_coverage(facets, raw_papers)
 
     # Pillar 4: Citation Snowballing (Follow references backward from on-target hits)
-    snowballed = snowball_citations(raw_papers, facets, max_snowball=2)
+    snowballed = snowball_citations(raw_papers, facets, max_snowball=6)
     if snowballed:
         for sp in snowballed:
             san = sanitize_and_validate_paper_metadata(sp)
@@ -1914,14 +1929,14 @@ async def run_agent1_academic_scraper(
         
     query_tokens = clean_and_tokenize(query)
     
-    # Open-Access Full-Text Ingestion via Unpaywall (Pillar 2)
-    # Asynchronously enrich top DOI papers with empirical body paragraphs
-    doi_papers = [p for p in papers if p.get("doi") and "10." in str(p.get("doi"))][:3]
+    # Open-Access Full-Text Ingestion via Unpaywall & arXiv (Pillar 3)
+    # Asynchronously enrich top DOI/arXiv papers with empirical body paragraphs
+    doi_papers = [p for p in papers if (p.get("doi") and "10." in str(p.get("doi"))) or "arxiv" in str(p.get("url", "")).lower()][:8]
     if doi_papers:
         try:
-            async with httpx.AsyncClient(timeout=4.0) as oa_client:
-                oa_tasks = [fetch_open_access_fulltext(p["doi"], oa_client, max_pages=max_pdf_pages) for p in doi_papers]
-                oa_results = await asyncio.wait_for(asyncio.gather(*oa_tasks, return_exceptions=True), timeout=5.0)
+            async with httpx.AsyncClient(timeout=12.0) as oa_client:
+                oa_tasks = [fetch_open_access_fulltext(p.get("doi") or p.get("url", ""), oa_client, max_pages=max_pdf_pages) for p in doi_papers]
+                oa_results = await asyncio.wait_for(asyncio.gather(*oa_tasks, return_exceptions=True), timeout=15.0)
                 for dp, oa_res in zip(doi_papers, oa_results):
                     if isinstance(oa_res, dict) and oa_res.get("paragraphs"):
                         dp["oa_pdf_url"] = oa_res.get("pdf_url")

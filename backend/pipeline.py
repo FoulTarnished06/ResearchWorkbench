@@ -179,13 +179,13 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             max_pdf_pages=int(config.get("max_pdf_pages", 15))
         )
         
-        # Phase 1 Pre-Filter (Tool 2.1 - 0 Tokens)
+        # Phase 1 Pre-Filter (Tool 2.1 - 0 Tokens): Feed comprehensive empirical context
         distilled_sentences = await asyncio.to_thread(
             run_agent3_context_distiller,
-            user_query, agent1_res, top_k=15
+            user_query, agent1_res, top_k=40, max_tokens=2500
         )
         
-        # Override dense sentences to starve LLM of tokens
+        # Equip Drafter with full dense empirical context across all facets
         distilled_agent1_res = dict(agent1_res)
         distilled_agent1_res["dense_sentences"] = distilled_sentences
         
@@ -219,16 +219,16 @@ async def run_query_pipeline(user_query: str, config: Optional[Dict[str, Any]] =
             user_query, agent1_res, agent2_res, similarity_threshold=similarity_thresh
         )
         
-        # Step 4: Fact-Checker & Synthesizer (AI Call 2 - Asymmetric Fast Verifier Tier)
+        # Step 4: Fact-Checker & Synthesizer (AI Call 2 - Maximum Precision Tier)
         resolved_provider_a4 = provider_agent4
         if not resolved_provider_a4 or resolved_provider_a4 == "auto":
             prov_a2_lower = str(provider_agent2).lower()
             if any(k in prov_a2_lower for k in ("gpt", "openai", "sol", "luna", "astra")):
-                resolved_provider_a4 = "gpt-6-luna"
+                resolved_provider_a4 = "gpt-6.1-sol"
             elif "claude" in prov_a2_lower or "anthropic" in prov_a2_lower:
-                resolved_provider_a4 = "claude-haiku-4.5"
+                resolved_provider_a4 = "claude-sonnet-5.5"
             else:
-                resolved_provider_a4 = "gemini-3.6-flash"
+                resolved_provider_a4 = "gemini-3.1-pro" if "pro" in prov_a2_lower else "gemini-3.6-flash"
 
         agent4_res = await run_agent4_fact_checker_synthesizer(
             user_query, 
@@ -440,8 +440,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                         "details": "Extracting full-text empirical findings & scoring information density...",
                         "tokens_used": 0
                     })
-                elif scraper_elapsed >= 22.0:
-                    logger.warning(f"Scraper task exceeded 22.0s limit for '{user_query}'; canceling.")
+                elif scraper_elapsed >= 75.0:
+                    logger.warning(f"Scraper task exceeded 75.0s limit for '{user_query}'; canceling.")
                     scraper_task.cancel()
                     break
 
@@ -482,11 +482,11 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        # Phase 1 Pre-Filter with bounded 5s timeout
+        # Phase 1 Pre-Filter: Feed comprehensive empirical context (top 40 facts)
         try:
             distilled_sentences = await asyncio.wait_for(
-                asyncio.to_thread(run_agent3_context_distiller, user_query, agent1_res, top_k=15),
-                timeout=5.0
+                asyncio.to_thread(run_agent3_context_distiller, user_query, agent1_res, top_k=40, max_tokens=2500),
+                timeout=15.0
             )
         except Exception as dist_err:
             logger.debug(f"Distiller timeout/error: {dist_err}")
@@ -542,8 +542,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                         "details": "Finalizing claim boundaries & formatting section monograph...",
                         "tokens_used": 0
                     })
-                elif drafter_elapsed >= 75.0:
-                    logger.warning("Drafter task exceeded 75.0s limit; canceling.")
+                elif drafter_elapsed >= 180.0:
+                    logger.warning("Drafter task exceeded 180.0s limit; canceling.")
                     drafter_task.cancel()
                     break
 
@@ -615,8 +615,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
             except asyncio.TimeoutError:
                 cacher_elapsed += 2.0
                 yield f": keep-alive cacher {cacher_elapsed:.1f}s\n\n"
-                if cacher_elapsed >= 25.0:
-                    logger.warning("Context cacher task exceeded 25.0s limit; canceling.")
+                if cacher_elapsed >= 60.0:
+                    logger.warning("Context cacher task exceeded 60.0s limit; canceling.")
                     cacher_task.cancel()
                     break
 
@@ -652,7 +652,7 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         })
         await asyncio.sleep(0.01)
 
-        # AGENT 4: Fact-Checker & Synthesizer (LLM Call 2 - Asymmetric Fast Verifier Tier)
+        # AGENT 4: Fact-Checker & Synthesizer (LLM Call 2 - Maximum Precision Tier)
         yield sse_message("agent_active", {
             "agent_id": 4,
             "name": "Fact-Checker & Synthesizer",
@@ -665,11 +665,11 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
         if not resolved_stream_provider_a4 or resolved_stream_provider_a4 == "auto":
             prov_a2_lower = str(config.get("provider_agent2", "auto")).lower()
             if any(k in prov_a2_lower for k in ("gpt", "openai", "sol", "luna", "astra")):
-                resolved_stream_provider_a4 = "gpt-6-luna"
+                resolved_stream_provider_a4 = "gpt-6.1-sol"
             elif "claude" in prov_a2_lower or "anthropic" in prov_a2_lower:
-                resolved_stream_provider_a4 = "claude-haiku-4.5"
+                resolved_stream_provider_a4 = "claude-sonnet-5.5"
             else:
-                resolved_stream_provider_a4 = "gemini-3.6-flash"
+                resolved_stream_provider_a4 = "gemini-3.1-pro" if "pro" in prov_a2_lower else "gemini-3.6-flash"
 
         synth_task = asyncio.create_task(run_agent4_fact_checker_synthesizer(
             user_query, 
@@ -704,8 +704,8 @@ async def stream_query_pipeline(user_query: str, config: Optional[Dict[str, Any]
                         "details": "Cross-referencing claims against source evidence and computing verification metrics...",
                         "tokens_used": 0
                     })
-                elif synth_elapsed >= 60.0:
-                    logger.warning("Synthesizer task exceeded 60.0s limit; canceling.")
+                elif synth_elapsed >= 150.0:
+                    logger.warning("Synthesizer task exceeded 150.0s limit; canceling.")
                     synth_task.cancel()
                     break
 
