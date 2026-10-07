@@ -16,6 +16,10 @@ from backend.post_processor import (
     post_process_dossier,
     enforce_section2_empirical_purity
 )
+from backend.agents.agent2_drafter import (
+    detect_query_domain,
+    synthesize_fallback_draft
+)
 
 class TestUserSixArchitecturalImprovements(unittest.TestCase):
     """
@@ -223,6 +227,72 @@ class TestUserSixArchitecturalImprovements(unittest.TestCase):
         # Long text must be split into multiple paragraphs
         p_count = cleaned.count("<p>")
         self.assertGreater(p_count, 1, "Long block should be broken into multiple paragraphs")
+
+    def test_spatial_mpnn_query_decomposition(self):
+        query = (
+            "Spatial Message Passing Neural Networks (MPNN) with edge-conditioned convolutions vs "
+            "Graph Transformers with spectral Laplacian positional encodings for molecular property prediction: "
+            "over-squashing mitigation, expressive power beyond the 1-Weisfeiler-Lehman (1-WL) limit, "
+            "and inference scaling on QM9 and ZINC benchmarks"
+        )
+        facets = decompose_query_into_facets(query)
+        self.assertGreaterEqual(len(facets), 4)
+        facet_texts = " ".join((f.get("raw_facet") or f.get("sub_query") or "").lower() for f in facets)
+        self.assertTrue("mpnn" in facet_texts or "message passing" in facet_texts)
+        self.assertTrue("transformer" in facet_texts or "laplacian" in facet_texts)
+        self.assertTrue("over-squashing" in facet_texts or "1-wl" in facet_texts or "weisfeiler" in facet_texts)
+        self.assertTrue("qm9" in facet_texts or "zinc" in facet_texts)
+
+    def test_spatial_mpnn_domain_detection(self):
+        query = (
+            "Spatial Message Passing Neural Networks (MPNN) with edge-conditioned convolutions vs "
+            "Graph Transformers with spectral Laplacian positional encodings for molecular property prediction: "
+            "over-squashing mitigation, expressive power beyond the 1-Weisfeiler-Lehman (1-WL) limit, "
+            "and inference scaling on QM9 and ZINC benchmarks"
+        )
+        domain = detect_query_domain(query)
+        self.assertEqual(domain, "graph_ml", "Should be classified into graph_ml, NOT systems_ml")
+
+    def test_spatial_mpnn_parametric_derivations_and_zero_moe_leakage(self):
+        query = (
+            "Spatial Message Passing Neural Networks (MPNN) with edge-conditioned convolutions vs "
+            "Graph Transformers with spectral Laplacian positional encodings for molecular property prediction: "
+            "over-squashing mitigation, expressive power beyond the 1-Weisfeiler-Lehman (1-WL) limit, "
+            "and inference scaling on QM9 and ZINC benchmarks"
+        )
+        draft = synthesize_fallback_draft(query=query, papers=[], dense_sentences=[], domain="graph_ml")
+        
+        # Verify draft contains labelled parametric derivations
+        sections = draft.get("sections", [])
+        full_draft_text = draft.get("executive_summary", "") + " " + " ".join(s.get("answer_html", "") for s in sections)
+        
+        # Mathematical formulations must be present
+        self.assertTrue(
+            r"h_i^{(t+1)}" in full_draft_text or "Laplacian" in full_draft_text or "1-WL" in full_draft_text or "QM9" in full_draft_text,
+            "Monograph must preserve labelled parametric derivations for graph ML"
+        )
+        
+        # Zero MoE / Systems ML leakage
+        forbidden_moe_terms = ["mixture-of-experts", "ncclalltoallv", "expert weights", "infiniband", "nvme"]
+        for term in forbidden_moe_terms:
+            self.assertNotIn(term, full_draft_text.lower(), f"Draft leaked systems_ml term '{term}' into graph_ml query")
+
+    def test_no_sentence_duplication_in_fallback_draft(self):
+        query = (
+            "Spatial Message Passing Neural Networks (MPNN) with edge-conditioned convolutions vs "
+            "Graph Transformers with spectral Laplacian positional encodings for molecular property prediction"
+        )
+        # Even with only 2 input sentences, subsequent sections must not loop back and duplicate sentences
+        dummy_sentences = [
+            {"text": "Spatial message passing networks aggregate localized atomic neighborhoods efficiently.", "paper_id": "p1", "paper_title": "Paper 1"},
+            {"text": "Graph transformers apply global dense self-attention to mitigate structural over-squashing.", "paper_id": "p2", "paper_title": "Paper 2"}
+        ]
+        draft = synthesize_fallback_draft(query=query, dense_sentences=dummy_sentences, domain="graph_ml", target_count=3)
+        
+        all_claim_texts = [c.get("text", "").strip() for c in draft.get("claims", []) if c.get("text")]
+        # Every single claim text must be unique
+        unique_claim_texts = set(all_claim_texts)
+        self.assertEqual(len(all_claim_texts), len(unique_claim_texts), "All claim texts across fallback draft must be distinct without recycling")
 
 
 if __name__ == "__main__":

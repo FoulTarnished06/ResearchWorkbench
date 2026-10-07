@@ -105,7 +105,7 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
     facets = []
     
     # 1. Split on numbered clauses or bullet points (e.g. "1. ... 2. ...", "(1) ... (2) ...")
-    numbered_parts = [p.strip() for p in re.split(r'(?:^|\s)(?:(?:\d+|[ivx]+|[a-zA-Z])[\.\)]|\([0-9a-zA-Z]+\))\s*', q_raw) if len(p.strip()) > 8]
+    numbered_parts = [p.strip() for p in re.split(r'(?:^|\s)(?:(?:\d{1,2}|[ivxIVX]{1,4}|[a-zA-Z])[\.\)]|\([0-9a-zA-Z]{1,2}\)|\([ivxIVX]{1,4}\))\s*', q_raw) if len(p.strip()) > 8]
     if len(numbered_parts) >= 2:
         for idx, part in enumerate(numbered_parts[:5]):
             distilled = distill_academic_query(part)
@@ -121,8 +121,44 @@ def decompose_query_into_facets(query: str) -> List[Dict[str, Any]]:
         if facets:
             return facets
 
-    # 2. Split on question marks, semicolons, or newlines if multiple exist
-    q_parts = [p.strip() for p in re.split(r'\?+|;\s*|\n+', q_raw) if len(p.strip()) > 8]
+    # 2. Split on Colon / Semicolon compound structures (e.g. "Model A vs Model B for Task: Criteria 1, Criteria 2, and Benchmarks 3")
+    if ':' in q_raw or ';' in q_raw:
+        colon_parts = [p.strip() for p in re.split(r'[:;]+', q_raw) if len(p.strip().split()) >= 2]
+        if len(colon_parts) >= 2:
+            atomic_subqueries = []
+            c0 = colon_parts[0]
+            c0_splits = [s.strip() for s in re.split(r'\s+vs\.?\s+|\s+versus\s+|\s+compared\s+to\s+', c0, flags=re.IGNORECASE) if len(s.strip().split()) >= 2]
+            if len(c0_splits) >= 2:
+                atomic_subqueries.extend(c0_splits)
+            else:
+                atomic_subqueries.append(c0)
+
+            for c_rem in colon_parts[1:]:
+                c_splits = [s.strip().rstrip('.') for s in re.split(r',\s*(?:and\s+)?|\s+and\s+', c_rem) if len(s.strip().split()) >= 2]
+                if c_splits:
+                    atomic_subqueries.extend(c_splits)
+                else:
+                    atomic_subqueries.append(c_rem)
+
+            if len(atomic_subqueries) >= 2:
+                for idx, part in enumerate(atomic_subqueries[:6]):
+                    distilled = distill_academic_query(part)
+                    clean_ents = [
+                        e for e in re.findall(r'\b[A-Z0-9][a-zA-Z0-9_-]*(?:\s+[A-Z0-9][a-zA-Z0-9_-]*)*\b', part)
+                        if len(e) > 1 and e.lower() not in STOPWORDS
+                    ]
+                    facets.append({
+                        "facet_id": f"F{idx+1}",
+                        "sub_query": distilled or part,
+                        "raw_facet": part,
+                        "entities": list(set(clean_ents)),
+                        "keywords": clean_and_tokenize(distilled or part)
+                    })
+                if facets:
+                    return facets
+
+    # 3. Split on question marks or newlines if multiple exist
+    q_parts = [p.strip() for p in re.split(r'\?+|\n+', q_raw) if len(p.strip()) > 8]
     if len(q_parts) >= 2:
         for idx, part in enumerate(q_parts[:5]):
             distilled = distill_academic_query(part)
@@ -1774,7 +1810,9 @@ async def run_agent1_academic_scraper(
                 logger.info(f"Query relaxation succeeded with {len(raw_papers)} papers for '{rq}'.")
                 break
 
-    raw_papers = _dedup_papers_list(raw_papers)
+    deduped_papers = []
+    deduped_papers = _dedup_papers_list(raw_papers)
+    raw_papers = deduped_papers
 
     # Upstream Ingestion Gatekeeper: Sanitize, validate, and classify provenance
     validated_papers = []

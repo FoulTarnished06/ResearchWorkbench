@@ -10,11 +10,21 @@ def sanitize_xml(text: Any) -> str:
         return ""
     return _XML_ILLEGAL_CHARS_RE.sub('', str(text))
 
-def strip_html_tags(text: Any) -> str:
-    """Removes HTML tags, cleans up whitespace, and strips XML-incompatible control characters."""
+import html
+
+def strip_html_tags(text: Any, preserve_paragraphs: bool = True) -> str:
+    """Removes HTML tags, cleans up whitespace, preserves paragraph breaks, and unescapes entities."""
     if not text:
         return ""
     clean = sanitize_xml(text)
+    clean = html.unescape(clean)
+    if preserve_paragraphs:
+        # Convert paragraph/break tags to newlines
+        clean = re.sub(r'</p>|<br\s*/?>|</div>|</li>', '\n\n', clean, flags=re.IGNORECASE)
+        clean = re.sub(r'<[^>]+>', ' ', clean)
+        lines = [re.sub(r'[ \t]+', ' ', l).strip() for l in clean.split('\n')]
+        clean = re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
+        return clean
     clean = re.sub(r'<[^>]+>', ' ', clean)
     clean = re.sub(r'\s+', ' ', clean)
     return clean.strip()
@@ -281,7 +291,9 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
     if exec_summary:
         doc.add_heading(f"{sec_num}. Comprehensive Academic Monograph", level=2)
         sec_num += 1
-        doc.add_paragraph(strip_html_tags(exec_summary))
+        for p_chunk in strip_html_tags(exec_summary).split("\n\n"):
+            if p_chunk.strip():
+                doc.add_paragraph(p_chunk.strip())
 
     # 6. Detailed Thematic Sections or Monograph Output (System B & C support)
     sections = dossier_data.get("dossier_sections", dossier_data.get("sections", []))
@@ -296,8 +308,10 @@ def export_to_docx(dossier_data: Dict[str, Any]) -> io.BytesIO:
             sec_body = strip_html_tags(sec.get("answer_html", sec.get("content_html", "")))
             if friction_corpus and _is_redundant_text(sec_body, friction_corpus, threshold=0.7):
                 continue
-            doc.add_heading(f"{t_num}.{sec_sub_idx} {strip_html_tags(clean_title)}", level=3)
-            doc.add_paragraph(sec_body)
+            doc.add_heading(f"{t_num}.{sec_sub_idx} {strip_html_tags(clean_title, preserve_paragraphs=False)}", level=3)
+            for p_chunk in sec_body.split("\n\n"):
+                if p_chunk.strip():
+                    doc.add_paragraph(p_chunk.strip())
             sec_sub_idx += 1
     elif dossier_data.get("output_text"):
         # For System B or System C baseline runs where sections are stored as markdown in output_text
@@ -607,7 +621,7 @@ def export_to_markdown(dossier_data: Dict[str, Any]) -> str:
             sec_body = strip_html_tags(sec.get("answer_html", sec.get("content_html", "")))
             if friction_corpus and _is_redundant_text(sec_body, friction_corpus, threshold=0.7):
                 continue
-            md.append(f"### {t_num}.{sec_sub_idx} {strip_html_tags(clean_title)}\n")
+            md.append(f"### {t_num}.{sec_sub_idx} {strip_html_tags(clean_title, preserve_paragraphs=False)}\n")
             md.append(sec_body + "\n")
             sec_sub_idx += 1
     elif dossier_data.get("output_text"):
