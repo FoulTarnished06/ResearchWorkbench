@@ -1,40 +1,69 @@
-# AI Research Workbench v4.0
+# AI Research Workbench v5.0 (Development)
 
-> **Autonomous Multi-Agent Academic Literature Synthesis & Multimodal PDF Document Workstation**
+> **Autonomous Multi-Agent Academic Literature Synthesis & Multimodal PDF Document Workstation**  
+> *Branch: `v5-development` | Architecture: Dual-Engine Coexistence (v4.0 Stable Baseline + v5.0 Tier 1 Deep Verification)*
 
-[![Version: 4.0.0](https://img.shields.io/badge/version-4.0.0-emerald.svg)](https://github.com/FoulTarnished06/ResearchWorkbench/releases/tag/v4.0.0)
+[![Version: 5.0.0-dev](https://img.shields.io/badge/version-5.0.0--dev-orange.svg)](https://github.com/FoulTarnished06/ResearchWorkbench/tree/v5-development)
+[![Baseline: v4.0.0](https://img.shields.io/badge/stable%20baseline-v4.0.0-emerald.svg)](https://github.com/FoulTarnished06/ResearchWorkbench/releases/tag/v4.0.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20%7C%20SQLite-003B57.svg)](https://www.postgresql.org/)
 [![FastEmbed ONNX](https://img.shields.io/badge/embeddings-FastEmbed%20ONNX-blueviolet.svg)](https://github.com/qdrant/fastembed)
 [![PyMuPDF](https://img.shields.io/badge/pdf-PyMuPDF4LLM-FF6F00.svg)](https://pymupdf.readthedocs.io/)
-[![Forensic Suite](https://img.shields.io/badge/tests-40%2F40%20passing-brightgreen.svg)](run_tests.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An academic research workstation engineered to eliminate hallucinations, enforce zero offline mock fallbacks, and provide verifiable literature citations with strict factual auditing. Operates across two complementary workflows:
+An academic research workstation featuring **Dual-Engine Coexistence**:
+1. **Engine v4.0 (Stable Baseline):** The fully hardened 4-agent fact-checking pipeline with zero-mock fallbacks, ONNX FastEmbed semantic caching, and strict 2-call LLM ceiling.
+2. **Engine v5.0 (Tier 1 Deep-Verification Engine):** Per-concept query decomposition, citation snowballing, preprint vs. published version resolution, full-text chunk passage verification, exact-match numeric auditing, 3-way claim verdicts (`SUPPORTED`, `CONTRADICTED`, `NOT_FOUND`), and an automated gold benchmark harness.
 
 1. **Mode A (Fact-Checked Multi-Agent Web Synthesis):** Enforces a **strict 2-call LLM ceiling** using a sequential 4-agent pipeline with deterministic open-access scraping (**Crossref, DOAJ, OpenAlex, Semantic Scholar, Europe PMC, PubMed**) and local neural FastEmbed ONNX sentence vector pre-filtering (auto-verifying claims $\ge 0.80$ cosine similarity against retrieved literature with zero LLM tokens).
 2. **Mode B (Multimodal PDF Document Analysis):** Provides zero-token local PDF text extraction, layout preservation via Markdown, high-resolution diagram/figure extraction, automated bibliography parsing with force-directed citation network graphs, and grounded multi-turn Q&A with display KaTeX math and inline page citations (`[p.X]`).
 
 ---
 
-## Architecture Overview
+## Dual-Engine Architecture (v4.0 Baseline + v5.0 Deep Verification)
 
 ```
-[User Query / Papers]
-         │
-         ├──► MODE A: FACT-CHECKED WEB RESEARCH SYNTHESIS
-         │    ├── Agent 1: Academic Scraper (0 Tokens) ──► Crossref, DOAJ, OpenAlex, PubMed, S2, Europe PMC
-         │    ├── Agent 2: Synthesis Drafter (LLM Call 1) ──► Monograph + Atomic Claims
-         │    ├── Agent 3: Neural Context Cacher (0 Tokens) ──► FastEmbed ONNX Cosine Sim (>=0.80 Auto-Verify)
-         │    └── Agent 4: Fact-Checker & Auditor (LLM Call 2) ──► Evidence Scoring & Finalized Dossier
-         │
-         └──► MODE B: MULTIMODAL PDF DOCUMENT ANALYSIS
-              ├── Agent P1: PDF Processor (0 Tokens) ──► PyMuPDF4LLM, Suffix Stemmer, Semantic Chunks
-              ├── Figure Extractor (0 Tokens) ──► High-Res PNG Diagrams & Captions
-              ├── Citation Network Builder (0 Tokens) ──► OpenAlex & Semantic Scholar Physics Graph
-              └── Agent P3: Document Synthesizer (1 Call) ──► Grounded Q&A + KaTeX Math & Page Anchors
+[User Inquiry]
+       │
+       ├──► ENGINE v4.0 (STABLE BASELINE)
+       │    ├── Agent 1: Scraper (arXiv, Crossref, DOAJ, OpenAlex, S2, Europe PMC)
+       │    ├── Agent 2: Synthesis Drafter (Monograph + Atomic Claims)
+       │    ├── Agent 3: ONNX FastEmbed Neural Cacher (Cosine Sim >= 0.80)
+       │    └── Agent 4: Fact-Checker & Auditor (Adjudication & Final Dossier)
+       │
+       └──► ENGINE v5.0 (TIER 1 DEEP VERIFICATION ENGINE)
+            ├── Step 1: Concept Decomposer (Facet splitting: Arch A, Arch B, Mechanisms, Benchmarks)
+            ├── Step 2: Snowball & Multi-Source Retriever (Per-concept queries + S2/OpenAlex citation graphs)
+            ├── Step 3: Version Resolver & Deduplicator (Peer-reviewed DOI preferred over preprints)
+            ├── Step 4: Full-Text Chunk Passage Extractor (200-400 word semantic windows)
+            ├── Step 5: Exact-Match Number & Metric Verifier (Deterministic numerical & unit audit)
+            └── Step 6: 3-Way Verdict Adjudicator (SUPPORTED / CONTRADICTED / NOT_FOUND + Scope Badges)
 ```
+
+### Tier 1 Core Innovations
+
+1. **Per-Concept Retrieval & Coverage Gating:**
+   - Automatically decomposes complex comparative prompts into sub-concepts (Entity A, Entity B, Theoretical Mechanism, Benchmark Datasets).
+   - Issues targeted per-concept queries across academic repositories rather than one monolithic search string.
+   - Measures concept coverage and triggers targeted secondary retrieval if a key mechanism is under-represented.
+
+2. **Citation Snowballing & Canonical Paper Surfacing:**
+   - Discovers canonical and seminal foundational papers by following forward citations (`cited_by`) and backward references via OpenAlex and Semantic Scholar graph APIs.
+
+3. **Preprint vs. Peer-Reviewed Version Resolution:**
+   - Detects when both an arXiv preprint and a formal journal/conference publication exist (via DOI or high-confidence title match), giving priority to peer-reviewed data.
+
+4. **Full-Text Chunk Passage Verification:**
+   - Ingests and chunks open-access full-text PDFs/HTML into 200-400 word passages.
+   - Evaluates claims directly against deep empirical passages rather than relying solely on high-level abstracts.
+
+5. **Deterministic Exact-Match Number & Unit Checking:**
+   - Extracts numeric values, units, and metrics (e.g. `41.2 meV`, `0.111 MAE`, `O(|V|^2)`, `99.5%`) and matches them deterministically against retrieved passages without LLM hallucinations.
+
+6. **Three-Way Claim Verdicts with Scope Badging:**
+   - Claims receive clear 3-way status: `SUPPORTED` (green), `CONTRADICTED` (red), or `NOT_FOUND_IN_CHECKED_TEXT` (neutral).
+   - Explicit scope annotations (`full_text` vs `abstract`) clarify evidence depth.
 
 ---
 

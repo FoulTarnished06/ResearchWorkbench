@@ -96,6 +96,28 @@
               </div>
             </label>
 
+            <!-- Option V5: Deep Verification Multi-Agent Engine -->
+            <label class="arch-radio-card" data-arch="system_v5" id="cfg-card-arch-v5">
+              <input type="radio" name="pipeline_arch" value="system_v5">
+              <div class="arch-card-content">
+                <div class="arch-card-top">
+                  <span class="arch-letter letter-v5" style="background: linear-gradient(135deg, #10b981, #06b6d4); color: white;">V5</span>
+                  <div class="arch-card-titles">
+                    <strong>System V5: Deep-Verification Engine</strong>
+                    <span class="arch-tag tag-recommended" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">Tier 1 Enhanced</span>
+                  </div>
+                </div>
+                <p class="arch-card-desc">
+                  Per-concept query decomposition, citation snowballing, preprint vs published resolution, 250-word full-text passage chunking, exact-match numeric checks, and 3-way verdicts.
+                </p>
+                <div class="arch-pills-row">
+                  <span class="mini-chip chip-green">3-Way Claim Verdicts</span>
+                  <span class="mini-chip chip-blue">Citation Snowballing</span>
+                  <span class="mini-chip chip-purple">Passage-Level Grounding</span>
+                </div>
+              </div>
+            </label>
+
             <!-- Option B: Conventional RAG Baseline -->
             <label class="arch-radio-card" data-arch="system_b" id="cfg-card-arch-b">
               <input type="radio" name="pipeline_arch" value="system_b">
@@ -1121,7 +1143,12 @@
               <button type="button" class="canvas-arch-pill active" data-arch="system_a" id="canvasPillArchA" title="System A: Full 4-Agent Research Workbench (Scraper + Drafter + Cacher + Fact-Checker)">
                 <span class="pill-dot"></span>
                 <span class="pill-name">System A: 4-Agent Workbench</span>
-                <span class="pill-badge pill-badge-rec">Recommended</span>
+                <span class="pill-badge pill-badge-rec">Stable v4.0</span>
+              </button>
+              <button type="button" class="canvas-arch-pill" data-arch="system_v5" id="canvasPillArchV5" title="System V5: Deep Verification Multi-Agent Engine (Per-Concept Retrieval + Full-Text Passage Checks)">
+                <span class="pill-dot" style="background: #10b981;"></span>
+                <span class="pill-name">System V5: Deep Verification</span>
+                <span class="pill-badge pill-badge-rec" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">Tier 1</span>
               </button>
               <button type="button" class="canvas-arch-pill" data-arch="system_b" id="canvasPillArchB" title="System B: Conventional RAG (FastEmbed Vector Top-K + Single LLM Call)">
                 <span class="pill-dot"></span>

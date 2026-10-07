@@ -242,6 +242,8 @@ export async function executeLiveBackend(query) {
 
   const payload = {
     query: query,
+    architecture: UIState.activeArchitecture || 'system_a',
+    engine: (UIState.activeArchitecture === 'system_v5') ? 'v5' : 'v4',
     provider_agent2: a2Model,
     provider_agent4: a4Model,
     paper_limit: paperLimit,

@@ -123,6 +123,8 @@ class QueryRequest(BaseModel):
     disable_fallback_agent2: Optional[bool] = False
     disable_fallback_agent4: Optional[bool] = False
     bypass_cache: Optional[bool] = False
+    architecture: Optional[str] = "system_a"
+    engine: Optional[str] = "v4"
 
 class PDFQueryRequest(BaseModel):
     session_id: str
@@ -686,8 +688,15 @@ async def stream_query_endpoint_post(request: Request, req: QueryRequest, curren
     if current_user:
         cfg["user_id"] = current_user["id"]
         cfg = inject_user_api_keys(cfg, current_user["id"])
+
+    if cfg.get("architecture") in ("system_v5", "v5", "system_a_next") or cfg.get("engine") == "v5":
+        from backend.engine_v5.pipeline_v5 import stream_query_pipeline_v5
+        generator = stream_query_pipeline_v5(req.query, cfg)
+    else:
+        generator = stream_query_pipeline(req.query, cfg)
+
     return StreamingResponse(
-        stream_query_pipeline(req.query, cfg),
+        generator,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -713,6 +722,8 @@ async def stream_query_endpoint_get(
     openai_key: Optional[str] = None,
     serpapi_key: Optional[str] = None,
     max_tokens: int = 15000,
+    architecture: str = "system_a",
+    engine: str = "v4",
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)
 ):
     """
@@ -741,12 +752,21 @@ async def stream_query_endpoint_get(
         "anthropic_key": anthropic_key or os.environ.get("ANTHROPIC_API_KEY", ""),
         "openai_key": openai_key or os.environ.get("OPENAI_API_KEY", ""),
         "serpapi_key": serpapi_key or os.environ.get("SERPAPI_API_KEY", ""),
+        "architecture": architecture,
+        "engine": engine,
         "user_id": current_user["id"] if current_user else None
     }
     if current_user:
         config = inject_user_api_keys(config, current_user["id"])
+
+    if architecture in ("system_v5", "v5", "system_a_next") or engine == "v5":
+        from backend.engine_v5.pipeline_v5 import stream_query_pipeline_v5
+        generator = stream_query_pipeline_v5(query, config)
+    else:
+        generator = stream_query_pipeline(query, config)
+
     return StreamingResponse(
-        stream_query_pipeline(query, config),
+        generator,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

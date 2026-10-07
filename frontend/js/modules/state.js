@@ -518,7 +518,7 @@ export function getSystemApiKey(sys = 'a') {
 }
 
 export function setActiveArchitecture(arch, notify = true) {
-  if (!['system_a', 'system_b', 'system_c'].includes(arch)) arch = 'system_a';
+  if (!['system_a', 'system_b', 'system_c', 'system_v5'].includes(arch)) arch = 'system_a';
   UIState.activeArchitecture = arch;
   try {
     localStorage.setItem('workbench_active_arch', arch);
@@ -539,9 +539,12 @@ export function setActiveArchitecture(arch, notify = true) {
 
   const archBadge = document.getElementById('cfg-active-arch-badge');
   if (archBadge) {
-    if (arch === 'system_a') {
+    if (arch === 'system_v5') {
       archBadge.className = 'badge badge-success';
-      archBadge.textContent = 'System A Active';
+      archBadge.textContent = 'System V5 (Deep Verification) Active';
+    } else if (arch === 'system_a') {
+      archBadge.className = 'badge badge-success';
+      archBadge.textContent = 'System A (v4.0) Active';
     } else if (arch === 'system_b') {
       archBadge.className = 'badge badge-warning';
       archBadge.textContent = 'System B (RAG) Active';
@@ -561,7 +564,10 @@ export function setActiveArchitecture(arch, notify = true) {
   const quickLabel = document.getElementById('prompt-arch-label');
   if (quickBtn && quickLabel) {
     quickBtn.className = `provider-pill-badge arch-pill-badge active-arch-${arch.slice(-1)}`;
-    if (arch === 'system_a') {
+    if (arch === 'system_v5') {
+      quickLabel.textContent = '🛡️ System V5: Deep-Verify';
+      quickBtn.title = 'Active Engine: System V5 (Deep Verification Multi-Agent). Click to cycle.';
+    } else if (arch === 'system_a') {
       quickLabel.textContent = '🏛️ System A: 4-Agent';
       quickBtn.title = 'Active Engine: System A (4-Agent Pipeline). Click to cycle.';
     } else if (arch === 'system_b') {
@@ -582,7 +588,8 @@ export function setActiveArchitecture(arch, notify = true) {
 
   if (notify) {
     const titles = {
-      system_a: "System A Active: 4-Agent ResearchWorkbench (Adversarial Fact-Checking)",
+      system_v5: "System V5 Active: Deep-Verification Multi-Agent Engine (Tier 1 Enhanced)",
+      system_a: "System A Active: 4-Agent ResearchWorkbench (v4.0 Stable)",
       system_b: "System B Active: Conventional RAG Baseline (Vector Top-K Chunks)",
       system_c: "System C Active: Direct Single API Baseline (Zero-Shot Parametric)"
     };
@@ -838,7 +845,7 @@ export function initExecutionMode() {
   const quickArchBtn = document.getElementById('btn-quick-arch-toggle');
   if (quickArchBtn) {
     quickArchBtn.addEventListener('click', () => {
-      const order = ['system_a', 'system_b', 'system_c'];
+      const order = ['system_a', 'system_v5', 'system_b', 'system_c'];
       const curIdx = order.indexOf(UIState.activeArchitecture);
       const nextArch = order[(curIdx + 1) % order.length];
       setActiveArchitecture(nextArch, true);
