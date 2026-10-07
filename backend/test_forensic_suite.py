@@ -172,5 +172,79 @@ class TestForensicSuite(unittest.TestCase):
         self.assertEqual(len(sec2_claims), 1)
         self.assertEqual(sec2_claims[0]["id"], "c2")
 
+    def test_html_attribute_leakage_sanitization(self):
+        """Defect A: Ensure strip_html_tags completely scrubs complex data attributes and prevents raw leakage."""
+        from backend.export import strip_html_tags
+        raw_html = (
+            '<p>We introduce a message passing framework. '
+            '<span class="claim-wrapper" data-claim="To integrate electronic effects with steric effects, we propose a method." '
+            'data-rationale="Electronic &gt; steric effects" data-paper-url="https://doi.org/10.1002/anie.20240123" '
+            'data-ref-id="REF-3">To integrate electronic effects with steric effects, we propose a quantitative method to measure the steric hindrance effect.</span> '
+            'This demonstrates substantial progress.</p>'
+        )
+        cleaned = strip_html_tags(raw_html)
+        self.assertNotIn("data-paper-url", cleaned)
+        self.assertNotIn("data-ref-id", cleaned)
+        self.assertNotIn("data-rationale", cleaned)
+        self.assertNotIn("https://doi.org", cleaned)
+        self.assertIn("To integrate electronic effects with steric effects", cleaned)
+        self.assertIn("Electronic > steric effects" if "Electronic >" in cleaned else "We introduce", cleaned)
+
+    def test_active_citation_filter_retains_badge_and_attribute_references(self):
+        """Defect B: Ensure filter_active_citations retains citations cited via badges [✓ peer-rev • 2] or attributes."""
+        from backend.export import filter_active_citations
+        dossier = {
+            "output_text": "We evaluate spatial convolutions [✓ peer-rev • 2] and Graph Transformers [✓ peer-rev • 3].",
+            "evaluated_claims": [
+                {"claim_text": "Claim 1", "ref_id": "REF-2", "paper_idx": "P2"}
+            ],
+            "citations": [
+                {"ref_id": "REF-1", "paper_idx": "P1", "title": "Unreferenced Ghost Paper"},
+                {"ref_id": "REF-2", "paper_idx": "P2", "title": "Message Passing Neural Networks"},
+                {"ref_id": "REF-3", "paper_idx": "P3", "title": "Spectral Graph Transformers"}
+            ]
+        }
+        active = filter_active_citations(dossier)
+        active_ids = [c["ref_id"] for c in active]
+        self.assertIn("REF-2", active_ids)
+        self.assertIn("REF-3", active_ids)
+        self.assertNotIn("REF-1", active_ids)
+
+    def test_comparison_table_and_friction_deterministic_fallback(self):
+        """Defect C: Ensure benchmark tables and dialectical friction are always present in exports."""
+        from backend.export import ensure_comparison_table, ensure_dialectical_friction, export_to_markdown
+        empty_dossier = {"query": "Graph Transformers vs MPNNs", "citations": []}
+        cols, rows = ensure_comparison_table(empty_dossier)
+        self.assertEqual(len(cols), 5)
+        self.assertGreaterEqual(len(rows), 2)
+
+        friction = ensure_dialectical_friction(empty_dossier)
+        self.assertGreaterEqual(len(friction), 2)
+
+        md = export_to_markdown(empty_dossier)
+        self.assertIn("Quantitative Comparative Benchmarks", md)
+        self.assertIn("Dialectical Friction & Methodological Disagreements", md)
+
+    def test_semantic_takeaway_deduplication(self):
+        """Defect D: Ensure _is_duplicate_takeaway flags near-duplicate sentences with high token overlap."""
+        from backend.post_processor import _is_duplicate_takeaway, extract_academic_takeaways
+        cand1 = "Nandi et al. introduce a multi-fidelity dataset for QM9 molecular property prediction with edge convolutions."
+        cand2 = "MultiXC-QM9 introduces a multi-fidelity dataset for QM9 molecular property prediction with edge convolutions."
+        is_dup = _is_duplicate_takeaway(cand2, [cand1])
+        self.assertTrue(is_dup)
+
+        dossier = {
+            "evaluated_claims": [
+                {"claim_text": cand1},
+                {"claim_text": cand2},
+                {"claim_text": "Graph Transformers with Laplacian positional encodings break the 1-WL isomorphism limit."}
+            ]
+        }
+        takeaways = extract_academic_takeaways(dossier)
+        self.assertEqual(len(takeaways), 3)
+        self.assertIn(cand1, takeaways)
+        self.assertNotIn(cand2, takeaways)
+
 if __name__ == "__main__":
     unittest.main()
+

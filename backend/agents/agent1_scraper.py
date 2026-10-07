@@ -1063,13 +1063,21 @@ async def _fetch_eprint_repository(query: str, limit: int = 5) -> List[Dict[str,
     words = clean_q.split()
     if not words:
         return []
-    # Search in all fields
-    search_term = "+AND+".join(words[:5])
-    url = f"http://export.arxiv.org/api/query?search_query=all:{search_term}&start=0&max_results={limit}"
+    
+    # Defect E Fix: Filter stop/conversational words and relax search query to top 3 technical terms
+    stop_words = {
+        'what', 'is', 'are', 'the', 'a', 'an', 'in', 'on', 'of', 'for', 'with', 'and', 'or', 'to',
+        'how', 'does', 'do', 'can', 'recent', 'latest', 'current', 'new', 'comparative', 'comparison',
+        'between', 'versus', 'vs', 'overview', 'survey', 'study', 'empirical', 'evaluation', 'analysis'
+    }
+    meaningful = [w for w in words if len(w) >= 3 and w.lower() not in stop_words]
+    search_words = meaningful[:3] if len(meaningful) >= 2 else words[:3]
+    search_term = "+AND+".join(search_words)
+    url = f"https://export.arxiv.org/api/query?search_query=all:{search_term}&start=0&max_results={limit}"
     
     try:
-        async with httpx.AsyncClient(timeout=SCRAPER_HTTP_TIMEOUT) as client:
-            resp = await client.get(url, headers={"User-Agent": "AI-Research-Workbench/3.0 (academic research tool)"})
+        async with httpx.AsyncClient(timeout=SCRAPER_HTTP_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": "AI-Research-Workbench/3.0 (academic research tool; https://github.com/FoulTarnished06/ResearchWorkbench)"})
             if resp.status_code == 200:
                 import xml.etree.ElementTree as ET
                 root = ET.fromstring(resp.text)

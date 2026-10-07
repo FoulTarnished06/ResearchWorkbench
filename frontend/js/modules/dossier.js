@@ -17,6 +17,34 @@ export function toggleCitationsSidebar() {
   }
 }
 
+export function isDuplicateTakeaway(candidate, existingList, threshold = 0.55) {
+  if (!candidate || !existingList || existingList.length === 0) return false;
+  const getTokens = (str) => {
+    return new Set(
+      str.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length >= 4 && !/^(this|that|with|from|which|where|these|those|their|there|about|after|under|across|between|method|paper|study|model|results|using|reported|based)$/.test(w))
+    );
+  };
+  const candTokens = getTokens(candidate);
+  if (candTokens.size < 3) return false;
+
+  for (const existing of existingList) {
+    const existTokens = getTokens(existing);
+    if (existTokens.size < 3) continue;
+    let intersection = 0;
+    for (const t of candTokens) {
+      if (existTokens.has(t)) intersection++;
+    }
+    const overlap = intersection / Math.min(candTokens.size, existTokens.size);
+    if (overlap >= threshold) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function extractAcademicTakeaways(data) {
   const takeaways = [];
   
@@ -24,7 +52,7 @@ export function extractAcademicTakeaways(data) {
   if (data.evaluated_claims && Array.isArray(data.evaluated_claims)) {
     for (const c of data.evaluated_claims) {
       const txt = (c.claim_text || c.text || '').replace(/<[^>]+>/g, '').trim();
-      if (txt.length > 25 && !/sqlite|hallucination|llm|token|cache/i.test(txt) && !takeaways.includes(txt)) {
+      if (txt.length > 25 && !/sqlite|hallucination|llm|token|cache/i.test(txt) && !takeaways.includes(txt) && !isDuplicateTakeaway(txt, takeaways)) {
         takeaways.push(txt.endsWith('.') ? txt : txt + '.');
         if (takeaways.length >= 3) break;
       }
@@ -37,7 +65,7 @@ export function extractAcademicTakeaways(data) {
       const html = sec.content_html || sec.answer_html || '';
       const clean = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       const match = clean.match(/([A-Z][^.!?]{35,180}[.!?])/);
-      if (match && !/sqlite|hallucination|llm|token|monograph|tier|cache/i.test(match[1]) && !takeaways.includes(match[1])) {
+      if (match && !/sqlite|hallucination|llm|token|monograph|tier|cache/i.test(match[1]) && !takeaways.includes(match[1]) && !isDuplicateTakeaway(match[1], takeaways)) {
         takeaways.push(match[1]);
         if (takeaways.length >= 3) break;
       }
@@ -54,7 +82,7 @@ export function extractAcademicTakeaways(data) {
 
   for (const fallback of fallbacks) {
     if (takeaways.length >= 3) break;
-    if (!takeaways.includes(fallback)) {
+    if (!takeaways.includes(fallback) && !isDuplicateTakeaway(fallback, takeaways)) {
       takeaways.push(fallback);
     }
   }

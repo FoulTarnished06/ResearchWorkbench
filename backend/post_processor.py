@@ -225,6 +225,28 @@ def diversify_section_subheadings(sections: List[Dict[str, Any]]) -> List[Dict[s
     return sections
 
 
+def _is_duplicate_takeaway(candidate: str, existing_list: List[str], threshold: float = 0.55) -> bool:
+    """Checks semantic token overlap to prevent repetitive consecutive takeaway bullets."""
+    if not candidate or not existing_list:
+        return False
+    stop_words = {
+        'this', 'that', 'with', 'from', 'which', 'where', 'these', 'those', 'their', 'there',
+        'about', 'after', 'under', 'across', 'between', 'method', 'paper', 'study', 'model',
+        'results', 'using', 'reported', 'based'
+    }
+    cand_tokens = {w for w in re.findall(r'\b[a-zA-Z]{4,}\b', candidate.lower()) if w not in stop_words}
+    if len(cand_tokens) < 3:
+        return False
+    for existing in existing_list:
+        exist_tokens = {w for w in re.findall(r'\b[a-zA-Z]{4,}\b', existing.lower()) if w not in stop_words}
+        if len(exist_tokens) < 3:
+            continue
+        intersection = len(cand_tokens & exist_tokens)
+        overlap = intersection / min(len(cand_tokens), len(exist_tokens))
+        if overlap >= threshold:
+            return True
+    return False
+
 def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
     """
     Extracts or synthesizes 3 substantive scientific findings grounded in literature.
@@ -239,7 +261,8 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
             if isinstance(item, str):
                 cleaned = clean_monograph_text(item).strip()
                 if cleaned and not re.search(r'sqlite|hallucination|llm call|token|pre-filtered|constrained strictly|pipeline failed|explored research dimension|unverified external benchmark|no empirical measurement', cleaned, re.I):
-                    takeaways.append(cleaned)
+                    if not any(cleaned.lower() == t.lower() for t in takeaways) and not _is_duplicate_takeaway(cleaned, takeaways):
+                        takeaways.append(cleaned)
         if len(takeaways) >= 3:
             return takeaways[:3]
 
@@ -254,7 +277,7 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
             txt = re.sub(r'<[^>]+>', '', txt).strip()
             txt = re.sub(r'^[•\-\*\s]+', '', txt).strip()
             if len(txt) > 25 and not re.search(r'sqlite|hallucination|llm|token|cache|explored research dimension|unverified external benchmark|no empirical measurement', txt, re.I):
-                if not any(txt.lower() == t.lower() for t in takeaways):
+                if not any(txt.lower() == t.lower() for t in takeaways) and not _is_duplicate_takeaway(txt, takeaways):
                     if not txt.endswith('.'):
                         txt += '.'
                     takeaways.append(txt)
@@ -271,7 +294,7 @@ def extract_academic_takeaways(dossier_data: Dict[str, Any]) -> List[str]:
         for m in matches:
             sentence = m.strip()
             if not re.search(r'sqlite|hallucination|llm|token|monograph|tier|cache|explored research dimension|unverified external benchmark|no empirical measurement', sentence, re.I):
-                if not any(sentence.lower() == t.lower() for t in takeaways):
+                if not any(sentence.lower() == t.lower() for t in takeaways) and not _is_duplicate_takeaway(sentence, takeaways):
                     takeaways.append(sentence)
                     if len(takeaways) >= 3:
                         return takeaways[:3]
